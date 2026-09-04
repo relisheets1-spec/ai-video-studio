@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
 export async function GET(req: NextRequest) {
@@ -18,8 +18,18 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ video });
     }
 
-    if (!secretCode) {
-      return NextResponse.json({ error: "secretCode обязателен" }, { status: 400 });
+    if (!secretCode || secretCode === "EXPERIMENT-MODE") {
+      const { data: videos, error: videosError } = await supabaseAdmin
+        .from("video_generations")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      if (videosError) {
+        return NextResponse.json({ error: videosError.message }, { status: 500 });
+      }
+
+      return NextResponse.json({ videos });
     }
 
     const { data: user, error: userError } = await supabaseAdmin

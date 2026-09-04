@@ -19,8 +19,6 @@ import {
 import { AccessCode } from "@/lib/types";
 
 export default function AdminPage() {
-  const [adminKey, setAdminKey] = useState("");
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [users, setUsers] = useState<AccessCode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,35 +31,19 @@ export default function AdminPage() {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   useEffect(() => {
-    const saved = localStorage.getItem("ai_video_admin_key");
-    if (saved) {
-      setAdminKey(saved);
-      loadUsers(saved);
-    }
+    loadUsers();
   }, []);
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!adminKey.trim()) return;
-    loadUsers(adminKey.trim());
-  };
-
-  const loadUsers = async (key: string) => {
+  const loadUsers = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/users", {
-        headers: { "x-admin-key": key },
-      });
+      const res = await fetch("/api/admin/users");
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Неверный ключ администратора");
-
+      if (!res.ok) throw new Error(data.error || "Ошибка загрузки пользователей");
       setUsers(data.users || []);
-      setIsAuthenticated(true);
-      localStorage.setItem("ai_video_admin_key", key);
     } catch (err: any) {
-      setError(err.message || "Ошибка авторизации");
-      setIsAuthenticated(false);
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -71,16 +53,13 @@ export default function AdminPage() {
     try {
       const res = await fetch("/api/admin/users", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, userId, amount }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
 
-      loadUsers(adminKey);
+      loadUsers();
     } catch (err: any) {
       alert("Ошибка: " + err.message);
     }
@@ -91,10 +70,7 @@ export default function AdminPage() {
     try {
       const res = await fetch("/api/admin/codes", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-admin-key": adminKey,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           userName: newUserName,
           customCode: newCustomCode,
@@ -108,7 +84,7 @@ export default function AdminPage() {
       setShowCreateModal(false);
       setNewUserName("");
       setNewCustomCode("");
-      loadUsers(adminKey);
+      loadUsers();
     } catch (err: any) {
       alert("Ошибка создания: " + err.message);
     }
@@ -124,67 +100,6 @@ export default function AdminPage() {
   const pendingCount = users.filter((u) => u.status === "pending").length;
   const approvedCount = users.filter((u) => u.status === "approved").length;
   const totalGenerationsUsed = users.reduce((acc, u) => acc + (u.generations_used || 0), 0);
-
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-[#090a0c] text-white">
-        <div className="bg-[#13151c] max-w-md w-full rounded-2xl p-8 sm:p-10 border border-white/15 shadow-2xl space-y-7 relative overflow-hidden">
-          <div className="absolute -top-20 -right-20 w-52 h-52 bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />
-
-          <Link
-            href="/"
-            className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-400 hover:text-white transition-colors"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Вернуться в Студию</span>
-          </Link>
-
-          <div className="space-y-2 relative z-10">
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">Панель администратора</h2>
-            <p className="text-sm text-zinc-300">
-              Введите мастер-ключ ADMIN_SECRET_KEY для управления пользователями и начисления генераций.
-            </p>
-          </div>
-
-          {error && (
-            <div className="p-4 rounded-xl bg-red-500/15 border border-red-500/30 text-red-200 text-sm flex items-center gap-3">
-              <AlertCircle className="w-5 h-5 shrink-0 text-red-400" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          <form onSubmit={handleLogin} className="space-y-5 relative z-10">
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-zinc-200">
-                Мастер-ключ администратора
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-zinc-500">
-                  <Key className="w-4 h-4" />
-                </div>
-                <input
-                  type="password"
-                  required
-                  placeholder="admin_master_secret_2026"
-                  value={adminKey}
-                  onChange={(e) => setAdminKey(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3.5 rounded-xl bg-zinc-900 border border-white/15 text-white placeholder-zinc-500 text-base font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full py-4 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white font-bold text-base shadow-xl shadow-blue-600/30 transition-all disabled:opacity-50 cursor-pointer"
-            >
-              {loading ? "Авторизация..." : "Войти в панель управления"}
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-[#090a0c] text-white flex flex-col">
@@ -210,7 +125,7 @@ export default function AdminPage() {
 
           <div className="flex items-center gap-3">
             <button
-              onClick={() => loadUsers(adminKey)}
+              onClick={() => loadUsers()}
               disabled={loading}
               className="p-2 rounded-xl bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-all border border-white/10"
               title="Обновить список"
@@ -224,16 +139,6 @@ export default function AdminPage() {
             >
               <Plus className="w-4 h-4" />
               <span>Создать инвайт-код</span>
-            </button>
-
-            <button
-              onClick={() => {
-                localStorage.removeItem("ai_video_admin_key");
-                setIsAuthenticated(false);
-              }}
-              className="text-sm font-medium text-zinc-400 hover:text-white px-3 py-2 rounded-xl hover:bg-zinc-800 transition-colors"
-            >
-              Выйти
             </button>
           </div>
         </div>

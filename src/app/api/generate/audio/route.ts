@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { openai } from "@/lib/openai";
 
@@ -10,6 +10,28 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "videoId, sceneId и narration обязательны" }, { status: 400 });
     }
 
+    if (typeof sceneId !== "number" || sceneId < 0 || sceneId > 40) {
+      return NextResponse.json({ error: "Недопустимый номер сцены" }, { status: 400 });
+    }
+
+    // Verify valid active video session (protects OpenAI TTS from external abuse)
+    const { data: video, error: videoErr } = await supabaseAdmin
+      .from("video_generations")
+      .select("id, created_at")
+      .eq("id", videoId)
+      .single();
+
+    if (videoErr || !video) {
+      return NextResponse.json({ error: "Доступ запрещен: неизвестный идентификатор видео" }, { status: 403 });
+    }
+
+    const sessionAge = Date.now() - new Date(video.created_at).getTime();
+    if (sessionAge > 2 * 60 * 60 * 1000) {
+      return NextResponse.json({ error: "Сессия генерации видео истекла (более 2 часов)" }, { status: 403 });
+    }
+
+    const cleanNarration = String(narration).slice(0, 600);
+
     // Call OpenAI TTS
     const validVoices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"];
     const chosenVoice = validVoices.includes(voice) ? voice : "onyx";
@@ -17,7 +39,7 @@ export async function POST(req: NextRequest) {
     const mp3Response = await openai.audio.speech.create({
       model: "tts-1",
       voice: chosenVoice as any,
-      input: narration,
+      input: cleanNarration,
     });
 
     const buffer = Buffer.from(await mp3Response.arrayBuffer());

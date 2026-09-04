@@ -1,33 +1,51 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { openai } from "@/lib/openai";
+import { getClientIp, checkOpenAiRateLimit, sanitizeScriptInput } from "@/lib/security";
 
 export async function POST(req: NextRequest) {
   try {
-    const { topic, style = "cinematic photorealistic 8k", voice = "onyx", targetMinutes = 10, secretCode } = await req.json();
+    const ip = getClientIp(req);
 
-    if (!topic || !secretCode) {
-      return NextResponse.json({ error: "Промпт (тема) и секретный код обязательны" }, { status: 400 });
+    // 1. Strict OpenAI Key Protection & Rate Limiting
+    const rateLimit = checkOpenAiRateLimit(ip);
+    if (!rateLimit.allowed) {
+      return NextResponse.json({ error: rateLimit.error }, { status: 429 });
     }
 
-    // Verify user & check quota
-    const { data: user, error: userError } = await supabaseAdmin
+    const body = await req.json();
+
+    // 2. Input validation and token length sanitization
+    const validation = sanitizeScriptInput(body);
+    if (!validation.valid || !validation.sanitized) {
+      return NextResponse.json({ error: validation.error }, { status: 400 });
+    }
+
+    const { topic, style, voice, targetMinutes } = validation.sanitized;
+
+    // 3. User Resolution (No passwords needed in Experiment Mode)
+    let userId: string;
+    const { data: existingUser } = await supabaseAdmin
       .from("access_codes")
-      .select("*")
-      .eq("secret_code", secretCode.trim())
-      .single();
+      .select("id")
+      .eq("secret_code", "EXPERIMENT-MODE")
+      .maybeSingle();
 
-    if (userError || !user) {
-      return NextResponse.json({ error: "Пользователь не найден" }, { status: 404 });
-    }
-
-    if (user.status !== "approved") {
-      return NextResponse.json({ error: "Доступ не одобрен администратором" }, { status: 403 });
-    }
-
-    const remaining = user.generations_limit - user.generations_used;
-    if (remaining <= 0) {
-      return NextResponse.json({ error: "Лимит генераций исчерпан (0 осталось). Обратитесь к администратору." }, { status: 403 });
+    if (existingUser) {
+      userId = existingUser.id;
+    } else {
+      const { data: createdUser } = await supabaseAdmin
+        .from("access_codes")
+        .insert({
+          user_name: "Экспериментатор",
+          secret_code: "EXPERIMENT-MODE",
+          status: "approved",
+          generations_limit: 9999,
+          generations_used: 0,
+        })
+        .select("id")
+        .single();
+      userId = createdUser?.id || "00000000-0000-0000-0000-000000000000";
     }
 
     // Exact user requirement: 8-10 minute video-story with 30-35 frames (scenes)
@@ -38,12 +56,12 @@ export async function POST(req: NextRequest) {
     const { data: videoRecord, error: insertError } = await supabaseAdmin
       .from("video_generations")
       .insert({
-        user_id: user.id,
-        topic: topic.trim(),
+        user_id: userId,
+        topic,
         style,
         voice,
         status: "generating_script",
-        target_duration_minutes: Number(targetMinutes) || 10,
+        target_duration_minutes: targetMinutes,
         scenes: [],
       })
       .select()

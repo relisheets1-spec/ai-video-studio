@@ -11,7 +11,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "videoId, sceneId и visualPrompt обязательны" }, { status: 400 });
     }
 
-    const cleanPrompt = `${visualPrompt.slice(0, 700)}. Style: ${style}, 16:9 widescreen composition, high detail, masterpiece.`;
+    if (typeof sceneId !== "number" || sceneId < 0 || sceneId > 40) {
+      return NextResponse.json({ error: "Недопустимый номер сцены" }, { status: 400 });
+    }
+
+    // Verify that videoId belongs to a recent valid generation session (prevents API abuse)
+    const { data: video, error: videoErr } = await supabaseAdmin
+      .from("video_generations")
+      .select("id, created_at")
+      .eq("id", videoId)
+      .single();
+
+    if (videoErr || !video) {
+      return NextResponse.json({ error: "Доступ запрещен: неизвестный идентификатор видео" }, { status: 403 });
+    }
+
+    const sessionAge = Date.now() - new Date(video.created_at).getTime();
+    if (sessionAge > 2 * 60 * 60 * 1000) {
+      return NextResponse.json({ error: "Сессия генерации видео истекла (более 2 часов)" }, { status: 403 });
+    }
+
+    const cleanPrompt = `${String(visualPrompt).slice(0, 500)}. Style: ${String(style).slice(0, 80)}, 16:9 widescreen composition, cinematic lighting, masterpiece.`;
 
     // Call OpenAI image generation using supported gpt-image-1-mini model
     const openAiRes = await fetch("https://api.openai.com/v1/images/generations", {

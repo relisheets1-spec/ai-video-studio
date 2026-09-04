@@ -1,16 +1,7 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
-function checkAdminAuth(req: NextRequest) {
-  const adminKey = req.headers.get("x-admin-key");
-  const expectedKey = process.env.ADMIN_SECRET_KEY || "admin_master_secret_2026";
-  return adminKey === expectedKey;
-}
-
 export async function POST(req: NextRequest) {
-  if (!checkAdminAuth(req)) {
-    return NextResponse.json({ error: "Доступ запрещен" }, { status: 401 });
-  }
 
   try {
     const { userName, customCode, limit = 10 } = await req.json();
