@@ -1,7 +1,19 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { Play, Pause, SkipForward, SkipBack, Volume2, VolumeX, Maximize2, Minimize2, Download, Subtitles } from "lucide-react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import {
+  Play,
+  Pause,
+  SkipForward,
+  SkipBack,
+  Volume2,
+  VolumeX,
+  Maximize2,
+  Minimize2,
+  Download,
+  Subtitles,
+  Loader2,
+} from "lucide-react";
 import { Scene } from "@/lib/types";
 
 interface VideoPlayerProps {
@@ -16,12 +28,116 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
   const [isMuted, setIsMuted] = useState(false);
   const [showSubtitles, setShowSubtitles] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-
+  const [isBuffering, setIsBuffering] = useState(false);
   const [sceneElapsed, setSceneElapsed] = useState(0);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const audioCacheRef = useRef<Map<number, HTMLAudioElement>>(new Map());
+  const animFrameRef = useRef<number | null>(null);
+  const isPlayingRef = useRef(false);
+  isPlayingRef.current = isPlaying;
+
+  const currentSceneIndexRef = useRef(0);
+  currentSceneIndexRef.current = currentSceneIndex;
+
+  // Preload all scene images into memory immediately
+  useEffect(() => {
+    if (!scenes || scenes.length === 0) return;
+    scenes.forEach((s) => {
+      if (s.imageUrl) {
+        const img = new Image();
+        img.src = s.imageUrl;
+      }
+    });
+  }, [scenes]);
+
+  // Advance to next scene seamlessly
+  const handleAdvanceScene = useCallback(
+    (nextIndex: number) => {
+      // Pause current audio
+      const currAudio = audioCacheRef.current.get(currentSceneIndexRef.current);
+      if (currAudio) {
+        currAudio.pause();
+        currAudio.currentTime = 0;
+      }
+
+      if (nextIndex < scenes.length) {
+        setCurrentSceneIndex(nextIndex);
+        setSceneElapsed(0);
+        setIsBuffering(false);
+
+        if (isPlayingRef.current) {
+          const nextAudio = audioCacheRef.current.get(nextIndex);
+          if (nextAudio) {
+            nextAudio.currentTime = 0;
+            nextAudio.play().catch((err) => console.log("Audio play wait:", err));
+          }
+        }
+      } else {
+        // End of video reached
+        setIsPlaying(false);
+        setCurrentSceneIndex(0);
+        setSceneElapsed(0);
+        setIsBuffering(false);
+      }
+    },
+    [scenes.length]
+  );
+
+  // Pre-instantiate and buffer all audio elements so switching scenes takes 0ms
+  useEffect(() => {
+    // Cleanup previous audio elements
+    audioCacheRef.current.forEach((audio) => {
+      audio.pause();
+      audio.src = "";
+    });
+    audioCacheRef.current.clear();
+
+    scenes.forEach((scene, index) => {
+      if (scene.audioUrl) {
+        const audio = new Audio();
+        audio.preload = "auto";
+        audio.src = scene.audioUrl;
+        audio.muted = isMuted;
+
+        audio.onwaiting = () => {
+          if (currentSceneIndexRef.current === index) {
+            setIsBuffering(true);
+          }
+        };
+
+        audio.onplaying = () => {
+          if (currentSceneIndexRef.current === index) {
+            setIsBuffering(false);
+          }
+        };
+
+        audio.onended = () => {
+          if (currentSceneIndexRef.current === index) {
+            handleAdvanceScene(index + 1);
+          }
+        };
+
+        audioCacheRef.current.set(index, audio);
+      }
+    });
+
+    return () => {
+      audioCacheRef.current.forEach((audio) => {
+        audio.pause();
+        audio.src = "";
+      });
+      audioCacheRef.current.clear();
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    };
+  }, [scenes, handleAdvanceScene, isMuted]);
+
+  // Sync mute state across all cached audio elements
+  useEffect(() => {
+    audioCacheRef.current.forEach((audio) => {
+      audio.muted = isMuted;
+    });
+  }, [isMuted]);
 
   const currentScene = scenes[currentSceneIndex] || scenes[0];
   const sceneDuration = currentScene?.durationEstimate || 17;
@@ -39,74 +155,78 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
   };
 
-  // Audio setup for current scene
-  useEffect(() => {
-    if (!audioRef.current) return;
+  // Play / Pause toggle
+  const togglePlay = () => {
+    const activeAudio = audioCacheRef.current.get(currentSceneIndex);
 
-    if (currentScene?.audioUrl) {
-      audioRef.current.src = currentScene.audioUrl;
-      audioRef.current.load();
-      if (isPlaying) {
-        audioRef.current.play().catch((err) => {
-          console.log("Audio waiting:", err);
-        });
-      }
-    } else {
-      audioRef.current.pause();
-    }
-  }, [currentSceneIndex, currentScene?.audioUrl]);
-
-  // Master timer to ensure video never hangs
-  useEffect(() => {
     if (isPlaying) {
-      timerRef.current = setInterval(() => {
-        setSceneElapsed((prev) => {
-          if (audioRef.current && !audioRef.current.paused && audioRef.current.currentTime > 0) {
-            return audioRef.current.currentTime;
-          }
-
-          const next = prev + 0.2;
-          if (next >= sceneDuration) {
-            if (currentSceneIndex < scenes.length - 1) {
-              setCurrentSceneIndex((idx) => idx + 1);
-              return 0;
-            } else {
-              setIsPlaying(false);
-              setCurrentSceneIndex(0);
-              return 0;
-            }
-          }
-          return next;
-        });
-      }, 200);
-    } else {
-      if (timerRef.current) clearInterval(timerRef.current);
-    }
-
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [isPlaying, currentSceneIndex, sceneDuration, scenes.length]);
-
-  const handleAudioEnded = () => {
-    if (currentSceneIndex < scenes.length - 1) {
-      setCurrentSceneIndex((prev) => prev + 1);
-      setSceneElapsed(0);
-    } else {
       setIsPlaying(false);
-      setCurrentSceneIndex(0);
-      setSceneElapsed(0);
+      if (activeAudio) activeAudio.pause();
+    } else {
+      setIsPlaying(true);
+      if (activeAudio) {
+        activeAudio.play().catch((err) => console.warn("Audio play rejected:", err));
+      }
     }
   };
 
-  const togglePlay = () => {
+  // High precision playback loop using requestAnimationFrame (60 FPS smooth, zero desync)
+  useEffect(() => {
+    let lastTime = performance.now();
+
+    const tick = () => {
+      const activeAudio = audioCacheRef.current.get(currentSceneIndex);
+
+      if (activeAudio && !activeAudio.paused) {
+        setSceneElapsed(activeAudio.currentTime);
+      } else if (!activeAudio && isPlaying) {
+        // Fallback timer for scenes without audio track
+        const now = performance.now();
+        const delta = (now - lastTime) / 1000;
+        setSceneElapsed((prev) => {
+          const next = prev + delta;
+          if (next >= sceneDuration) {
+            handleAdvanceScene(currentSceneIndex + 1);
+            return 0;
+          }
+          return next;
+        });
+      }
+      lastTime = performance.now();
+
+      if (isPlaying) {
+        animFrameRef.current = requestAnimationFrame(tick);
+      }
+    };
+
     if (isPlaying) {
-      if (audioRef.current) audioRef.current.pause();
-      setIsPlaying(false);
+      animFrameRef.current = requestAnimationFrame(tick);
     } else {
-      setIsPlaying(true);
-      if (audioRef.current && currentScene?.audioUrl) {
-        audioRef.current.play().catch(console.warn);
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    }
+
+    return () => {
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
+    };
+  }, [isPlaying, currentSceneIndex, sceneDuration, handleAdvanceScene]);
+
+  // Jump to specific scene or frame
+  const jumpToScene = (targetIndex: number, offsetSec: number = 0) => {
+    const prevAudio = audioCacheRef.current.get(currentSceneIndex);
+    if (prevAudio) {
+      prevAudio.pause();
+      prevAudio.currentTime = 0;
+    }
+
+    setCurrentSceneIndex(targetIndex);
+    setSceneElapsed(offsetSec);
+    setIsBuffering(false);
+
+    const targetAudio = audioCacheRef.current.get(targetIndex);
+    if (targetAudio) {
+      targetAudio.currentTime = offsetSec;
+      if (isPlaying) {
+        targetAudio.play().catch(console.warn);
       }
     }
   };
@@ -116,12 +236,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
     for (let i = 0; i < scenes.length; i++) {
       const dur = scenes[i].durationEstimate || 17;
       if (targetSec <= accumulated + dur || i === scenes.length - 1) {
-        setCurrentSceneIndex(i);
         const offsetInScene = Math.max(0, targetSec - accumulated);
-        setSceneElapsed(offsetInScene);
-        if (audioRef.current) {
-          audioRef.current.currentTime = offsetInScene;
-        }
+        jumpToScene(i, offsetInScene);
         break;
       }
       accumulated += dur;
@@ -141,13 +257,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
 
   return (
     <div className="w-full max-w-5xl mx-auto space-y-3">
-      <audio
-        ref={audioRef}
-        onEnded={handleAudioEnded}
-        muted={isMuted}
-        preload="auto"
-      />
-
       {/* Screen Container */}
       <div
         ref={containerRef}
@@ -170,6 +279,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
               <Play className="w-6 h-6 ml-0.5" />
             </div>
             <p className="text-xs text-zinc-400">Кадр {currentSceneIndex + 1}: {currentScene?.title}</p>
+          </div>
+        )}
+
+        {/* Buffering Indicator */}
+        {isBuffering && (
+          <div className="absolute inset-0 z-25 flex items-center justify-center bg-black/40 backdrop-blur-xs pointer-events-none">
+            <div className="flex items-center gap-3 px-5 py-2.5 rounded-full bg-black/80 border border-white/15 text-white shadow-xl">
+              <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+              <span className="text-sm font-semibold">Буферизация...</span>
+            </div>
           </div>
         )}
 
@@ -203,7 +322,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
           onClick={togglePlay}
           className="absolute inset-0 z-10 flex items-center justify-center cursor-pointer"
         >
-          {!isPlaying && (
+          {!isPlaying && !isBuffering && (
             <button
               type="button"
               className="w-20 h-20 rounded-full bg-blue-600 text-white shadow-2xl shadow-blue-600/50 flex items-center justify-center hover:scale-110 active:scale-95 transition-all"
@@ -234,11 +353,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
             <div className="flex items-center gap-2.5">
               <button
                 onClick={() => {
-                  setCurrentSceneIndex((prev) => Math.max(0, prev - 1));
-                  setSceneElapsed(0);
+                  const targetIdx = Math.max(0, currentSceneIndex - 1);
+                  jumpToScene(targetIdx, 0);
                 }}
                 disabled={currentSceneIndex === 0}
-                className="p-2.5 rounded-xl hover:bg-white/15 text-zinc-200 disabled:opacity-30 transition-colors"
+                className="p-2.5 rounded-xl hover:bg-white/15 text-zinc-200 disabled:opacity-30 transition-colors cursor-pointer"
                 title="Предыдущий кадр"
               >
                 <SkipBack className="w-5 h-5" />
@@ -246,7 +365,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
 
               <button
                 onClick={togglePlay}
-                className="w-11 h-11 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shadow-lg shadow-blue-600/30 hover:scale-105 active:scale-95 transition-all"
+                className="w-11 h-11 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shadow-lg shadow-blue-600/30 hover:scale-105 active:scale-95 transition-all cursor-pointer"
                 title={isPlaying ? "Пауза" : "Воспроизведение"}
               >
                 {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 ml-0.5 fill-current" />}
@@ -254,22 +373,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
 
               <button
                 onClick={() => {
-                  setCurrentSceneIndex((prev) => Math.min(scenes.length - 1, prev + 1));
-                  setSceneElapsed(0);
+                  const targetIdx = Math.min(scenes.length - 1, currentSceneIndex + 1);
+                  jumpToScene(targetIdx, 0);
                 }}
                 disabled={currentSceneIndex === scenes.length - 1}
-                className="p-2.5 rounded-xl hover:bg-white/15 text-zinc-200 disabled:opacity-30 transition-colors"
+                className="p-2.5 rounded-xl hover:bg-white/15 text-zinc-200 disabled:opacity-30 transition-colors cursor-pointer"
                 title="Следующий кадр"
               >
                 <SkipForward className="w-5 h-5" />
               </button>
 
               <button
-                onClick={() => {
-                  if (audioRef.current) audioRef.current.muted = !isMuted;
-                  setIsMuted(!isMuted);
-                }}
-                className="p-2.5 rounded-xl hover:bg-white/15 text-zinc-200 transition-colors ml-1"
+                onClick={() => setIsMuted(!isMuted)}
+                className="p-2.5 rounded-xl hover:bg-white/15 text-zinc-200 transition-colors ml-1 cursor-pointer"
                 title={isMuted ? "Включить звук" : "Выключить звук"}
               >
                 {isMuted ? <VolumeX className="w-5 h-5 text-rose-400" /> : <Volume2 className="w-5 h-5" />}
@@ -277,7 +393,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
 
               <button
                 onClick={() => setShowSubtitles(!showSubtitles)}
-                className={`p-2.5 rounded-xl transition-all ${
+                className={`p-2.5 rounded-xl transition-all cursor-pointer ${
                   showSubtitles ? "bg-blue-600 text-white shadow-md shadow-blue-600/30" : "hover:bg-white/15 text-zinc-400"
                 }`}
                 title="Субтитры"
@@ -294,16 +410,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
               {onExportClick && (
                 <button
                   onClick={onExportClick}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold shadow-lg shadow-blue-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold shadow-lg shadow-blue-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
                 >
                   <Download className="w-4 h-4" />
-                  <span>Скачать 1080p (45 FPS)</span>
+                  <span>Скачать MP4 (1080p)</span>
                 </button>
               )}
 
               <button
                 onClick={toggleFullscreen}
-                className="p-2.5 rounded-xl hover:bg-white/15 text-zinc-200 transition-colors"
+                className="p-2.5 rounded-xl hover:bg-white/15 text-zinc-200 transition-colors cursor-pointer"
                 title="Во весь экран"
               >
                 {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
@@ -319,11 +435,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
           {scenes.map((scene, idx) => (
             <button
               key={scene.id || idx}
-              onClick={() => {
-                setCurrentSceneIndex(idx);
-                setSceneElapsed(0);
-              }}
-              className={`shrink-0 w-36 sm:w-44 text-left rounded-xl p-2 transition-all border ${
+              onClick={() => jumpToScene(idx, 0)}
+              className={`shrink-0 w-36 sm:w-44 text-left rounded-xl p-2 transition-all border cursor-pointer ${
                 idx === currentSceneIndex
                   ? "border-blue-500 bg-blue-950/40 ring-2 ring-blue-500/40 shadow-lg shadow-blue-600/10"
                   : "border-zinc-800 hover:border-zinc-700 bg-zinc-900/70"

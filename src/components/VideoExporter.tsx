@@ -3,7 +3,7 @@
 import React, { useState, useRef } from "react";
 import { Download, X, Film, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { Scene } from "@/lib/types";
-import fixWebmDuration from "fix-webm-duration";
+import { Muxer, ArrayBufferTarget } from "mp4-muxer";
 
 interface VideoExporterProps {
   title: string;
@@ -24,88 +24,117 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
   const WIDTH = 1920;
   const HEIGHT = 1080;
   const FPS = 45;
+  const AUDIO_SAMPLE_RATE = 44100;
 
   const startExport = async () => {
     try {
+      if (typeof window === "undefined" || !("VideoEncoder" in window) || !("AudioEncoder" in window)) {
+        throw new Error(
+          "Ваш браузер не поддерживает аппаратный кодировщик WebCodecs H.264/AAC. Для чистого экспорта MP4 используйте Google Chrome, Microsoft Edge, Яндекс Браузер или Opera."
+        );
+      }
+
       setStatus("rendering");
       cancelRef.current = false;
       setProgressPercent(0);
-      setStatusText("Подготовка Full HD холста (1920x1080 @ 45 FPS)...");
+      setStatusText("Инициализация кодировщика H.264 + AAC...");
 
+      // Canvas
       const canvas = document.createElement("canvas");
       canvas.width = WIDTH;
       canvas.height = HEIGHT;
       const ctx = canvas.getContext("2d", { alpha: false });
       if (!ctx) throw new Error("Не удалось создать 2D контекст");
 
-      // Web Audio API destination
+      // Audio Context with fixed 44100 Hz sample rate
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const audioCtx = new AudioContextClass();
-      const audioDest = audioCtx.createMediaStreamDestination();
+      const audioCtx = new AudioContextClass({ sampleRate: AUDIO_SAMPLE_RATE });
 
-      const canvasStream = canvas.captureStream(FPS);
-      const combinedStream = new MediaStream([
-        ...canvasStream.getVideoTracks(),
-        ...audioDest.stream.getAudioTracks(),
-      ]);
+      // Target and Muxer for true MP4
+      const target = new ArrayBufferTarget();
+      const muxer = new Muxer({
+        target,
+        video: {
+          codec: "avc",
+          width: WIDTH,
+          height: HEIGHT,
+        },
+        audio: {
+          codec: "aac",
+          numberOfChannels: 2,
+          sampleRate: AUDIO_SAMPLE_RATE,
+        },
+        fastStart: "in-memory",
+        firstTimestampBehavior: "offset",
+      });
 
-      let mimeType = "video/webm;codecs=vp9,opus";
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = "video/webm;codecs=vp8,opus";
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-          mimeType = "video/webm";
+      // VideoEncoder setup
+      let videoEncoderError: any = null;
+      const videoEncoder = new VideoEncoder({
+        output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+        error: (err) => {
+          console.error("VideoEncoder error:", err);
+          videoEncoderError = err;
+        },
+      });
+
+      // Codec configuration
+      const preferredCodecs = ["avc1.4d002a", "avc1.64002a", "avc1.420034", "avc1.420028"];
+      let selectedVideoCodec = preferredCodecs[0];
+      for (const candidate of preferredCodecs) {
+        try {
+          const sup = await VideoEncoder.isConfigSupported({
+            codec: candidate,
+            width: WIDTH,
+            height: HEIGHT,
+            bitrate: 6_000_000,
+            framerate: FPS,
+          });
+          if (sup && sup.supported) {
+            selectedVideoCodec = candidate;
+            break;
+          }
+        } catch {
+          // ignore
         }
       }
 
-      const recorder = new MediaRecorder(combinedStream, {
-        mimeType,
-        videoBitsPerSecond: 10000000, // 10 Mbps for crisp Full HD quality
-        audioBitsPerSecond: 192000,
+      videoEncoder.configure({
+        codec: selectedVideoCodec,
+        width: WIDTH,
+        height: HEIGHT,
+        bitrate: 6_000_000,
+        framerate: FPS,
+        avc: { format: "avc" },
       });
 
-      const chunks: Blob[] = [];
-      recorder.ondataavailable = (e) => {
-        if (e.data && e.data.size > 0) chunks.push(e.data);
-      };
+      // AudioEncoder setup
+      let audioEncoderError: any = null;
+      const audioEncoder = new AudioEncoder({
+        output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
+        error: (err) => {
+          console.error("AudioEncoder error:", err);
+          audioEncoderError = err;
+        },
+      });
 
-      let totalDurationSeconds = 0;
+      audioEncoder.configure({
+        codec: "mp4a.40.2", // AAC-LC
+        numberOfChannels: 2,
+        sampleRate: AUDIO_SAMPLE_RATE,
+        bitrate: 128_000,
+      });
 
-      recorder.onstop = () => {
-        setStatusText("Запись индексных меток (cue points) для плавной перемотки...");
-        const rawBlob = new Blob(chunks, { type: mimeType });
-        const durationMs = Math.max(1000, Math.round(totalDurationSeconds * 1000));
+      let globalVideoFrames = 0;
+      let globalAudioSamples = 0;
 
-        // Fix timeline seeking with exact cue points and duration
-        try {
-          fixWebmDuration(rawBlob, durationMs, (fixedBlob: Blob) => {
-            const url = URL.createObjectURL(fixedBlob);
-            setDownloadUrl(url);
-            setFileSizeMb((fixedBlob.size / (1024 * 1024)).toFixed(1));
-            setStatus("finished");
-            setStatusText("Видео Full HD скомпилировано с поддержкой перемотки!");
-          });
-        } catch (fixErr) {
-          console.warn("Duration patch fallback:", fixErr);
-          const url = URL.createObjectURL(rawBlob);
-          setDownloadUrl(url);
-          setFileSizeMb((rawBlob.size / (1024 * 1024)).toFixed(1));
-          setStatus("finished");
-        }
-      };
-
-      recorder.start(500);
-
-      // Sequentially render every scene
+      // Sequential scene processing with exact discrete timestamps
       for (let i = 0; i < scenes.length; i++) {
-        if (cancelRef.current) {
-          recorder.stop();
-          return;
-        }
+        if (cancelRef.current) break;
 
         const scene = scenes[i];
         const sceneNum = i + 1;
-        setStatusText(`Кадр ${sceneNum} из ${scenes.length}: ${scene.title}`);
-        setProgressPercent(Math.round((i / scenes.length) * 100));
+        setStatusText(`Сборка сцены ${sceneNum}/${scenes.length}: ${scene.title}`);
 
         // 1. Preload image
         const img = new Image();
@@ -116,7 +145,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
           img.src = scene.imageUrl || "";
         });
 
-        // 2. Decode audio
+        // 2. Decode audio into 44100 Hz PCM AudioBuffer
         let audioBuffer: AudioBuffer | null = null;
         let durationSec = scene.durationEstimate || 17;
 
@@ -131,19 +160,48 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
           }
         }
 
-        totalDurationSeconds += durationSec;
-
-        if (audioBuffer) {
-          const source = audioCtx.createBufferSource();
-          source.buffer = audioBuffer;
-          source.connect(audioDest);
-          source.start();
+        // If no audio or failed, create silence
+        if (!audioBuffer) {
+          const sampleCount = Math.max(1, Math.round(durationSec * AUDIO_SAMPLE_RATE));
+          audioBuffer = audioCtx.createBuffer(2, sampleCount, AUDIO_SAMPLE_RATE);
         }
 
-        // Render frames at 45 FPS
-        const totalFrames = Math.floor(durationSec * FPS);
-        const frameIntervalMs = 1000 / FPS;
-        const sceneStartTime = Date.now();
+        // 3. Encode Audio to AAC in 1024-sample frames
+        const left = audioBuffer.getChannelData(0);
+        const right = audioBuffer.numberOfChannels > 1 ? audioBuffer.getChannelData(1) : left;
+        const AAC_CHUNK = 1024;
+        let audioOffset = 0;
+
+        while (audioOffset < audioBuffer.length) {
+          const chunkSize = Math.min(AAC_CHUNK, audioBuffer.length - audioOffset);
+          const planarBuffer = new Float32Array(chunkSize * 2);
+          planarBuffer.set(left.subarray(audioOffset, audioOffset + chunkSize), 0);
+          planarBuffer.set(right.subarray(audioOffset, audioOffset + chunkSize), chunkSize);
+
+          const timestampUs = Math.round(((globalAudioSamples + audioOffset) / AUDIO_SAMPLE_RATE) * 1_000_000);
+
+          const audioData = new AudioData({
+            format: "f32-planar",
+            sampleRate: AUDIO_SAMPLE_RATE,
+            numberOfFrames: chunkSize,
+            numberOfChannels: 2,
+            timestamp: timestampUs,
+            data: planarBuffer,
+          });
+
+          audioEncoder.encode(audioData);
+          audioData.close();
+
+          audioOffset += chunkSize;
+
+          while (audioEncoder.encodeQueueSize > 25) {
+            await new Promise((r) => setTimeout(r, 4));
+          }
+        }
+        globalAudioSamples += audioBuffer.length;
+
+        // 4. Render and Encode Video Frames at 45 FPS
+        const totalFrames = Math.max(1, Math.round(durationSec * FPS));
 
         for (let frame = 0; frame < totalFrames; frame++) {
           if (cancelRef.current) break;
@@ -155,7 +213,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
           ctx.fillStyle = "#09090b";
           ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-          // Draw image
+          // Ken Burns zoom effect
           if (img.complete && img.naturalWidth > 0) {
             ctx.save();
             ctx.translate(WIDTH / 2, HEIGHT / 2);
@@ -197,21 +255,59 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
             ctx.fillText(line, WIDTH / 2, y);
           }
 
-          const elapsed = Date.now() - sceneStartTime;
-          const expected = (frame + 1) * frameIntervalMs;
-          const delay = Math.max(0, expected - elapsed);
-          if (delay > 0) {
-            await new Promise((r) => setTimeout(r, delay));
+          // Encode VideoFrame
+          const timestampUs = Math.round(globalVideoFrames * (1_000_000 / FPS));
+          const isKeyFrame = globalVideoFrames % (FPS * 2) === 0; // IDR keyframe every 2 seconds
+
+          const videoFrame = new VideoFrame(canvas, { timestamp: timestampUs });
+          videoEncoder.encode(videoFrame, { keyFrame: isKeyFrame });
+          videoFrame.close();
+
+          globalVideoFrames++;
+
+          while (videoEncoder.encodeQueueSize > 15) {
+            await new Promise((r) => setTimeout(r, 6));
+          }
+
+          // Yield to browser every 25 frames for responsive UI
+          if (frame % 25 === 0) {
+            const overallPct = Math.min(98, Math.round(((i + frame / totalFrames) / scenes.length) * 100));
+            setProgressPercent(overallPct);
+            await new Promise((r) => setTimeout(r, 0));
           }
         }
       }
 
-      setProgressPercent(100);
-      recorder.stop();
+      if (cancelRef.current) {
+        videoEncoder.close();
+        audioEncoder.close();
+        return;
+      }
+
+      if (videoEncoderError) throw new Error("Ошибка видеокодировщика: " + videoEncoderError.message);
+      if (audioEncoderError) throw new Error("Ошибка аудиокодировщика: " + audioEncoderError.message);
+
+      setStatusText("Финализация MP4 (запись moov-атома для Clipchamp)...");
+      setProgressPercent(99);
+
+      await videoEncoder.flush();
+      await audioEncoder.flush();
+      videoEncoder.close();
+      audioEncoder.close();
+
+      muxer.finalize();
+
+      const buffer = target.buffer;
+      const mp4Blob = new Blob([buffer], { type: "video/mp4" });
+      const url = URL.createObjectURL(mp4Blob);
+      setDownloadUrl(url);
+      setFileSizeMb((mp4Blob.size / (1024 * 1024)).toFixed(1));
+      setStatus("finished");
+      setStatusText("Full HD MP4 готов к просмотру и монтажу в Clipchamp!");
     } catch (err: any) {
       console.error("Export Error:", err);
       setStatus("error");
-      setStatusText(err.message || "Ошибка при экспорте видео");
+      setStatusText(err.message || "Ошибка при экспорте видео в MP4");
     }
   };
 
@@ -233,7 +329,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
             <Film className="w-6 h-6" />
           </div>
           <div>
-            <h3 className="text-xl font-bold text-white">Экспорт в Full HD</h3>
+            <h3 className="text-xl font-bold text-white">Экспорт в MP4 (Full HD)</h3>
             <p className="text-sm text-zinc-400 mt-0.5 truncate max-w-sm">{title}</p>
           </div>
         </div>
@@ -241,7 +337,11 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
         {/* Specs Table */}
         <div className="p-5 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 space-y-2.5 mb-6 text-sm text-zinc-300">
           <div className="flex justify-between items-center">
-            <span className="text-zinc-400">Формат разрешения:</span>
+            <span className="text-zinc-400">Формат контейнера:</span>
+            <span className="font-bold text-blue-400">MP4 (H.264 + AAC)</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-zinc-400">Разрешение:</span>
             <span className="font-semibold text-white">1920 × 1080 (Full HD)</span>
           </div>
           <div className="flex justify-between items-center">
@@ -249,12 +349,8 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
             <span className="font-semibold text-white">45 FPS</span>
           </div>
           <div className="flex justify-between items-center">
-            <span className="text-zinc-400">Кадров в ролике:</span>
-            <span className="font-semibold text-white">{scenes.length} кадров</span>
-          </div>
-          <div className="flex justify-between items-center">
-            <span className="text-zinc-400">Перемотка по таймлайну:</span>
-            <span className="font-bold text-emerald-400">Поддерживается (Cue points)</span>
+            <span className="text-zinc-400">Совместимость:</span>
+            <span className="font-bold text-emerald-400">Clipchamp, Premiere, QuickTime, Media Player</span>
           </div>
         </div>
 
@@ -264,7 +360,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
             <div className="flex items-center justify-between text-sm text-white">
               <span className="flex items-center gap-2.5 font-medium">
                 <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
-                <span>Сборка 1080p видео...</span>
+                <span>Рендеринг Full HD MP4...</span>
               </span>
               <span className="font-mono font-extrabold text-blue-400 text-base">{progressPercent}%</span>
             </div>
@@ -283,15 +379,15 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
           <div className="space-y-4 p-6 rounded-2xl bg-zinc-900 border border-emerald-500/30 text-center mb-6">
             <div className="flex items-center justify-center gap-2.5 text-white font-bold text-base">
               <CheckCircle2 className="w-6 h-6 text-emerald-400" />
-              <span>Full HD видео успешно скомпилировано!</span>
+              <span>Full HD MP4 успешно скомпилирован!</span>
             </div>
             <a
               href={downloadUrl}
-              download={`${title.replace(/[^a-zA-Z0-9а-яА-Я]/g, "_")}_1080p_45fps.webm`}
+              download={`${title.replace(/[^a-zA-Z0-9а-яА-Я]/g, "_")}_1080p.mp4`}
               className="inline-flex items-center gap-2.5 px-6 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-base shadow-xl shadow-blue-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
             >
               <Download className="w-5 h-5" />
-              <span>Скачать файл ({fileSizeMb} МБ)</span>
+              <span>Скачать MP4 ({fileSizeMb} МБ)</span>
             </a>
           </div>
         )}
@@ -309,16 +405,16 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
           <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="flex-1 py-3.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-sm font-semibold transition-colors"
+              className="flex-1 py-3.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-sm font-semibold transition-colors cursor-pointer"
             >
               Отмена
             </button>
             <button
               onClick={startExport}
-              className="flex-1 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-base shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] transition-all"
+              className="flex-1 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-base shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
             >
               <Film className="w-5 h-5" />
-              <span>Экспорт 1080p (45 FPS)</span>
+              <span>Экспорт MP4 (1080p @ 45 FPS)</span>
             </button>
           </div>
         )}
