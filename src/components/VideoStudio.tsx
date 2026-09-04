@@ -52,8 +52,8 @@ const STYLE_OPTIONS = [
 export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) => {
   const [topic, setTopic] = useState("");
   const [selectedStyle, setSelectedStyle] = useState(STYLE_OPTIONS[0].id);
-  const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("onyx");
-  const [targetMinutes, setTargetMinutes] = useState(10);
+  const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("s0phbFBBp708ZeIy8oGx");
+  const [targetMinutes, setTargetMinutes] = useState(0.5);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [progressStep, setProgressStep] = useState("");
@@ -97,8 +97,9 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     setError(null);
     setCurrentVideo(null);
     setProgressPercent(5);
-    const frameTarget = targetMinutes >= 10 ? "34" : "30";
-    setProgressStep(`Шаг 1 из 4: GPT-4o создает сценарий на ${frameTarget} кадров...`);
+    const isTest = targetMinutes <= 1;
+    const frameTarget = isTest ? "3 кадра (быстрый тест)" : targetMinutes >= 10 ? "34 кадра" : "30 кадров";
+    setProgressStep(`Шаг 1 из 4: GPT-4o создает сценарий (${frameTarget})...`);
 
     try {
       // 1. Generate Script
@@ -122,56 +123,66 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       const totalScenes = scenes.length;
 
       setProgressPercent(20);
-      setProgressStep(`Шаг 2 из 4: Синтез озвучки OpenAI TTS для ${totalScenes} сцен...`);
+      setProgressStep(`Шаг 2 из 4: Озвучка ElevenLabs для ${totalScenes} сцен...`);
 
-      // 2. Generate Audio
-      for (let i = 0; i < totalScenes; i++) {
-        const scene = scenes[i];
-        setProgressStep(`Озвучка сцены ${i + 1}/${totalScenes}: "${scene.title}"`);
-        setProgressPercent(20 + Math.round(((i + 1) / totalScenes) * 35));
+      // 2. Generate Audio in parallel batches (3 concurrent for speed)
+      const AUDIO_BATCH = 3;
+      for (let i = 0; i < totalScenes; i += AUDIO_BATCH) {
+        const batch = scenes.slice(i, i + AUDIO_BATCH);
+        setProgressStep(`Озвучка ElevenLabs: сцены ${i + 1}–${Math.min(i + AUDIO_BATCH, totalScenes)} из ${totalScenes}`);
+        setProgressPercent(20 + Math.round(((i + batch.length) / totalScenes) * 35));
 
-        const audioRes = await fetch("/api/generate/audio", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            videoId,
-            sceneId: scene.id,
-            narration: scene.narration,
-            voice: selectedVoice,
-          }),
-        });
+        await Promise.all(
+          batch.map(async (scene) => {
+            const audioRes = await fetch("/api/generate/audio", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                videoId,
+                sceneId: scene.id,
+                narration: scene.narration,
+                voice: selectedVoice,
+              }),
+            });
 
-        const audioData = await audioRes.json();
-        if (audioRes.ok) {
-          scene.audioUrl = audioData.audioUrl;
-          scene.durationEstimate = audioData.estimatedDuration || 17;
-        }
+            const audioData = await audioRes.json();
+            if (audioRes.ok) {
+              scene.audioUrl = audioData.audioUrl;
+              scene.durationEstimate = audioData.estimatedDuration || (isTest ? 8 : 17);
+            }
+          })
+        );
       }
 
-      // 3. Generate Images via gpt-image-1-mini
+      // 3. Generate Images in parallel batches (3 concurrent for speed)
       setProgressPercent(55);
-      setProgressStep(`Шаг 3 из 4: Генерация кадров 16:9 под сюжет сцен...`);
+      setProgressStep(`Шаг 3 из 4: Генерация Full HD кадров под сюжет сцен...`);
 
-      for (let i = 0; i < totalScenes; i++) {
-        const scene = scenes[i];
-        setProgressStep(`Генерация кадра ${i + 1}/${totalScenes}: "${scene.title}"`);
-        setProgressPercent(55 + Math.round(((i + 1) / totalScenes) * 35));
+      const IMG_BATCH = 3;
+      for (let i = 0; i < totalScenes; i += IMG_BATCH) {
+        const batch = scenes.slice(i, i + IMG_BATCH);
+        setProgressStep(`Генерация кадров ${i + 1}–${Math.min(i + IMG_BATCH, totalScenes)} из ${totalScenes}`);
+        setProgressPercent(55 + Math.round(((i + batch.length) / totalScenes) * 35));
 
-        const imgRes = await fetch("/api/generate/image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            videoId,
-            sceneId: scene.id,
-            visualPrompt: scene.visualPrompt,
-            style: selectedStyle,
-          }),
-        });
+        await Promise.all(
+          batch.map(async (scene) => {
+            const imgRes = await fetch("/api/generate/image", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                videoId,
+                sceneId: scene.id,
+                visualPrompt: scene.visualPrompt,
+                style: selectedStyle,
+              }),
+            });
 
-        const imgData = await imgRes.json();
-        if (imgRes.ok) {
-          scene.imageUrl = imgData.imageUrl;
-        }
+            const imgData = await imgRes.json();
+            if (imgRes.ok) {
+              scene.imageUrl = imgData.imageUrl;
+            }
+          })
+        );
       }
 
       // 4. Finalize
@@ -341,21 +352,25 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                   <Clock className="w-4 h-4 text-blue-400" />
                   <span>Хронометраж и количество кадров</span>
                 </label>
-                <div className="grid grid-cols-2 gap-3">
-                  {[8, 10].map((min) => (
+                <div className="grid grid-cols-3 gap-2.5">
+                  {[
+                    { value: 0.5, label: "Тест: 20–30 сек", desc: "3 кадра (~20с) • Быстрый тест" },
+                    { value: 8, label: "8 Минут", desc: "30 кадров (~16 сек/кадр)" },
+                    { value: 10, label: "10 Минут", desc: "34 кадра (~18 сек/кадр)" },
+                  ].map((opt) => (
                     <button
-                      key={min}
+                      key={opt.value}
                       type="button"
-                      onClick={() => setTargetMinutes(min)}
-                      className={`p-3.5 sm:p-4 rounded-xl border text-center transition-all cursor-pointer select-none ${
-                        targetMinutes === min
+                      onClick={() => setTargetMinutes(opt.value)}
+                      className={`p-3 sm:p-3.5 rounded-xl border text-center transition-all cursor-pointer select-none ${
+                        targetMinutes === opt.value
                           ? "bg-blue-950/40 border-blue-500 ring-2 ring-blue-500/50 text-white shadow-lg shadow-blue-950/40"
                           : "bg-zinc-900/80 border-white/10 text-zinc-300 hover:text-white hover:bg-zinc-900 hover:border-white/20"
                       }`}
                     >
-                      <div className="text-base sm:text-lg font-bold text-white">{min} Минут</div>
-                      <div className="text-xs sm:text-sm text-zinc-400 mt-1">
-                        {min >= 10 ? "34 кадра (~18 сек/кадр)" : "30 кадров (~16 сек/кадр)"}
+                      <div className="text-sm sm:text-base font-bold text-white">{opt.label}</div>
+                      <div className="text-[11px] sm:text-xs text-zinc-400 mt-1">
+                        {opt.desc}
                       </div>
                     </button>
                   ))}
@@ -380,7 +395,9 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                   />
                 </div>
                 <p className="text-xs sm:text-sm text-zinc-400">
-                  Сборка видео (генерация 30–35 сцен, озвучка и Full HD кадры) занимает 1–2 минуты. Не закрывайте вкладку.
+                  {targetMinutes <= 1
+                    ? "Быстрый тест: 3 кадра и озвучка ElevenLabs генерируются параллельно за 15–20 секунд."
+                    : "Сборка видео (генерация 30–34 сцен, озвучка ElevenLabs и Full HD кадры) выполняется в ускоренном режиме."}
                 </p>
               </div>
             )}
@@ -393,7 +410,11 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 className="w-full py-4 sm:py-5 px-8 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white font-extrabold text-base sm:text-lg shadow-xl shadow-blue-600/30 transition-all flex items-center justify-center gap-3 disabled:opacity-40 cursor-pointer"
               >
                 <Sparkles className="w-5 h-5" />
-                <span>Сгенерировать видеоисторию ({targetMinutes} мин • {targetMinutes >= 10 ? "34" : "30"} кадров)</span>
+                <span>
+                  {targetMinutes <= 1
+                    ? "Сгенерировать видеоисторию (Тест • 3 кадра • ~25 сек)"
+                    : `Сгенерировать видеоисторию (${targetMinutes} мин • ${targetMinutes >= 10 ? "34" : "30"} кадров)`}
+                </span>
               </button>
             )}
           </div>
@@ -407,7 +428,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             <div>
               <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">{currentVideo.title}</h2>
               <p className="text-sm text-zinc-300 mt-1">
-                {currentVideo.scenes.length} сцен • Синтез OpenAI TTS • Full HD 1080p @ 45 FPS
+                {currentVideo.scenes.length} сцен • Озвучка ElevenLabs • Full HD 1080p @ 30 FPS
               </p>
             </div>
             <button

@@ -93,11 +93,18 @@ export function sanitizeScriptInput(data: any): {
     return { valid: false, error: "Сюжет слишком длинный (максимум 1500 символов для защиты токенов)" };
   }
 
-  const validVoices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"];
-  const chosenVoice = validVoices.includes(voice) ? voice : "onyx";
-
+  const chosenVoice = typeof voice === "string" && voice.length > 0 ? voice.slice(0, 80) : "s0phbFBBp708ZeIy8oGx";
   const cleanStyle = typeof style === "string" ? style.slice(0, 100) : "cinematic photorealistic";
-  const chosenMinutes = Number(targetMinutes) >= 10 ? 10 : 8;
+  
+  const numMinutes = Number(targetMinutes);
+  let chosenMinutes = 8;
+  if (numMinutes <= 1) {
+    chosenMinutes = 0.5; // Test mode (3 frames, ~20-30s)
+  } else if (numMinutes >= 10) {
+    chosenMinutes = 10;
+  } else {
+    chosenMinutes = 8;
+  }
 
   return {
     valid: true,

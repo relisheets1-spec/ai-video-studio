@@ -9,13 +9,49 @@ interface VoiceSelectorProps {
   onSelectVoice: (voice: VoiceOption) => void;
 }
 
-const VOICES: { id: VoiceOption; name: string; tag: string }[] = [
-  { id: "onyx", name: "Onyx", tag: "Мужской • Баритон" },
-  { id: "nova", name: "Nova", tag: "Женский • Теплый" },
-  { id: "alloy", name: "Alloy", tag: "Нейтральный • Четкий" },
-  { id: "echo", name: "Echo", tag: "Мужской • Мягкий" },
-  { id: "fable", name: "Fable", tag: "Мужской • Эпичный" },
-  { id: "shimmer", name: "Shimmer", tag: "Женский • Эмоциональный" },
+const VOICES: { id: VoiceOption; name: string; tag: string; previewUrl: string }[] = [
+  {
+    id: "s0phbFBBp708ZeIy8oGx",
+    name: "Arcadays",
+    tag: "Мужской • Теплый, живой (RU/KZ)",
+    previewUrl:
+      "https://api.us.elevenlabs.io/v1/voices/s0phbFBBp708ZeIy8oGx/previews/audio?payload=eyJ2b2ljZV9zb3VyY2UiOiJjdXN0b20iLCJ1c2VyX2lkIjoidXpsSGRDbHgzdGVoTVl1Z3pDMjJ5Zmw4R1duMSIsImZpbGVuYW1lIjoiMTBhZjlkMjMtMDA4ZC00MjNkLTkwZDItM2JkMzk3N2U2YjgxLm1wMyIsInRpbWVzdGFtcCI6MTc4ODU1MjAwMDAwMDAwMH0%3D",
+  },
+  {
+    id: "Jhqrj1kYppTq06Kj3KFa",
+    name: "Mishki",
+    tag: "Женский • Мягкий, душевный (RU/KZ)",
+    previewUrl:
+      "https://storage.googleapis.com/eleven-public-prod/database/user/IetPBzXAXTNaz50V3de9Gn1BiG02/voices/Jhqrj1kYppTq06Kj3KFa/436dcd69-9cbb-4246-a694-9e2d37a6033f.mp3",
+  },
+  {
+    id: "nPczCjzI2devNBz1zQrb",
+    name: "Brian",
+    tag: "Мужской • Глубокий баритон (RU/KZ)",
+    previewUrl:
+      "https://api.us.elevenlabs.io/v1/voices/nPczCjzI2devNBz1zQrb/previews/audio?payload=eyJ2b2ljZV9zb3VyY2UiOiJwcmVtYWRlIiwiZmlsZW5hbWUiOiIyZGQzZTcyYy00ZmQzLTQyZjEtOTNlYS1hYmM1ZDRlNWFhMWQubXAzIiwidGltZXN0YW1wIjoxNzg4NTUyMDAwMDAwMDAwfQ%3D%3D",
+  },
+  {
+    id: "JBFqnCBsd6RMkjVDRZzb",
+    name: "George",
+    tag: "Мужской • Рассказчик историй (RU/KZ)",
+    previewUrl:
+      "https://api.us.elevenlabs.io/v1/voices/JBFqnCBsd6RMkjVDRZzb/previews/audio?payload=eyJ2b2ljZV9zb3VyY2UiOiJwcmVtYWRlIiwiZmlsZW5hbWUiOiJlNjIwNmQxYS0wNzIxLTQ3ODctYWFmYi0wNmE2ZTcwNWNhYzUubXAzIiwidGltZXN0YW1wIjoxNzg4NTUyMDAwMDAwMDAwfQ%3D%3D",
+  },
+  {
+    id: "EXAVITQu4vr4xnSDxMaL",
+    name: "Sarah",
+    tag: "Женский • Уверенный, спокойный (RU/KZ)",
+    previewUrl:
+      "https://storage.googleapis.com/eleven-public-prod/premade/voices/EXAVITQu4vr4xnSDxMaL/01a3e33c-6e99-4ee7-8543-ff2216a32186.mp3",
+  },
+  {
+    id: "pNInz6obpgDQGcFmaJgB",
+    name: "Adam",
+    tag: "Мужской • Эпичный нарратор (RU/KZ)",
+    previewUrl:
+      "https://storage.googleapis.com/eleven-public-prod/premade/voices/pNInz6obpgDQGcFmaJgB/d6905d7a-dd26-4187-bfff-1bd3a5ea7cac.mp3",
+  },
 ];
 
 export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onSelectVoice }) => {
@@ -23,10 +59,10 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onS
   const [playingVoice, setPlayingVoice] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const handlePlaySample = (e: React.MouseEvent, voiceId: VoiceOption) => {
+  const handlePlaySample = (e: React.MouseEvent, voiceItem: typeof VOICES[0]) => {
     e.stopPropagation();
 
-    if (playingVoice === voiceId) {
+    if (playingVoice === voiceItem.id) {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
@@ -37,18 +73,20 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onS
 
     if (audioRef.current) audioRef.current.pause();
 
-    const sampleUrl = `/voice-samples/${voiceId}_${lang}.mp3`;
-    const audio = new Audio(sampleUrl);
+    const audio = new Audio(voiceItem.previewUrl);
     audioRef.current = audio;
 
     audio.onended = () => setPlayingVoice(null);
     audio.onerror = () => setPlayingVoice(null);
 
-    audio.play().then(() => {
-      setPlayingVoice(voiceId);
-    }).catch(() => {
-      setPlayingVoice(null);
-    });
+    audio
+      .play()
+      .then(() => {
+        setPlayingVoice(voiceItem.id);
+      })
+      .catch(() => {
+        setPlayingVoice(null);
+      });
   };
 
   return (
@@ -56,7 +94,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onS
       <div className="flex items-center justify-between">
         <span className="text-sm sm:text-base font-bold text-zinc-100 flex items-center gap-2">
           <Volume2 className="w-4 h-4 text-blue-400" />
-          <span>Голос диктора (OpenAI TTS)</span>
+          <span>Голос диктора (ElevenLabs v2.5 / v3 Multilingual)</span>
         </span>
 
         {/* Language selector toggle */}
@@ -121,7 +159,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onS
 
                 <button
                   type="button"
-                  onClick={(e) => handlePlaySample(e, v.id)}
+                  onClick={(e) => handlePlaySample(e, v)}
                   className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-all ${
                     isPlaying
                       ? "bg-blue-500 text-white ring-2 ring-blue-400 shadow-md animate-pulse"

@@ -20,10 +20,10 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
 
   const cancelRef = useRef(false);
 
-  // Full HD 1080p, 45 FPS
+  // Full HD 1080p, 30 FPS (Faster encoding, standard broadcast rate)
   const WIDTH = 1920;
   const HEIGHT = 1080;
-  const FPS = 45;
+  const FPS = 30;
   const AUDIO_SAMPLE_RATE = 44100;
 
   const startExport = async () => {
@@ -37,7 +37,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
       setStatus("rendering");
       cancelRef.current = false;
       setProgressPercent(0);
-      setStatusText("Инициализация кодировщика H.264 + AAC...");
+      setStatusText("Инициализация быстрого кодировщика H.264 + AAC (30 FPS)...");
 
       // Canvas
       const canvas = document.createElement("canvas");
@@ -87,7 +87,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
             codec: candidate,
             width: WIDTH,
             height: HEIGHT,
-            bitrate: 6_000_000,
+            bitrate: 5_000_000,
             framerate: FPS,
           });
           if (sup && sup.supported) {
@@ -103,7 +103,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
         codec: selectedVideoCodec,
         width: WIDTH,
         height: HEIGHT,
-        bitrate: 6_000_000,
+        bitrate: 5_000_000,
         framerate: FPS,
         avc: { format: "avc" },
       });
@@ -194,20 +194,59 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
 
           audioOffset += chunkSize;
 
-          while (audioEncoder.encodeQueueSize > 25) {
-            await new Promise((r) => setTimeout(r, 4));
+          while (audioEncoder.encodeQueueSize > 30) {
+            await new Promise((r) => setTimeout(r, 0));
           }
         }
         globalAudioSamples += audioBuffer.length;
 
-        // 4. Render and Encode Video Frames at 45 FPS
+        // Precompute subtitle lines and card dimensions ONCE per scene for maximum speed & perfect layout
+        ctx.font = "bold 36px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+        const maxLineWidth = WIDTH - 320;
+        const subtitleLines: string[] = [];
+
+        if (scene.narration) {
+          const words = scene.narration.trim().split(/\s+/);
+          let curr = "";
+          for (const w of words) {
+            const test = curr ? `${curr} ${w}` : w;
+            if (ctx.measureText(test).width > maxLineWidth) {
+              if (curr) subtitleLines.push(curr);
+              curr = w;
+            } else {
+              curr = test;
+            }
+          }
+          if (curr) subtitleLines.push(curr);
+        }
+
+        const lineHeight = 48;
+        const totalTextHeight = subtitleLines.length * lineHeight;
+        // Floating safely above bottom: lowest baseline at HEIGHT - 140px, never clipped!
+        const bottomSafeMargin = 140;
+        const startY = HEIGHT - bottomSafeMargin - totalTextHeight + lineHeight;
+
+        // Measure widest line for background pill
+        let maxMeasuredWidth = 0;
+        for (const line of subtitleLines) {
+          const w = ctx.measureText(line).width;
+          if (w > maxMeasuredWidth) maxMeasuredWidth = w;
+        }
+        const cardPadX = 36;
+        const cardPadY = 22;
+        const cardWidth = Math.min(WIDTH - 160, maxMeasuredWidth + cardPadX * 2);
+        const cardX = (WIDTH - cardWidth) / 2;
+        const cardY = startY - 36 - cardPadY;
+        const cardHeight = totalTextHeight + cardPadY * 2;
+
+        // 4. Render and Encode Video Frames at 30 FPS
         const totalFrames = Math.max(1, Math.round(durationSec * FPS));
 
         for (let frame = 0; frame < totalFrames; frame++) {
           if (cancelRef.current) break;
 
           const progress = frame / totalFrames;
-          const zoomScale = 1 + progress * 0.08;
+          const zoomScale = 1 + progress * 0.07;
 
           // Black background
           ctx.fillStyle = "#09090b";
@@ -222,37 +261,39 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
             ctx.restore();
           }
 
-          // Dark vignette gradient for subtitles
-          const gradient = ctx.createLinearGradient(0, HEIGHT - 330, 0, HEIGHT);
+          // Subtle vignette gradient at bottom
+          const gradient = ctx.createLinearGradient(0, HEIGHT - 360, 0, HEIGHT);
           gradient.addColorStop(0, "rgba(9, 9, 11, 0)");
-          gradient.addColorStop(1, "rgba(9, 9, 11, 0.94)");
+          gradient.addColorStop(1, "rgba(9, 9, 11, 0.85)");
           ctx.fillStyle = gradient;
-          ctx.fillRect(0, HEIGHT - 330, WIDTH, 330);
+          ctx.fillRect(0, HEIGHT - 360, WIDTH, 360);
 
-          // Subtitles (+10% increased to 39px font for crystal clear readability)
-          if (scene.narration) {
-            ctx.font = "bold 39px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+          // Subtitle card & text: safely floating, beautiful, never clipped
+          if (subtitleLines.length > 0) {
+            ctx.save();
+            ctx.fillStyle = "rgba(10, 12, 18, 0.88)";
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            if ((ctx as any).roundRect) {
+              (ctx as any).roundRect(cardX, cardY, cardWidth, cardHeight, 18);
+            } else {
+              ctx.rect(cardX, cardY, cardWidth, cardHeight);
+            }
+            ctx.fill();
+            ctx.stroke();
+
+            // Text
+            ctx.font = "bold 36px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
             ctx.fillStyle = "#FFFFFF";
             ctx.textAlign = "center";
-            ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
-            ctx.shadowBlur = 12;
+            ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+            ctx.shadowBlur = 8;
 
-            const words = scene.narration.split(" ");
-            let line = "";
-            let y = HEIGHT - 110;
-            const maxLineWidth = WIDTH - 260;
-
-            for (const word of words) {
-              const testLine = line + word + " ";
-              if (ctx.measureText(testLine).width > maxLineWidth) {
-                ctx.fillText(line, WIDTH / 2, y);
-                line = word + " ";
-                y += 50;
-              } else {
-                line = testLine;
-              }
+            for (let lineIdx = 0; lineIdx < subtitleLines.length; lineIdx++) {
+              ctx.fillText(subtitleLines[lineIdx], WIDTH / 2, startY + lineIdx * lineHeight);
             }
-            ctx.fillText(line, WIDTH / 2, y);
+            ctx.restore();
           }
 
           // Encode VideoFrame
@@ -265,12 +306,12 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
 
           globalVideoFrames++;
 
-          while (videoEncoder.encodeQueueSize > 15) {
-            await new Promise((r) => setTimeout(r, 6));
+          while (videoEncoder.encodeQueueSize > 30) {
+            await new Promise((r) => setTimeout(r, 0));
           }
 
-          // Yield to browser every 25 frames for responsive UI
-          if (frame % 25 === 0) {
+          // Yield to browser every 45 frames (1.5s of video) for maximum speed and UI responsiveness
+          if (frame % 45 === 0) {
             const overallPct = Math.min(98, Math.round(((i + frame / totalFrames) / scenes.length) * 100));
             setProgressPercent(overallPct);
             await new Promise((r) => setTimeout(r, 0));
@@ -346,7 +387,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
           </div>
           <div className="flex justify-between items-center">
             <span className="text-zinc-400">Частота кадров:</span>
-            <span className="font-semibold text-white">45 FPS</span>
+            <span className="font-semibold text-white">30 FPS (Ускоренный экспорт)</span>
           </div>
           <div className="flex justify-between items-center">
             <span className="text-zinc-400">Совместимость:</span>
@@ -360,7 +401,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
             <div className="flex items-center justify-between text-sm text-white">
               <span className="flex items-center gap-2.5 font-medium">
                 <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
-                <span>Рендеринг Full HD MP4...</span>
+                <span>Рендеринг Full HD MP4 (30 FPS)...</span>
               </span>
               <span className="font-mono font-extrabold text-blue-400 text-base">{progressPercent}%</span>
             </div>
@@ -383,7 +424,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
             </div>
             <a
               href={downloadUrl}
-              download={`${title.replace(/[^a-zA-Z0-9а-яА-Я]/g, "_")}_1080p.mp4`}
+              download={`${title.replace(/[^a-zA-Z0-9а-яА-Я]/g, "_")}_1080p_30fps.mp4`}
               className="inline-flex items-center gap-2.5 px-6 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-base shadow-xl shadow-blue-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
             >
               <Download className="w-5 h-5" />
@@ -414,7 +455,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
               className="flex-1 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-base shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
             >
               <Film className="w-5 h-5" />
-              <span>Экспорт MP4 (1080p @ 45 FPS)</span>
+              <span>Экспорт MP4 (1080p @ 30 FPS)</span>
             </button>
           </div>
         )}

@@ -306,11 +306,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
           </div>
         </div>
 
-        {/* Subtitles (+10% size increase for bold, crystal-clear readability) */}
+        {/* Subtitles (Clean float safely above player controls) */}
         {showSubtitles && currentScene?.narration && (
-          <div className="absolute bottom-24 left-6 right-6 flex justify-center z-20 pointer-events-none">
-            <div className="max-w-4xl px-7 py-4 rounded-2xl bg-black/85 backdrop-blur-md border border-white/20 text-center shadow-2xl">
-              <p className="text-lg sm:text-xl md:text-2xl font-bold text-white leading-relaxed tracking-wide drop-shadow-md">
+          <div className="absolute bottom-28 sm:bottom-32 left-6 right-6 flex justify-center z-20 pointer-events-none transition-all">
+            <div className="max-w-3xl px-6 sm:px-8 py-3.5 sm:py-4 rounded-2xl bg-black/90 backdrop-blur-md border border-white/20 text-center shadow-2xl">
+              <p className="text-base sm:text-lg md:text-xl font-bold text-white leading-relaxed tracking-wide drop-shadow-md">
                 {currentScene.narration}
               </p>
             </div>

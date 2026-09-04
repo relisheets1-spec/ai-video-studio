@@ -32,7 +32,7 @@ export const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
 
           <span className="hidden md:inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/30 text-blue-400 text-xs font-semibold ml-2">
             <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-            <span>1080p Full HD · 45 FPS</span>
+            <span>1080p Full HD · 30 FPS</span>
           </span>
         </div>
 

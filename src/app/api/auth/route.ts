@@ -1,102 +1,141 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getClientIp } from "@/lib/security";
+
+const MAX_FAILED_ATTEMPTS = 10;
+const BLOCK_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+export async function GET(req: NextRequest) {
+  try {
+    const ip = getClientIp(req);
+    const windowStart = new Date(Date.now() - BLOCK_WINDOW_MS).toISOString();
+
+    const { data: failedAttempts, error } = await supabaseAdmin
+      .from("login_attempts")
+      .select("id, created_at")
+      .eq("ip", ip)
+      .eq("success", false)
+      .gte("created_at", windowStart);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    const failedCount = failedAttempts?.length || 0;
+    const isBlocked = failedCount >= MAX_FAILED_ATTEMPTS;
+    const attemptsLeft = Math.max(0, MAX_FAILED_ATTEMPTS - failedCount);
+
+    return NextResponse.json({
+      isBlocked,
+      attemptsLeft,
+      maxAttempts: MAX_FAILED_ATTEMPTS,
+    });
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = getClientIp(req);
+    const windowStart = new Date(Date.now() - BLOCK_WINDOW_MS).toISOString();
+
+    // 1. Check existing failed attempts for this IP in the last 24h
+    const { data: failedAttempts, error: fetchErr } = await supabaseAdmin
+      .from("login_attempts")
+      .select("id, created_at")
+      .eq("ip", ip)
+      .eq("success", false)
+      .gte("created_at", windowStart)
+      .order("created_at", { ascending: false });
+
+    if (fetchErr) {
+      console.error("DB check error:", fetchErr);
+    }
+
+    const failedCount = failedAttempts?.length || 0;
+
+    if (failedCount >= MAX_FAILED_ATTEMPTS) {
+      return NextResponse.json(
+        {
+          error: "Превышен лимит (10 неверных попыток в сутки). Доступ заблокирован на 24 часа.",
+          isBlocked: true,
+          attemptsLeft: 0,
+        },
+        { status: 429 }
+      );
+    }
+
     const body = await req.json();
-    const { action, userName, secretCode } = body;
+    const { password } = body;
 
-    if (!secretCode || typeof secretCode !== "string") {
-      return NextResponse.json({ error: "Секретный код обязателен" }, { status: 400 });
+    if (!password || typeof password !== "string") {
+      return NextResponse.json({ error: "Введите пароль" }, { status: 400 });
     }
 
-    const cleanCode = secretCode.trim();
+    // 2. Fetch master password from database table `system_settings`
+    const { data: setting, error: settingErr } = await supabaseAdmin
+      .from("system_settings")
+      .select("value")
+      .eq("key", "master_password")
+      .single();
 
-    if (action === "check") {
-      const { data: user, error } = await supabaseAdmin
-        .from("access_codes")
-        .select("*")
-        .eq("secret_code", cleanCode)
-        .single();
+    const masterPassword = setting?.value || "1599";
 
-      if (error || !user) {
-        return NextResponse.json({ error: "Код не найден" }, { status: 404 });
-      }
+    // 3. Verify entered password
+    if (password.trim() === masterPassword) {
+      // Record successful login
+      await supabaseAdmin.from("login_attempts").insert({
+        ip,
+        success: true,
+      });
 
       return NextResponse.json({
+        success: true,
+        token: "authenticated_master_session_1599",
         user: {
-          id: user.id,
-          userName: user.user_name,
-          secretCode: user.secret_code,
-          status: user.status,
-          generationsLimit: user.generations_limit,
-          generationsUsed: user.generations_used,
-          remaining: Math.max(0, user.generations_limit - user.generations_used),
+          id: "master-admin-user",
+          userName: "Администратор",
+          secretCode: "1599",
+          status: "approved",
+          remaining: 999,
+          generationsLimit: 1000,
+          generationsUsed: 1,
         },
       });
     }
 
-    if (action === "login") {
-      if (!userName || typeof userName !== "string") {
-        return NextResponse.json({ error: "Имя пользователя обязательно" }, { status: 400 });
-      }
-      const cleanName = userName.trim();
+    // 4. Invalid password: log failure to database
+    await supabaseAdmin.from("login_attempts").insert({
+      ip,
+      success: false,
+    });
 
-      // Check if user already exists with this code
-      const { data: existingUser } = await supabaseAdmin
-        .from("access_codes")
-        .select("*")
-        .eq("secret_code", cleanCode)
-        .single();
+    const newFailedCount = failedCount + 1;
+    const remaining = Math.max(0, MAX_FAILED_ATTEMPTS - newFailedCount);
 
-      if (existingUser) {
-        // If user already approved or pending
-        return NextResponse.json({
-          user: {
-            id: existingUser.id,
-            userName: existingUser.user_name,
-            secretCode: existingUser.secret_code,
-            status: existingUser.status,
-            generationsLimit: existingUser.generations_limit,
-            generationsUsed: existingUser.generations_used,
-            remaining: Math.max(0, existingUser.generations_limit - existingUser.generations_used),
-          },
-        });
-      }
-
-      // New request: create pending record
-      const { data: newUser, error: insertError } = await supabaseAdmin
-        .from("access_codes")
-        .insert({
-          user_name: cleanName,
-          secret_code: cleanCode,
-          status: "pending",
-          generations_limit: 10,
-          generations_used: 0,
-        })
-        .select()
-        .single();
-
-      if (insertError) {
-        return NextResponse.json({ error: insertError.message }, { status: 500 });
-      }
-
-      return NextResponse.json({
-        user: {
-          id: newUser.id,
-          userName: newUser.user_name,
-          secretCode: newUser.secret_code,
-          status: newUser.status,
-          generationsLimit: newUser.generations_limit,
-          generationsUsed: newUser.generations_used,
-          remaining: 10,
+    if (newFailedCount >= MAX_FAILED_ATTEMPTS) {
+      return NextResponse.json(
+        {
+          error: "10-я неверная попытка! Доступ заблокирован на 24 часа.",
+          isBlocked: true,
+          attemptsLeft: 0,
         },
-      });
+        { status: 429 }
+      );
     }
 
-    return NextResponse.json({ error: "Неверное действие" }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: `Неверный пароль. Осталось попыток: ${remaining} из ${MAX_FAILED_ATTEMPTS}.`,
+        isBlocked: false,
+        attemptsLeft: remaining,
+      },
+      { status: 401 }
+    );
   } catch (err: any) {
-    console.error("Auth API Error:", err);
+    console.error("Auth Route Error:", err);
     return NextResponse.json({ error: err.message || "Ошибка сервера" }, { status: 500 });
   }
 }
+

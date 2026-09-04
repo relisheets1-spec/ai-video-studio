@@ -16,9 +16,12 @@ import {
   X,
   UserCheck
 } from "lucide-react";
+import { AuthGate } from "@/components/AuthGate";
 import { AccessCode } from "@/lib/types";
 
 export default function AdminPage() {
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
   const [users, setUsers] = useState<AccessCode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +34,12 @@ export default function AdminPage() {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
   useEffect(() => {
-    loadUsers();
+    const token = localStorage.getItem("ai_video_auth_token");
+    if (token) {
+      setIsAuthenticated(true);
+      loadUsers();
+    }
+    setCheckingAuth(false);
   }, []);
 
   const loadUsers = async () => {
@@ -101,6 +109,31 @@ export default function AdminPage() {
   const approvedCount = users.filter((u) => u.status === "approved").length;
   const totalGenerationsUsed = users.reduce((acc, u) => acc + (u.generations_used || 0), 0);
 
+  if (checkingAuth) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#090a0c] text-white">
+        <div className="w-8 h-8 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-[#090a0c] text-white flex flex-col justify-center items-center p-4">
+        <div className="w-full max-w-md">
+          <AuthGate
+            title="Вход в Админ-панель"
+            description="Введите мастер-пароль для управления инвайт-кодами и мониторинга (10 попыток в сутки)."
+            onSuccess={() => {
+              setIsAuthenticated(true);
+              loadUsers();
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#090a0c] text-white flex flex-col">
       {/* Top Header */}
@@ -139,6 +172,17 @@ export default function AdminPage() {
             >
               <Plus className="w-4 h-4" />
               <span>Создать инвайт-код</span>
+            </button>
+
+            <button
+              onClick={() => {
+                localStorage.removeItem("ai_video_auth_token");
+                localStorage.removeItem("ai_video_user");
+                setIsAuthenticated(false);
+              }}
+              className="text-sm font-medium text-zinc-400 hover:text-white px-3 py-2 rounded-xl hover:bg-zinc-800 transition-colors cursor-pointer"
+            >
+              Выйти
             </button>
           </div>
         </div>

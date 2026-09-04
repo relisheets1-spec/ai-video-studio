@@ -48,9 +48,10 @@ export async function POST(req: NextRequest) {
       userId = createdUser?.id || "00000000-0000-0000-0000-000000000000";
     }
 
-    // Exact user requirement: 8-10 minute video-story with 30-35 frames (scenes)
-    // 30-35 scenes, each scene is ~15-18 seconds of narration (~35-45 words)
-    const scenesCount = targetMinutes >= 10 ? 34 : 30;
+    // Determine scenes count: Test mode (3 scenes) or Full 8-10 mins (30-34 scenes)
+    const isTestMode = targetMinutes <= 1;
+    const scenesCount = isTestMode ? 3 : (targetMinutes >= 10 ? 34 : 30);
+    const sceneDurationDesc = isTestMode ? "7–10 секунд (~15–25 слов)" : "15–18 секунд (~35–45 слов)";
 
     // Create DB entry for this video
     const { data: videoRecord, error: insertError } = await supabaseAdmin
@@ -71,17 +72,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
-    const systemPrompt = `Ты — профессиональный сценарист и создатель захватывающих видеоисторий для YouTube и документальных платформ.
-Пользователь передает исходный промпт (от 2-3 до 10 предложений) с идеей или сюжетом.
-Твоя задача — развернуть эту идею в полноценную, увлекательную видеоисторию хронометражем 8–10 минут, состоящую ровно из ${scenesCount} последовательных сцен (кадров).
+    const systemPrompt = `Ты — профессиональный сценарист и режиссер видеоисторий для YouTube и документальных платформ.
+Пользователь передает тему или сюжет.
+Твоя задача — развернуть этот сюжет в захватывающую, кинематографичную видеоисторию, состоящую ровно из ${scenesCount} последовательных сцен (кадров).
 
 ТРЕБОВАНИЯ:
-1. Ровно ${scenesCount} сцен (кадров). Каждая сцена длится около 15–18 секунд дикторской речи.
+1. Ровно ${scenesCount} сцен (кадров). Каждая сцена длится ${sceneDurationDesc} дикторской речи.
 2. В каждой сцене:
-   - "title": краткое название кадра (например: "Кадр 1: Взгляд в глубины космоса")
-   - "narration": художественный, живой дикторский текст на русском языке (примерно 35–45 слов), который будет звучать вслух и отображаться как субтитры.
-   - "visualPrompt": детальный промпт на английском языке для генерации кадра в DALL-E 3 (16:9 widescreen, cinematic lighting, atmospheric, high detail, стиль: ${style}).
-   - "durationEstimate": расчетное время в секундах (обычно 16-18 секунд).
+   - "title": краткое название кадра (например: "Кадр 1: Взгляд в глубины Рима")
+   - "narration": выразительный, литературный дикторский текст на русском языке (для казахского сюжета — на казахском), который будет звучать вслух и отображаться как субтитры.
+   - "visualPrompt": детальный промпт на английском языке для генерации кадра (16:9 widescreen, cinematic lighting, atmospheric, high detail, стиль: ${style}).
+   - "durationEstimate": расчетное время в секундах (${isTestMode ? "7-9" : "16-18"} сек).
+3. КРИТИЧЕСКОЕ ПРАВИЛО ДЛЯ visualPrompt:
+   Промпт КАЖДОГО кадра ОБЯЗАН СТРОГО СООТВЕТСТВОВАТЬ ТЕМАТИКЕ СЮЖЕТА ПОЛЬЗОВАТЕЛЯ!
+   Если сюжет про Рим — промпты должны содержать римских легионеров, Колизей, доспехи, сенат, Вечный город, а НЕ абстрактную природу, птиц или волков!
+   Всегда описывай центральный объект сцены, действия персонажей, окружение, эпоху, одежду, ракурс камеры и освещение.
 
 Отвечай строго в формате JSON без разметки markdown:
 {
@@ -91,9 +96,9 @@ export async function POST(req: NextRequest) {
     {
       "id": 1,
       "title": "Кадр 1: Название",
-      "narration": "Текст диктора на русском языке...",
+      "narration": "Текст диктора...",
       "visualPrompt": "Cinematic 16:9 widescreen shot...",
-      "durationEstimate": 17
+      "durationEstimate": ${isTestMode ? 8 : 17}
     }
   ]
 }`;
@@ -105,7 +110,7 @@ export async function POST(req: NextRequest) {
         { role: "system", content: systemPrompt },
         {
           role: "user",
-          content: `Промпт пользователя:\n"${topic.trim()}"\n\nРазверни этот сюжет в видеоисторию на 8-10 минут из ровно ${scenesCount} сцен.`,
+          content: `Тема пользователя:\n"${topic.trim()}"\n\nСоздай сценарий из ровно ${scenesCount} сцен.`,
         },
       ],
       temperature: 0.75,

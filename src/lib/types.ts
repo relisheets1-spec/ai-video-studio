@@ -1,4 +1,4 @@
-﻿export interface AccessCode {
+export interface AccessCode {
   id: string;
   user_name: string;
   secret_code: string;
@@ -35,7 +35,15 @@ export interface VideoGeneration {
   updated_at: string;
 }
 
-export type VoiceOption = "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer";
+export type VoiceOption =
+  | "s0phbFBBp708ZeIy8oGx" // Arcadays
+  | "Jhqrj1kYppTq06Kj3KFa" // Mishki
+  | "nPczCjzI2devNBz1zQrb" // Brian
+  | "JBFqnCBsd6RMkjVDRZzb" // George
+  | "EXAVITQu4vr4xnSDxMaL" // Sarah
+  | "pNInz6obpgDQGcFmaJgB" // Adam
+  | "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer"
+  | string;
 
 export interface GenerationProgress {
   step: "idle" | "script" | "audio" | "images" | "ready";
