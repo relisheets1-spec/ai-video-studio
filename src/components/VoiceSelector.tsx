@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { Play, Pause } from "lucide-react";
+import { Play, Pause, Volume2 } from "lucide-react";
 import { VoiceOption } from "@/lib/types";
 
 interface VoiceSelectorProps {
@@ -14,7 +14,7 @@ const VOICES: { id: VoiceOption; name: string; tag: string }[] = [
   { id: "nova", name: "Nova", tag: "Женский • Теплый" },
   { id: "alloy", name: "Alloy", tag: "Нейтральный • Четкий" },
   { id: "echo", name: "Echo", tag: "Мужской • Мягкий" },
-  { id: "fable", name: "Fable", tag: "Мужской • Выразительный" },
+  { id: "fable", name: "Fable", tag: "Мужской • Эпичный" },
   { id: "shimmer", name: "Shimmer", tag: "Женский • Эмоциональный" },
 ];
 
@@ -52,11 +52,15 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onS
   };
 
   return (
-    <div className="space-y-2.5">
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-zinc-300 font-medium">Голос озвучки</span>
+    <div className="space-y-3.5">
+      <div className="flex items-center justify-between">
+        <span className="text-sm sm:text-base font-bold text-zinc-100 flex items-center gap-2">
+          <Volume2 className="w-4 h-4 text-blue-400" />
+          <span>Голос диктора (OpenAI TTS)</span>
+        </span>
 
-        <div className="flex items-center rounded-md bg-zinc-900 border border-white/10 p-0.5 text-[11px]">
+        {/* Language selector toggle */}
+        <div className="flex items-center rounded-xl bg-zinc-900 border border-white/10 p-1 text-xs sm:text-sm font-semibold shadow-inner">
           <button
             type="button"
             onClick={() => {
@@ -64,11 +68,13 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onS
               setPlayingVoice(null);
               setLang("ru");
             }}
-            className={`px-2 py-0.5 rounded transition-colors ${
-              lang === "ru" ? "bg-zinc-100 text-zinc-900 font-medium" : "text-zinc-400 hover:text-zinc-200"
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              lang === "ru"
+                ? "bg-blue-600 text-white font-bold shadow-md shadow-blue-600/30"
+                : "text-zinc-400 hover:text-white"
             }`}
           >
-            RU
+            RU (Русский)
           </button>
           <button
             type="button"
@@ -77,16 +83,18 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onS
               setPlayingVoice(null);
               setLang("kz");
             }}
-            className={`px-2 py-0.5 rounded transition-colors ${
-              lang === "kz" ? "bg-zinc-100 text-zinc-900 font-medium" : "text-zinc-400 hover:text-zinc-200"
+            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+              lang === "kz"
+                ? "bg-blue-600 text-white font-bold shadow-md shadow-blue-600/30"
+                : "text-zinc-400 hover:text-white"
             }`}
           >
-            KZ
+            KZ (Қазақша)
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-1.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {VOICES.map((v) => {
           const isSelected = selectedVoice === v.id;
           const isPlaying = playingVoice === v.id;
@@ -95,33 +103,46 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onS
             <div
               key={v.id}
               onClick={() => onSelectVoice(v.id)}
-              className={`px-2.5 py-2 rounded-lg border text-left cursor-pointer transition-colors flex items-center justify-between gap-1.5 select-none ${
+              className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all flex flex-col justify-between gap-3 select-none ${
                 isSelected
-                  ? "bg-zinc-800 border-zinc-400 text-white"
-                  : "bg-zinc-900/60 border-white/[0.08] hover:bg-zinc-900 text-zinc-400"
+                  ? "bg-blue-950/40 border-blue-500 ring-2 ring-blue-500/50 shadow-lg shadow-blue-950/50"
+                  : "bg-zinc-900/80 border-white/10 hover:border-white/20 hover:bg-zinc-900 text-zinc-400"
               }`}
             >
-              <div className="truncate">
-                <div className={`text-xs truncate ${isSelected ? "text-white font-medium" : "text-zinc-300"}`}>
-                  {v.name}
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className={`text-sm sm:text-base font-bold ${isSelected ? "text-white" : "text-zinc-200"}`}>
+                    {v.name}
+                  </div>
+                  <div className="text-xs text-zinc-400 mt-0.5 line-clamp-1">
+                    {v.tag}
+                  </div>
                 </div>
-                <div className="text-[10px] text-zinc-500 truncate">
-                  {v.tag}
-                </div>
+
+                <button
+                  type="button"
+                  onClick={(e) => handlePlaySample(e, v.id)}
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-all ${
+                    isPlaying
+                      ? "bg-blue-500 text-white ring-2 ring-blue-400 shadow-md animate-pulse"
+                      : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white"
+                  }`}
+                  title={isPlaying ? "Остановить сэмпл" : "Прослушать образец голоса (15с)"}
+                >
+                  {isPlaying ? (
+                    <Pause className="w-3.5 h-3.5 fill-current" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5 ml-0.5 fill-current" />
+                  )}
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={(e) => handlePlaySample(e, v.id)}
-                className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition-colors ${
-                  isPlaying
-                    ? "bg-white text-black"
-                    : "hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100"
-                }`}
-                title={isPlaying ? "Остановить" : "Прослушать (15с)"}
-              >
-                {isPlaying ? <Pause className="w-2.5 h-2.5 fill-current" /> : <Play className="w-2.5 h-2.5 ml-0.5 fill-current" />}
-              </button>
+              {isSelected && (
+                <div className="flex items-center gap-2 text-xs font-bold text-blue-400">
+                  <span className="w-2 h-2 rounded-full bg-blue-400" />
+                  <span>Выбран</span>
+                </div>
+              )}
             </div>
           );
         })}

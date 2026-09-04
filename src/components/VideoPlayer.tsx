@@ -173,25 +173,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
           </div>
         )}
 
-        {/* Top minimal status */}
+        {/* Top status bar */}
         <div className="absolute top-4 left-4 right-4 flex items-center justify-between pointer-events-none z-20">
-          <div className="px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-xs text-zinc-200 flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-            <span>Кадр {currentSceneIndex + 1} / {scenes.length}</span>
+          <div className="px-4 py-2 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-sm text-zinc-100 flex items-center gap-2.5 shadow-lg">
+            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse shrink-0" />
+            <span className="font-semibold">Кадр {currentSceneIndex + 1} из {scenes.length}</span>
             <span className="text-zinc-500">•</span>
-            <span className="text-zinc-300 max-w-xs truncate">{currentScene?.title}</span>
+            <span className="text-zinc-300 max-w-sm truncate">{currentScene?.title}</span>
           </div>
 
-          <div className="px-3 py-1 rounded-full bg-black/70 backdrop-blur-md border border-white/10 text-xs font-mono text-white">
+          <div className="px-4 py-2 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-sm font-mono font-bold text-white shadow-lg">
             {formatTime(overallElapsed)} / {formatTime(totalDuration)}
           </div>
         </div>
 
         {/* Subtitles (+10% size increase for bold, crystal-clear readability) */}
         {showSubtitles && currentScene?.narration && (
-          <div className="absolute bottom-20 left-6 right-6 flex justify-center z-20 pointer-events-none">
-            <div className="max-w-3xl px-6 py-3 rounded-xl bg-black/80 backdrop-blur-md border border-white/15 text-center shadow-xl">
-              <p className="text-base sm:text-lg md:text-xl font-semibold text-white leading-relaxed tracking-wide drop-shadow-md">
+          <div className="absolute bottom-24 left-6 right-6 flex justify-center z-20 pointer-events-none">
+            <div className="max-w-4xl px-7 py-4 rounded-2xl bg-black/85 backdrop-blur-md border border-white/20 text-center shadow-2xl">
+              <p className="text-lg sm:text-xl md:text-2xl font-bold text-white leading-relaxed tracking-wide drop-shadow-md">
                 {currentScene.narration}
               </p>
             </div>
@@ -206,18 +206,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
           {!isPlaying && (
             <button
               type="button"
-              className="w-14 h-14 rounded-full bg-white text-black shadow-2xl flex items-center justify-center hover:scale-105 transition-all"
+              className="w-20 h-20 rounded-full bg-blue-600 text-white shadow-2xl shadow-blue-600/50 flex items-center justify-center hover:scale-110 active:scale-95 transition-all"
             >
-              <Play className="w-7 h-7 ml-0.5 fill-current" />
+              <Play className="w-9 h-9 ml-1 fill-current" />
             </button>
           )}
         </div>
 
-        {/* Bottom Minimalist Controls */}
-        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/80 to-transparent pt-6 pb-3 px-4 z-30 flex flex-col gap-2">
+        {/* Bottom Controls */}
+        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/85 to-transparent pt-8 pb-4 px-6 z-30 flex flex-col gap-3">
           {/* Timeline Bar */}
           <div
-            className="w-full h-1.5 hover:h-2.5 bg-white/20 rounded-full cursor-pointer transition-all relative overflow-hidden"
+            className="w-full h-2.5 hover:h-4 bg-white/20 rounded-full cursor-pointer transition-all relative overflow-hidden group/timeline"
             onClick={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
               const clickPercent = (e.clientX - rect.left) / rect.width;
@@ -225,31 +225,31 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
             }}
           >
             <div
-              className="h-full bg-white rounded-full transition-all"
+              className="h-full bg-blue-500 rounded-full transition-all group-hover/timeline:bg-blue-400"
               style={{ width: `${Math.min(100, (overallElapsed / (totalDuration || 1)) * 100)}%` }}
             />
           </div>
 
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
               <button
                 onClick={() => {
                   setCurrentSceneIndex((prev) => Math.max(0, prev - 1));
                   setSceneElapsed(0);
                 }}
                 disabled={currentSceneIndex === 0}
-                className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-300 disabled:opacity-30 transition-colors"
+                className="p-2.5 rounded-xl hover:bg-white/15 text-zinc-200 disabled:opacity-30 transition-colors"
                 title="Предыдущий кадр"
               >
-                <SkipBack className="w-4 h-4" />
+                <SkipBack className="w-5 h-5" />
               </button>
 
               <button
                 onClick={togglePlay}
-                className="p-2 rounded-full bg-white text-black flex items-center justify-center hover:bg-zinc-200 transition-colors"
+                className="w-11 h-11 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shadow-lg shadow-blue-600/30 hover:scale-105 active:scale-95 transition-all"
                 title={isPlaying ? "Пауза" : "Воспроизведение"}
               >
-                {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 ml-0.5 fill-current" />}
+                {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 ml-0.5 fill-current" />}
               </button>
 
               <button
@@ -258,10 +258,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
                   setSceneElapsed(0);
                 }}
                 disabled={currentSceneIndex === scenes.length - 1}
-                className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-300 disabled:opacity-30 transition-colors"
+                className="p-2.5 rounded-xl hover:bg-white/15 text-zinc-200 disabled:opacity-30 transition-colors"
                 title="Следующий кадр"
               >
-                <SkipForward className="w-4 h-4" />
+                <SkipForward className="w-5 h-5" />
               </button>
 
               <button
@@ -269,44 +269,44 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
                   if (audioRef.current) audioRef.current.muted = !isMuted;
                   setIsMuted(!isMuted);
                 }}
-                className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-300 transition-colors ml-1"
+                className="p-2.5 rounded-xl hover:bg-white/15 text-zinc-200 transition-colors ml-1"
                 title={isMuted ? "Включить звук" : "Выключить звук"}
               >
-                {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
+                {isMuted ? <VolumeX className="w-5 h-5 text-rose-400" /> : <Volume2 className="w-5 h-5" />}
               </button>
 
               <button
                 onClick={() => setShowSubtitles(!showSubtitles)}
-                className={`p-1.5 rounded-lg transition-colors ${
-                  showSubtitles ? "bg-white/20 text-white" : "hover:bg-white/10 text-zinc-400"
+                className={`p-2.5 rounded-xl transition-all ${
+                  showSubtitles ? "bg-blue-600 text-white shadow-md shadow-blue-600/30" : "hover:bg-white/15 text-zinc-400"
                 }`}
                 title="Субтитры"
               >
-                <Subtitles className="w-4 h-4" />
+                <Subtitles className="w-5 h-5" />
               </button>
 
-              <span className="text-xs font-mono text-zinc-400 ml-2 hidden sm:inline">
+              <span className="text-sm font-mono font-semibold text-zinc-300 ml-3 hidden sm:inline">
                 {formatTime(overallElapsed)} / {formatTime(totalDuration)}
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               {onExportClick && (
                 <button
                   onClick={onExportClick}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-black text-xs font-semibold hover:bg-zinc-200 transition-all"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold shadow-lg shadow-blue-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
                 >
-                  <Download className="w-3.5 h-3.5" />
+                  <Download className="w-4 h-4" />
                   <span>Скачать 1080p (45 FPS)</span>
                 </button>
               )}
 
               <button
                 onClick={toggleFullscreen}
-                className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-300 transition-colors"
+                className="p-2.5 rounded-xl hover:bg-white/15 text-zinc-200 transition-colors"
                 title="Во весь экран"
               >
-                {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
               </button>
             </div>
           </div>
@@ -314,8 +314,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
       </div>
 
       {/* Frame Carousel */}
-      <div className="p-3 bg-zinc-950 rounded-xl border border-white/10">
-        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
+      <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800">
+        <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-thin">
           {scenes.map((scene, idx) => (
             <button
               key={scene.id || idx}
@@ -323,25 +323,25 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
                 setCurrentSceneIndex(idx);
                 setSceneElapsed(0);
               }}
-              className={`shrink-0 w-24 sm:w-28 text-left rounded-lg p-1 transition-all border ${
+              className={`shrink-0 w-36 sm:w-44 text-left rounded-xl p-2 transition-all border ${
                 idx === currentSceneIndex
-                  ? "border-white bg-zinc-800"
-                  : "border-transparent hover:border-white/20 bg-zinc-900/60"
+                  ? "border-blue-500 bg-blue-950/40 ring-2 ring-blue-500/40 shadow-lg shadow-blue-600/10"
+                  : "border-zinc-800 hover:border-zinc-700 bg-zinc-900/70"
               }`}
             >
-              <div className="aspect-video w-full rounded overflow-hidden bg-black mb-1 relative">
+              <div className="aspect-video w-full rounded-lg overflow-hidden bg-black mb-2 relative">
                 {scene.imageUrl ? (
                   <img src={scene.imageUrl} alt={scene.title} className="w-full h-full object-cover" />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-[9px] text-zinc-500">
+                  <div className="w-full h-full flex items-center justify-center text-xs font-semibold text-zinc-500">
                     Кадр {idx + 1}
                   </div>
                 )}
-                <span className="absolute bottom-0.5 right-0.5 px-1 rounded bg-black/80 text-[8px] font-mono text-zinc-300">
+                <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/85 text-[11px] font-mono font-bold text-zinc-200">
                   {scene.durationEstimate || 17}с
                 </span>
               </div>
-              <p className="text-[10px] font-medium text-zinc-300 truncate">
+              <p className="text-xs sm:text-sm font-semibold text-zinc-200 truncate">
                 {idx + 1}. {scene.title}
               </p>
             </button>

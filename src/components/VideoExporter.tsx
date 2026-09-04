@@ -216,81 +216,81 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm select-none">
-      <div className="bg-[#121215] max-w-md w-full rounded-2xl p-6 border border-white/10 shadow-2xl relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md select-none">
+      <div className="bg-zinc-950 max-w-lg w-full rounded-3xl p-7 border border-zinc-800 shadow-2xl relative">
         <button
           onClick={() => {
             cancelRef.current = true;
             onClose();
           }}
-          className="absolute top-4 right-4 p-2 text-zinc-400 hover:text-white transition-colors"
+          className="absolute top-5 right-5 p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors"
         >
-          <X className="w-5 h-5" />
+          <X className="w-6 h-6" />
         </button>
 
-        <div className="flex items-center gap-3 mb-5">
-          <div className="w-10 h-10 rounded-xl bg-zinc-800 text-white flex items-center justify-center">
-            <Film className="w-5 h-5" />
+        <div className="flex items-center gap-4 mb-6">
+          <div className="w-12 h-12 rounded-2xl bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center shadow-lg shadow-blue-600/10">
+            <Film className="w-6 h-6" />
           </div>
           <div>
-            <h3 className="text-base font-semibold text-white">Экспорт в Full HD</h3>
-            <p className="text-xs text-zinc-400 mt-0.5 truncate max-w-xs">{title}</p>
+            <h3 className="text-xl font-bold text-white">Экспорт в Full HD</h3>
+            <p className="text-sm text-zinc-400 mt-0.5 truncate max-w-sm">{title}</p>
           </div>
         </div>
 
-        {/* Minimal Specs */}
-        <div className="p-3.5 rounded-xl bg-zinc-900 border border-white/5 space-y-1.5 mb-5 text-xs text-zinc-300">
-          <div className="flex justify-between">
-            <span className="text-zinc-400">Формат:</span>
-            <span className="font-medium text-white">1920 × 1080 (Full HD)</span>
+        {/* Specs Table */}
+        <div className="p-5 rounded-2xl bg-zinc-900/90 border border-zinc-800/80 space-y-2.5 mb-6 text-sm text-zinc-300">
+          <div className="flex justify-between items-center">
+            <span className="text-zinc-400">Формат разрешения:</span>
+            <span className="font-semibold text-white">1920 × 1080 (Full HD)</span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between items-center">
             <span className="text-zinc-400">Частота кадров:</span>
-            <span className="font-medium text-white">45 FPS</span>
+            <span className="font-semibold text-white">45 FPS</span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between items-center">
             <span className="text-zinc-400">Кадров в ролике:</span>
-            <span className="font-medium text-white">{scenes.length}</span>
+            <span className="font-semibold text-white">{scenes.length} кадров</span>
           </div>
-          <div className="flex justify-between">
+          <div className="flex justify-between items-center">
             <span className="text-zinc-400">Перемотка по таймлайну:</span>
-            <span className="font-medium text-emerald-400">Поддерживается</span>
+            <span className="font-bold text-emerald-400">Поддерживается (Cue points)</span>
           </div>
         </div>
 
         {/* Progress */}
         {status === "rendering" && (
-          <div className="space-y-3 p-4 rounded-xl bg-zinc-900 border border-white/10 mb-5">
-            <div className="flex items-center justify-between text-xs text-white">
-              <span className="flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
+          <div className="space-y-3.5 p-5 rounded-2xl bg-zinc-900 border border-zinc-800 mb-6">
+            <div className="flex items-center justify-between text-sm text-white">
+              <span className="flex items-center gap-2.5 font-medium">
+                <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
                 <span>Сборка 1080p видео...</span>
               </span>
-              <span className="font-mono font-bold">{progressPercent}%</span>
+              <span className="font-mono font-extrabold text-blue-400 text-base">{progressPercent}%</span>
             </div>
-            <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
+            <div className="w-full h-3 rounded-full bg-zinc-800 overflow-hidden">
               <div
-                className="h-full bg-white transition-all duration-300 rounded-full"
+                className="h-full bg-blue-600 rounded-full transition-all duration-300 shadow-sm shadow-blue-500/50"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
-            <p className="text-[11px] text-zinc-400 truncate">{statusText}</p>
+            <p className="text-xs sm:text-sm text-zinc-400 truncate">{statusText}</p>
           </div>
         )}
 
         {/* Finished */}
         {status === "finished" && downloadUrl && (
-          <div className="space-y-4 p-4 rounded-xl bg-zinc-900 border border-white/10 text-center mb-5">
-            <div className="flex items-center justify-center gap-2 text-white font-medium text-xs">
-              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              <span>Full HD видео готово к скачиванию!</span>
+          <div className="space-y-4 p-6 rounded-2xl bg-zinc-900 border border-emerald-500/30 text-center mb-6">
+            <div className="flex items-center justify-center gap-2.5 text-white font-bold text-base">
+              <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+              <span>Full HD видео успешно скомпилировано!</span>
             </div>
             <a
               href={downloadUrl}
               download={`${title.replace(/[^a-zA-Z0-9а-яА-Я]/g, "_")}_1080p_45fps.webm`}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white text-black font-semibold text-xs hover:bg-zinc-200 transition-all"
+              className="inline-flex items-center gap-2.5 px-6 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-base shadow-xl shadow-blue-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all"
             >
-              <Download className="w-4 h-4" />
+              <Download className="w-5 h-5" />
               <span>Скачать файл ({fileSizeMb} МБ)</span>
             </a>
           </div>
@@ -298,26 +298,26 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
 
         {/* Error */}
         {status === "error" && (
-          <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-start gap-2 mb-5">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>{statusText}</span>
+          <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-sm text-rose-300 flex items-start gap-2.5 mb-6">
+            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-rose-400" />
+            <span className="font-medium">{statusText}</span>
           </div>
         )}
 
         {/* Action */}
         {status === "idle" && (
-          <div className="flex gap-2.5">
+          <div className="flex gap-3">
             <button
               onClick={onClose}
-              className="flex-1 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors"
+              className="flex-1 py-3.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-sm font-semibold transition-colors"
             >
               Отмена
             </button>
             <button
               onClick={startExport}
-              className="flex-1 py-2.5 rounded-xl bg-white text-black hover:bg-zinc-200 font-semibold text-xs transition-all flex items-center justify-center gap-2"
+              className="flex-1 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-base shadow-lg shadow-blue-600/30 flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] transition-all"
             >
-              <Film className="w-4 h-4" />
+              <Film className="w-5 h-5" />
               <span>Экспорт 1080p (45 FPS)</span>
             </button>
           </div>
