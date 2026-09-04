@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { Play, Pause, Check } from "lucide-react";
+import { Play, Pause } from "lucide-react";
 import { VoiceOption } from "@/lib/types";
 
 interface VoiceSelectorProps {
@@ -9,21 +9,13 @@ interface VoiceSelectorProps {
   onSelectVoice: (voice: VoiceOption) => void;
 }
 
-interface VoiceMeta {
-  id: VoiceOption;
-  name: string;
-  gender: "male" | "female";
-  descRu: string;
-  descKz: string;
-}
-
-const VOICES: VoiceMeta[] = [
-  { id: "onyx", name: "Onyx", gender: "male", descRu: "Глубокий мужской баритон", descKz: "Қоңыр ер адам дауысы" },
-  { id: "nova", name: "Nova", gender: "female", descRu: "Теплый выразительный женский голос", descKz: "Жылы әйел адам дауысы" },
-  { id: "alloy", name: "Alloy", gender: "female", descRu: "Сбалансированный нейтральный голос", descKz: "Бейтарап теңгерімді дауыс" },
-  { id: "echo", name: "Echo", gender: "male", descRu: "Мягкий повествовательный тембр", descKz: "Жұмсақ баяндау мәнері" },
-  { id: "fable", name: "Fable", gender: "male", descRu: "Выразительный артистичный тембр", descKz: "Көркем мәнерлі дауыс" },
-  { id: "shimmer", name: "Shimmer", gender: "female", descRu: "Четкий эмоциональный женский голос", descKz: "Анық эмоциялық әйел дауысы" },
+const VOICES: { id: VoiceOption; name: string; tag: string }[] = [
+  { id: "onyx", name: "Onyx", tag: "Мужской • Баритон" },
+  { id: "nova", name: "Nova", tag: "Женский • Теплый" },
+  { id: "alloy", name: "Alloy", tag: "Нейтральный • Четкий" },
+  { id: "echo", name: "Echo", tag: "Мужской • Мягкий" },
+  { id: "fable", name: "Fable", tag: "Мужской • Выразительный" },
+  { id: "shimmer", name: "Shimmer", tag: "Женский • Эмоциональный" },
 ];
 
 export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onSelectVoice }) => {
@@ -31,7 +23,9 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onS
   const [playingVoice, setPlayingVoice] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const handlePlaySample = (voiceId: VoiceOption) => {
+  const handlePlaySample = (e: React.MouseEvent, voiceId: VoiceOption) => {
+    e.stopPropagation();
+
     if (playingVoice === voiceId) {
       if (audioRef.current) {
         audioRef.current.pause();
@@ -41,9 +35,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onS
       return;
     }
 
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
+    if (audioRef.current) audioRef.current.pause();
 
     const sampleUrl = `/voice-samples/${voiceId}_${lang}.mp3`;
     const audio = new Audio(sampleUrl);
@@ -60,14 +52,11 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onS
   };
 
   return (
-    <div className="space-y-3">
-      {/* Header and minimal language toggle */}
-      <div className="flex items-center justify-between">
-        <label className="text-xs font-semibold text-zinc-200">
-          Голос диктора
-        </label>
+    <div className="space-y-2.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-zinc-300 font-medium">Голос озвучки</span>
 
-        <div className="inline-flex rounded-lg p-0.5 bg-zinc-900 border border-white/10 text-xs">
+        <div className="flex items-center rounded-md bg-zinc-900 border border-white/10 p-0.5 text-[11px]">
           <button
             type="button"
             onClick={() => {
@@ -75,11 +64,11 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onS
               setPlayingVoice(null);
               setLang("ru");
             }}
-            className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-              lang === "ru" ? "bg-white text-black font-semibold" : "text-zinc-400 hover:text-white"
+            className={`px-2 py-0.5 rounded transition-colors ${
+              lang === "ru" ? "bg-zinc-100 text-zinc-900 font-medium" : "text-zinc-400 hover:text-zinc-200"
             }`}
           >
-            🇷🇺 Русский (15с)
+            RU
           </button>
           <button
             type="button"
@@ -88,17 +77,16 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onS
               setPlayingVoice(null);
               setLang("kz");
             }}
-            className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-              lang === "kz" ? "bg-white text-black font-semibold" : "text-zinc-400 hover:text-white"
+            className={`px-2 py-0.5 rounded transition-colors ${
+              lang === "kz" ? "bg-zinc-100 text-zinc-900 font-medium" : "text-zinc-400 hover:text-zinc-200"
             }`}
           >
-            🇰🇿 Қазақша (15с)
+            KZ
           </button>
         </div>
       </div>
 
-      {/* Grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-1.5">
         {VOICES.map((v) => {
           const isSelected = selectedVoice === v.id;
           const isPlaying = playingVoice === v.id;
@@ -107,37 +95,32 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onS
             <div
               key={v.id}
               onClick={() => onSelectVoice(v.id)}
-              className={`p-2.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between select-none ${
+              className={`px-2.5 py-2 rounded-lg border text-left cursor-pointer transition-colors flex items-center justify-between gap-1.5 select-none ${
                 isSelected
-                  ? "bg-zinc-800 border-white ring-1 ring-white text-white"
-                  : "bg-zinc-900/60 border-white/5 hover:border-white/20 text-zinc-300"
+                  ? "bg-zinc-800 border-zinc-400 text-white"
+                  : "bg-zinc-900/60 border-white/[0.08] hover:bg-zinc-900 text-zinc-400"
               }`}
             >
-              <div className="space-y-0.5">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-xs text-white">{v.name}</span>
-                  {isSelected && <Check className="w-3 h-3 text-white" />}
+              <div className="truncate">
+                <div className={`text-xs truncate ${isSelected ? "text-white font-medium" : "text-zinc-300"}`}>
+                  {v.name}
                 </div>
-                <p className="text-[10px] text-zinc-400 line-clamp-1">
-                  {lang === "ru" ? v.descRu : v.descKz}
-                </p>
+                <div className="text-[10px] text-zinc-500 truncate">
+                  {v.tag}
+                </div>
               </div>
 
-              {/* Minimal preview button */}
               <button
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handlePlaySample(v.id);
-                }}
-                className={`mt-2 py-1 px-2 rounded-lg text-[10px] font-medium flex items-center justify-center gap-1 transition-colors ${
+                onClick={(e) => handlePlaySample(e, v.id)}
+                className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 transition-colors ${
                   isPlaying
-                    ? "bg-emerald-500 text-black font-semibold"
-                    : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                    ? "bg-white text-black"
+                    : "hover:bg-zinc-700 text-zinc-400 hover:text-zinc-100"
                 }`}
+                title={isPlaying ? "Остановить" : "Прослушать (15с)"}
               >
-                {isPlaying ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-                <span>{isPlaying ? "Стоп" : "Слушать"}</span>
+                {isPlaying ? <Pause className="w-2.5 h-2.5 fill-current" /> : <Play className="w-2.5 h-2.5 ml-0.5 fill-current" />}
               </button>
             </div>
           );

@@ -2,7 +2,7 @@
 
 import React from "react";
 import Link from "next/link";
-import { Film, Shield, LogOut, Sparkles } from "lucide-react";
+import { LogOut, Film } from "lucide-react";
 
 interface NavbarProps {
   user?: {
@@ -16,58 +16,51 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
   return (
-    <header className="w-full border-b border-white/[0.08] bg-[#0c0d12]/90 backdrop-blur-md sticky top-0 z-40">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 h-15 flex items-center justify-between">
-        {/* Logo */}
-        <Link href="/" className="flex items-center gap-2.5 group select-none py-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
-            <Film className="w-4 h-4" />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-sm tracking-tight text-white">
-              AI Video Studio
-            </span>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/10 text-zinc-300 border border-white/10">
-              1080p @ 45fps
-            </span>
-          </div>
-        </Link>
+    <header className="w-full border-b border-white/[0.08] bg-[#090a0c] sticky top-0 z-40">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
+        {/* Brand */}
+        <div className="flex items-center gap-3">
+          <Link href="/" className="flex items-center gap-2 text-white font-medium text-sm tracking-tight">
+            <div className="w-7 h-7 rounded-lg bg-zinc-800 border border-white/10 flex items-center justify-center text-white">
+              <Film className="w-3.5 h-3.5" />
+            </div>
+            <span>AI Studio</span>
+          </Link>
+          <span className="hidden sm:inline-block text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-white/5">
+            1080p Full HD · 45 FPS
+          </span>
+        </div>
 
-        {/* Right Info & Actions */}
-        <div className="flex items-center gap-3 text-xs">
-          {user && user.status === "approved" && (
+        {/* Right Navigation */}
+        <div className="flex items-center gap-4 text-xs">
+          {user && user.status === "approved" ? (
             <div className="flex items-center gap-3">
-              {/* Balance chip */}
-              <div className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-200">
-                <Sparkles className="w-3 h-3 text-indigo-400" />
-                <span>
-                  Баланс: <strong className="text-white">{user.remaining}</strong> из {user.generationsLimit}
-                </span>
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-900 border border-white/10 text-zinc-300">
+                <span className="text-[11px] text-zinc-400">Генераций:</span>
+                <span className="text-white font-mono font-medium">{user.remaining}</span>
               </div>
 
-              {/* User Name */}
-              <span className="text-zinc-400 hidden sm:inline">
+              <span className="text-zinc-300 font-medium hidden sm:inline">
                 {user.userName}
               </span>
 
               {onLogout && (
                 <button
                   onClick={onLogout}
-                  title="Выйти"
-                  className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-colors"
+                  title="Выйти из аккаунта"
+                  className="text-zinc-400 hover:text-white transition-colors p-1"
                 >
-                  <LogOut className="w-4 h-4" />
+                  <LogOut className="w-3.5 h-3.5" />
                 </button>
               )}
             </div>
-          )}
+          ) : null}
 
           <Link
             href="/admin"
-            className="flex items-center gap-1 px-2.5 py-1 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white text-xs transition-colors border border-transparent hover:border-white/10"
+            className="text-xs text-zinc-400 hover:text-white px-2.5 py-1 rounded-md hover:bg-zinc-900 transition-colors border border-transparent hover:border-white/10"
           >
-            <Shield className="w-3 h-3 text-zinc-400" />
-            <span>Админ</span>
+            Админ-панель
           </Link>
         </div>
       </div>

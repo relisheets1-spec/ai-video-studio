@@ -5,7 +5,6 @@ import Link from "next/link";
 import {
   Shield,
   Key,
-  UserX,
   Plus,
   Trash2,
   CheckCircle2,
@@ -13,7 +12,8 @@ import {
   RefreshCw,
   Copy,
   ArrowLeft,
-  AlertCircle
+  AlertCircle,
+  X
 } from "lucide-react";
 import { AccessCode } from "@/lib/types";
 
@@ -126,28 +126,25 @@ export default function AdminPage() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4 bg-[#141218]">
-        <div className="bg-[#1D1B20] max-w-md w-full rounded-3xl p-8 border border-[#49454F]/40 shadow-2xl relative">
+      <div className="min-h-screen flex items-center justify-center p-4 bg-[#090a0c] text-white">
+        <div className="bg-[#121316] max-w-sm w-full rounded-xl p-8 border border-white/[0.08] shadow-2xl space-y-6">
           <Link
             href="/"
-            className="inline-flex items-center gap-1.5 text-xs text-[#938F99] hover:text-[#E6E0E9] mb-6 transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white transition-colors"
           >
-            <ArrowLeft className="w-4 h-4" />
-            <span>Вернуться на главную</span>
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Вернуться в Студию</span>
           </Link>
 
-          <div className="text-center mb-6">
-            <div className="w-14 h-14 rounded-full bg-[#4F378B] text-[#D0BCFF] flex items-center justify-center mx-auto mb-3">
-              <Shield className="w-6 h-6" />
-            </div>
-            <h2 className="text-xl font-bold text-[#E6E0E9] tracking-tight">Панель администратора</h2>
-            <p className="text-xs text-[#938F99] mt-1">
-              Введите мастер-ключ для управления доступом и генерациями
+          <div className="space-y-1.5">
+            <h2 className="text-lg font-semibold text-white tracking-tight">Панель администратора</h2>
+            <p className="text-xs text-zinc-400">
+              Введите ключ ADMIN_SECRET_KEY для управления пользователями и генерациями.
             </p>
           </div>
 
           {error && (
-            <div className="mb-4 p-3 rounded-2xl bg-[#8C1D18]/30 border border-[#F2B8B5]/30 text-[#F2B8B5] text-xs flex items-center gap-2">
+            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-300 text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
               <span>{error}</span>
             </div>
@@ -155,20 +152,20 @@ export default function AdminPage() {
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-[#CAC4D0]">
-                Мастер-ключ администратора
+              <label className="block text-xs font-medium text-zinc-300">
+                Мастер-ключ
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#938F99]">
-                  <Key className="w-4 h-4" />
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-500">
+                  <Key className="w-3.5 h-3.5" />
                 </div>
                 <input
                   type="password"
                   required
-                  placeholder="Введите ADMIN_SECRET_KEY"
+                  placeholder="admin_master_secret_2026"
                   value={adminKey}
                   onChange={(e) => setAdminKey(e.target.value)}
-                  className="w-full pl-10 pr-4 py-3 rounded-2xl bg-[#2B2930] border border-[#49454F]/40 text-[#E6E0E9] placeholder-[#938F99] text-xs font-mono focus:outline-none focus:border-[#D0BCFF] focus:ring-1 focus:ring-[#D0BCFF] transition-all"
+                  className="w-full pl-9 pr-3 py-2 rounded-lg bg-zinc-900 border border-white/10 text-white placeholder-zinc-500 text-xs font-mono focus:outline-none focus:border-zinc-400 transition-colors"
                 />
               </div>
             </div>
@@ -176,9 +173,9 @@ export default function AdminPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3.5 rounded-full bg-[#D0BCFF] text-[#381E72] font-semibold text-xs shadow-md hover:opacity-90 transition-all disabled:opacity-50"
+              className="w-full py-2.5 rounded-lg bg-white text-black font-medium text-xs hover:bg-zinc-200 transition-all disabled:opacity-50"
             >
-              {loading ? "Вход..." : "Войти в панель управления"}
+              {loading ? "Авторизация..." : "Войти в панель"}
             </button>
           </form>
         </div>
@@ -187,40 +184,40 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#141218] text-[#E6E0E9] flex flex-col">
-      {/* Top App Bar */}
-      <header className="border-b border-[#49454F]/30 bg-[#1D1B20] sticky top-0 z-30">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+    <div className="min-h-screen bg-[#090a0c] text-white flex flex-col">
+      {/* Top Header */}
+      <header className="border-b border-white/[0.08] bg-[#0c0d10] sticky top-0 z-30">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Link
               href="/"
-              className="flex items-center gap-1.5 text-xs text-[#938F99] hover:text-[#E6E0E9] transition-colors"
+              className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-white transition-colors"
             >
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="w-3.5 h-3.5" />
               <span>В Студию</span>
             </Link>
-            <div className="h-4 w-[1px] bg-[#49454F]/40" />
+            <div className="h-4 w-[1px] bg-white/10" />
             <div className="flex items-center gap-2">
-              <Shield className="w-4 h-4 text-[#D0BCFF]" />
-              <h1 className="font-semibold text-sm text-[#E6E0E9]">Управление доступом (M3)</h1>
+              <Shield className="w-4 h-4 text-zinc-300" />
+              <h1 className="font-medium text-xs text-white">Управление доступом</h1>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <button
               onClick={() => loadUsers(adminKey)}
               disabled={loading}
-              className="p-2 rounded-full hover:bg-[#2B2930] text-[#938F99] hover:text-[#E6E0E9] transition-colors"
-              title="Обновить"
+              className="p-1.5 rounded-md hover:bg-zinc-900 text-zinc-400 hover:text-white transition-colors border border-transparent hover:border-white/10"
+              title="Обновить список"
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
             </button>
 
             <button
               onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-[#D0BCFF] text-[#381E72] text-xs font-semibold shadow-sm hover:opacity-90 transition-all"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-black text-xs font-medium hover:bg-zinc-200 transition-all"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-3.5 h-3.5" />
               <span>Создать инвайт-код</span>
             </button>
 
@@ -229,7 +226,7 @@ export default function AdminPage() {
                 localStorage.removeItem("ai_video_admin_key");
                 setIsAuthenticated(false);
               }}
-              className="text-xs text-[#938F99] hover:text-[#E6E0E9] px-2 py-1 transition-colors"
+              className="text-xs text-zinc-400 hover:text-white px-2.5 py-1.5 rounded-md hover:bg-zinc-900 transition-colors"
             >
               Выйти
             </button>
@@ -238,131 +235,133 @@ export default function AdminPage() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 flex-1">
-        {/* M3 Stat Cards */}
+      <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-6 flex-1 w-full">
+        {/* Metric Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="p-4 bg-[#1D1B20] rounded-3xl border border-[#49454F]/30">
-            <span className="text-[11px] text-[#938F99] block">Всего пользователей</span>
-            <span className="text-xl font-bold text-[#E6E0E9] mt-0.5 block">{totalCount}</span>
+          <div className="p-4 bg-[#121316] rounded-xl border border-white/[0.08]">
+            <span className="text-[11px] text-zinc-400 block">Всего аккаунтов</span>
+            <span className="text-xl font-semibold text-white mt-1 block font-mono">{totalCount}</span>
           </div>
 
-          <div className="p-4 bg-[#1D1B20] rounded-3xl border border-[#49454F]/30">
-            <span className="text-[11px] text-[#D0BCFF] block flex items-center gap-1">
-              <Clock className="w-3 h-3 animate-pulse" />
-              Ожидают одобрения
+          <div className="p-4 bg-[#121316] rounded-xl border border-white/[0.08]">
+            <span className="text-[11px] text-zinc-400 block flex items-center gap-1.5">
+              {pendingCount > 0 && <Clock className="w-3 h-3 text-amber-400 animate-pulse" />}
+              <span>Ожидают одобрения</span>
             </span>
-            <span className="text-xl font-bold text-[#D0BCFF] mt-0.5 block">{pendingCount}</span>
+            <span className={`text-xl font-semibold mt-1 block font-mono ${pendingCount > 0 ? "text-amber-400" : "text-white"}`}>
+              {pendingCount}
+            </span>
           </div>
 
-          <div className="p-4 bg-[#1D1B20] rounded-3xl border border-[#49454F]/30">
-            <span className="text-[11px] text-[#CCC2DC] block">Одобрено клиентов</span>
-            <span className="text-xl font-bold text-[#E6E0E9] mt-0.5 block">{approvedCount}</span>
+          <div className="p-4 bg-[#121316] rounded-xl border border-white/[0.08]">
+            <span className="text-[11px] text-zinc-400 block">Одобрено пользователей</span>
+            <span className="text-xl font-semibold text-white mt-1 block font-mono">{approvedCount}</span>
           </div>
 
-          <div className="p-4 bg-[#1D1B20] rounded-3xl border border-[#49454F]/30">
-            <span className="text-[11px] text-[#938F99] block">Сгенерировано видео</span>
-            <span className="text-xl font-bold text-[#E6E0E9] mt-0.5 block">{totalGenerationsUsed}</span>
+          <div className="p-4 bg-[#121316] rounded-xl border border-white/[0.08]">
+            <span className="text-[11px] text-zinc-400 block">Сгенерировано историй</span>
+            <span className="text-xl font-semibold text-white mt-1 block font-mono">{totalGenerationsUsed}</span>
           </div>
         </div>
 
-        {/* M3 Users Table Card */}
-        <div className="bg-[#1D1B20] rounded-3xl border border-[#49454F]/30 overflow-hidden shadow-lg">
-          <div className="p-5 border-b border-[#49454F]/20 flex items-center justify-between">
-            <h2 className="font-semibold text-sm text-[#E6E0E9]">Пользователи и инвайт-коды</h2>
-            <span className="text-xs text-[#938F99]">Нажмите на код, чтобы скопировать</span>
+        {/* Users Table Card */}
+        <div className="bg-[#121316] rounded-xl border border-white/[0.08] overflow-hidden shadow-lg">
+          <div className="p-4 border-b border-white/[0.08] flex items-center justify-between">
+            <h2 className="font-medium text-xs text-white">Список пользователей и инвайт-кодов</h2>
+            <span className="text-[11px] text-zinc-500">Кликните по коду для копирования</span>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="bg-[#141218] text-[#938F99] uppercase tracking-wider font-semibold border-b border-[#49454F]/20">
+              <thead className="bg-[#0c0d10] text-zinc-400 uppercase tracking-wider text-[10px] font-medium border-b border-white/[0.08]">
                 <tr>
                   <th className="py-3 px-4">Имя</th>
-                  <th className="py-3 px-4">Секретный код</th>
+                  <th className="py-3 px-4">Код доступа</th>
                   <th className="py-3 px-4">Статус</th>
-                  <th className="py-3 px-4">Баланс генераций</th>
-                  <th className="py-3 px-4">Дата</th>
-                  <th className="py-3 px-4 text-right">Действия</th>
+                  <th className="py-3 px-4">Остаток генераций</th>
+                  <th className="py-3 px-4">Дата создания</th>
+                  <th className="py-3 px-4 text-right">Управление</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#49454F]/20">
+              <tbody className="divide-y divide-white/[0.05]">
                 {users.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-10 text-center text-[#938F99]">
-                      Нет пользователей. Создайте инвайт-код выше.
+                    <td colSpan={6} className="py-12 text-center text-zinc-500">
+                      Нет пользователей. Нажмите «Создать инвайт-код» выше.
                     </td>
                   </tr>
                 ) : (
                   users.map((u) => (
-                    <tr key={u.id} className="hover:bg-[#25232A] transition-colors">
-                      <td className="py-3.5 px-4 font-medium text-[#E6E0E9]">{u.user_name}</td>
-                      <td className="py-3.5 px-4">
+                    <tr key={u.id} className="hover:bg-zinc-900/50 transition-colors">
+                      <td className="py-3 px-4 font-medium text-white">{u.user_name}</td>
+                      <td className="py-3 px-4">
                         <button
                           onClick={() => copyToClipboard(u.secret_code)}
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#2B2930] hover:bg-[#36343B] font-mono text-[#D0BCFF] border border-[#49454F]/40 transition-colors"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-zinc-900 hover:bg-zinc-800 font-mono text-zinc-200 border border-white/10 transition-colors text-[11px]"
                         >
                           <span>{u.secret_code}</span>
-                          <Copy className="w-3 h-3 text-[#938F99]" />
+                          <Copy className="w-3 h-3 text-zinc-400" />
                           {copiedCode === u.secret_code && (
-                            <span className="text-[10px] text-[#D0BCFF] font-sans">Скопировано</span>
+                            <span className="text-[10px] text-emerald-400 font-sans">Скопировано</span>
                           )}
                         </button>
                       </td>
-                      <td className="py-3.5 px-4">
+                      <td className="py-3 px-4">
                         {u.status === "approved" && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#4F378B]/40 text-[#D0BCFF] border border-[#D0BCFF]/30">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[11px]">
                             <CheckCircle2 className="w-3 h-3" />
                             Одобрен
                           </span>
                         )}
                         {u.status === "pending" && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#2B2930] text-[#D0BCFF] border border-[#49454F]/50 animate-pulse">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 border border-amber-500/20 text-[11px]">
                             <Clock className="w-3 h-3" />
                             Ожидает
                           </span>
                         )}
                         {u.status === "rejected" && (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#8C1D18]/40 text-[#F2B8B5]">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20 text-[11px]">
                             Отклонен
                           </span>
                         )}
                       </td>
-                      <td className="py-3.5 px-4 font-mono">
-                        <span className="text-[#D0BCFF] font-semibold">
+                      <td className="py-3 px-4 font-mono">
+                        <span className="text-white font-medium">
                           {u.generations_limit - u.generations_used}
                         </span>{" "}
-                        / {u.generations_limit}
+                        <span className="text-zinc-500">/ {u.generations_limit}</span>
                       </td>
-                      <td className="py-3.5 px-4 text-[#938F99]">
+                      <td className="py-3 px-4 text-zinc-400 font-mono text-[11px]">
                         {new Date(u.created_at).toLocaleDateString("ru-RU")}
                       </td>
-                      <td className="py-3.5 px-4 text-right">
+                      <td className="py-3 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           {u.status === "pending" && (
                             <button
                               onClick={() => handleAction("approve", u.id)}
-                              className="px-3 py-1 rounded-full bg-[#D0BCFF] text-[#381E72] font-semibold transition-all hover:opacity-90"
+                              className="px-2.5 py-1 rounded bg-white text-black font-medium text-xs hover:bg-zinc-200 transition-all"
                             >
-                              Одобрить (10)
+                              Одобрить (10 ген)
                             </button>
                           )}
 
                           {u.status === "approved" && (
                             <button
                               onClick={() => handleAction("add_generations", u.id, 10)}
-                              className="px-2.5 py-1 rounded-full bg-[#2B2930] hover:bg-[#36343B] text-[#D0BCFF] border border-[#49454F]/40 transition-colors"
+                              className="px-2 py-1 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-white/5 transition-colors text-xs"
                               title="Добавить +10 генераций"
                             >
-                              +10 ген.
+                              +10 ген
                             </button>
                           )}
 
                           {u.status === "pending" && (
                             <button
                               onClick={() => handleAction("reject", u.id)}
-                              className="p-1.5 rounded-full hover:bg-[#8C1D18]/30 text-[#F2B8B5] transition-colors"
+                              className="px-2 py-1 rounded bg-zinc-900 hover:bg-red-950 text-zinc-400 hover:text-red-300 transition-colors text-xs"
                               title="Отклонить"
                             >
-                              <UserX className="w-3.5 h-3.5" />
+                              Отклонить
                             </button>
                           )}
 
@@ -372,7 +371,7 @@ export default function AdminPage() {
                                 handleAction("delete", u.id);
                               }
                             }}
-                            className="p-1.5 rounded-full hover:bg-[#2B2930] text-[#938F99] hover:text-[#F2B8B5] transition-colors"
+                            className="p-1.5 rounded hover:bg-zinc-800 text-zinc-500 hover:text-red-400 transition-colors"
                             title="Удалить"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -390,43 +389,52 @@ export default function AdminPage() {
 
       {/* Create Code Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="bg-[#211F26] max-w-md w-full rounded-3xl p-6 border border-[#49454F]/40 shadow-2xl">
-            <h3 className="text-base font-bold text-[#E6E0E9] mb-4">Создать инвайт-код</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-[#121316] max-w-sm w-full rounded-xl p-6 border border-white/[0.08] shadow-2xl space-y-4 relative">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">Создать инвайт-код</h3>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="text-zinc-400 hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
             <form onSubmit={handleCreateCode} className="space-y-3.5 text-xs">
               <div className="space-y-1">
-                <label className="block text-[#CAC4D0] font-medium">Имя пользователя</label>
+                <label className="block text-zinc-300 font-medium">Имя пользователя</label>
                 <input
                   type="text"
-                  placeholder="Например: Клиент 1"
+                  placeholder="Клиент"
                   value={newUserName}
                   onChange={(e) => setNewUserName(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-2xl bg-[#2B2930] border border-[#49454F]/40 text-[#E6E0E9] placeholder-[#938F99] focus:outline-none focus:border-[#D0BCFF]"
+                  className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-white/10 text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-400"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="block text-[#CAC4D0] font-medium">
-                  Секретный код (или оставьте пустым для автогенерации)
+                <label className="block text-zinc-300 font-medium">
+                  Секретный код (или оставьте пустым)
                 </label>
                 <input
                   type="text"
-                  placeholder="Например: VIP-CLIENT-2026"
+                  placeholder="VIP-CLIENT-2026"
                   value={newCustomCode}
                   onChange={(e) => setNewCustomCode(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-2xl bg-[#2B2930] border border-[#49454F]/40 text-[#E6E0E9] placeholder-[#938F99] font-mono focus:outline-none focus:border-[#D0BCFF]"
+                  className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-white/10 text-white placeholder-zinc-500 font-mono focus:outline-none focus:border-zinc-400"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="block text-[#CAC4D0] font-medium">Лимит генераций</label>
+                <label className="block text-zinc-300 font-medium">Лимит генераций</label>
                 <input
                   type="number"
                   min={1}
                   max={100}
                   value={newLimit}
                   onChange={(e) => setNewLimit(Number(e.target.value))}
-                  className="w-full px-3 py-2.5 rounded-2xl bg-[#2B2930] border border-[#49454F]/40 text-[#E6E0E9] focus:outline-none focus:border-[#D0BCFF]"
+                  className="w-full px-3 py-2 rounded-lg bg-zinc-900 border border-white/10 text-white focus:outline-none focus:border-zinc-400"
                 />
               </div>
 
@@ -434,13 +442,13 @@ export default function AdminPage() {
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="flex-1 py-2.5 rounded-full bg-[#2B2930] text-[#CAC4D0] font-medium transition-colors hover:bg-[#36343B]"
+                  className="flex-1 py-2 rounded-lg bg-zinc-800 text-zinc-300 font-medium transition-colors hover:bg-zinc-700"
                 >
                   Отмена
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-full bg-[#D0BCFF] text-[#381E72] font-semibold shadow-sm hover:opacity-90 transition-all"
+                  className="flex-1 py-2 rounded-lg bg-white text-black font-medium hover:bg-zinc-200 transition-all"
                 >
                   Создать код
                 </button>
