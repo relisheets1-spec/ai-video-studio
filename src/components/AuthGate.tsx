@@ -1,7 +1,7 @@
-﻿"use client";
+"use client";
 
 import React, { useState } from "react";
-import { KeyRound, User, Sparkles, Clock, AlertCircle, CheckCircle2, ArrowRight } from "lucide-react";
+import { KeyRound, User, Clock, AlertCircle, CheckCircle2, ArrowRight } from "lucide-react";
 
 interface AuthGateProps {
   onSuccess: (user: any) => void;
@@ -17,7 +17,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSuccess }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userName.trim() || !secretCode.trim()) {
-      setError("Заполните ваше имя и секретный код");
+      setError("Укажите ваше имя и секретный код");
       return;
     }
 
@@ -36,9 +36,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSuccess }) => {
       });
 
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Ошибка авторизации");
-      }
+      if (!res.ok) throw new Error(data.error || "Ошибка авторизации");
 
       if (data.user.status === "approved") {
         localStorage.setItem("ai_video_user", JSON.stringify(data.user));
@@ -77,7 +75,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSuccess }) => {
         localStorage.setItem("ai_video_user", JSON.stringify(data.user));
         onSuccess(data.user);
       } else if (data.user.status === "pending") {
-        setError("Заявка всё ещё на рассмотрении у администратора.");
+        setError("Заявка пока ожидает одобрения администратором.");
       } else {
         setError("Статус доступа: " + data.user.status);
       }
@@ -89,49 +87,47 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSuccess }) => {
   };
 
   return (
-    <div className="max-w-md w-full mx-auto px-4 py-12">
-      <div className="glass-panel-glow rounded-2xl p-8 relative overflow-hidden border border-indigo-500/20 shadow-2xl">
-        {/* Glow accent */}
-        <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-600/15 rounded-full blur-3xl pointer-events-none" />
-
-        <div className="text-center mb-8 relative">
-          <div className="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center mx-auto mb-4 text-indigo-400">
-            <KeyRound className="w-7 h-7" />
+    <div className="max-w-md w-full mx-auto px-4 py-8">
+      {/* Material 3 Elevated Card */}
+      <div className="bg-[#1D1B20] rounded-3xl p-7 sm:p-8 border border-[#49454F]/30 shadow-xl">
+        <div className="text-center mb-8">
+          <div className="w-14 h-14 rounded-full bg-[#4F378B] text-[#D0BCFF] flex items-center justify-center mx-auto mb-4 shadow-sm">
+            <KeyRound className="w-6 h-6" />
           </div>
-          <h2 className="text-2xl font-bold text-white tracking-tight">Вход в AI Video Studio</h2>
-          <p className="text-sm text-slate-400 mt-2">
-            Введите ваше имя и секретный код для доступа к генерации 8–10 минутных видео
+          <h2 className="text-2xl font-bold text-[#E6E0E9] tracking-tight">Вход в Студию</h2>
+          <p className="text-xs text-[#938F99] mt-1.5 leading-relaxed">
+            Введите имя и секретный код для доступа к генерации 8–10 минутных видеороликов
           </p>
         </div>
 
         {error && (
-          <div className="mb-6 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-sm flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+          <div className="mb-6 p-4 rounded-2xl bg-[#8C1D18]/30 border border-[#F2B8B5]/30 text-[#F2B8B5] text-xs flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{error}</span>
           </div>
         )}
 
         {pendingUser ? (
           <div className="space-y-6 text-center">
-            <div className="p-5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-left">
-              <div className="flex items-center gap-3 text-amber-300 font-semibold mb-2">
-                <Clock className="w-5 h-5 animate-pulse" />
+            <div className="p-4 rounded-2xl bg-[#2B2930] border border-[#49454F]/40 text-left space-y-2">
+              <div className="flex items-center gap-2 text-[#D0BCFF] font-medium text-xs">
+                <Clock className="w-4 h-4" />
                 <span>Заявка ожидает одобрения</span>
               </div>
-              <p className="text-xs text-slate-300 leading-relaxed">
-                Пользователь: <strong className="text-white">{pendingUser.userName}</strong>
+              <p className="text-xs text-[#CAC4D0] leading-relaxed">
+                Пользователь: <strong className="text-[#E6E0E9]">{pendingUser.userName}</strong>
                 <br />
-                Код: <code className="text-amber-300 font-mono text-xs">{pendingUser.secretCode}</code>
+                Код: <code className="text-[#D0BCFF] font-mono text-xs">{pendingUser.secretCode}</code>
               </p>
-              <div className="mt-3 pt-3 border-t border-amber-500/20 text-xs text-slate-400">
-                Администратор должен подтвердить ваш доступ в панели управления. После подтверждения вам будет начислено <strong>10 генераций</strong>.
-              </div>
+              <p className="text-[11px] text-[#938F99] pt-1">
+                Администратор одобрит ваш доступ в панели <code className="text-[#D0BCFF]">/admin</code>, после чего вам будет начислено 10 генераций.
+              </p>
             </div>
 
             <button
               onClick={handleCheckStatus}
               disabled={loading}
-              className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white font-medium text-sm transition-all shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full py-3 px-5 rounded-full bg-[#D0BCFF] text-[#381E72] font-semibold text-xs shadow-md hover:opacity-90 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
               <CheckCircle2 className="w-4 h-4" />
               <span>{loading ? "Проверка..." : "Проверить статус одобрения"}</span>
@@ -139,19 +135,20 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSuccess }) => {
 
             <button
               onClick={() => setPendingUser(null)}
-              className="text-xs text-slate-400 hover:text-slate-200 transition-colors"
+              className="text-xs text-[#938F99] hover:text-[#E6E0E9] transition-colors"
             >
               Войти с другим кодом
             </button>
           </div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-5">
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                Ваше Имя / Псевдоним
+            {/* M3 Filled Text Field 1 */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-[#CAC4D0]">
+                Ваше Имя
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#938F99]">
                   <User className="w-4 h-4" />
                 </div>
                 <input
@@ -160,40 +157,42 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSuccess }) => {
                   placeholder="Например: Артем"
                   value={userName}
                   onChange={(e) => setUserName(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+                  className="w-full pl-10 pr-4 py-3 rounded-2xl bg-[#2B2930] border border-[#49454F]/40 text-[#E6E0E9] placeholder-[#938F99] text-xs focus:outline-none focus:border-[#D0BCFF] focus:ring-1 focus:ring-[#D0BCFF] transition-all"
                 />
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5">
+            {/* M3 Filled Text Field 2 */}
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-[#CAC4D0]">
                 Секретный код доступа
               </label>
               <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-slate-500">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[#938F99]">
                   <KeyRound className="w-4 h-4" />
                 </div>
                 <input
                   type="text"
                   required
-                  placeholder="Введите код (любой или от админа)"
+                  placeholder="Введите код (например: VIP-STUDIO-2026)"
                   value={secretCode}
                   onChange={(e) => setSecretCode(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 font-mono transition-all"
+                  className="w-full pl-10 pr-4 py-3 rounded-2xl bg-[#2B2930] border border-[#49454F]/40 text-[#E6E0E9] placeholder-[#938F99] font-mono text-xs focus:outline-none focus:border-[#D0BCFF] focus:ring-1 focus:ring-[#D0BCFF] transition-all"
                 />
               </div>
-              <p className="text-[11px] text-slate-500 mt-1.5">
-                Если у вас нет кода, введите любой секретный пароль — он отправится админу на одобрение.
+              <p className="text-[11px] text-[#938F99]">
+                Если у вас нет кода, введите любой пароль — заявка уйдет админу на одобрение.
               </p>
             </div>
 
+            {/* M3 Filled Button */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full mt-2 py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-pink-500 text-white font-medium text-sm transition-all shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2 disabled:opacity-50 group"
+              className="w-full mt-3 py-3.5 px-6 rounded-full bg-[#D0BCFF] text-[#381E72] font-semibold text-xs shadow-md hover:opacity-90 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
             >
               <span>{loading ? "Вход..." : "Войти в Студию"}</span>
-              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              <ArrowRight className="w-4 h-4" />
             </button>
           </form>
         )}

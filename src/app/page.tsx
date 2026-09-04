@@ -1,23 +1,21 @@
-﻿"use client";
+"use client";
 
 import React, { useState, useEffect } from "react";
 import { Navbar } from "@/components/Navbar";
 import { AuthGate } from "@/components/AuthGate";
 import { VideoStudio } from "@/components/VideoStudio";
-import { Sparkles, Film, Wand2, ShieldCheck, Download, Users } from "lucide-react";
+import { Film, Mic, ShieldCheck, Download } from "lucide-react";
 
 export default function HomePage() {
   const [user, setUser] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Check existing session
   useEffect(() => {
     try {
       const saved = localStorage.getItem("ai_video_user");
       if (saved) {
         const parsed = JSON.parse(saved);
         setUser(parsed);
-        // Verify with backend
         fetch("/api/auth", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -46,14 +44,14 @@ export default function HomePage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#08090d]">
-        <div className="w-8 h-8 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin" />
+      <div className="min-h-screen flex items-center justify-center bg-[#141218]">
+        <div className="w-8 h-8 rounded-full border-2 border-[#D0BCFF] border-t-transparent animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col justify-between">
+    <div className="min-h-screen flex flex-col justify-between bg-[#141218] text-[#E6E0E9]">
       <Navbar user={user} onLogout={handleLogout} />
 
       <main className="flex-1">
@@ -66,65 +64,60 @@ export default function HomePage() {
             }}
           />
         ) : (
-          <div className="space-y-12 py-10">
-            {/* Hero Header */}
-            <div className="max-w-4xl mx-auto text-center px-4 space-y-4">
-              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 text-xs font-medium">
-                <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-                <span>Платформа генерации длинных видеороликов (8–10 минут)</span>
+          <div className="space-y-10 py-10">
+            {/* Material 3 Hero Section */}
+            <div className="max-w-3xl mx-auto text-center px-4 space-y-3">
+              <div className="inline-flex items-center gap-1.5 px-3.5 py-1 rounded-full bg-[#2B2930] border border-[#49454F]/40 text-[#D0BCFF] text-xs font-medium">
+                <span>Material 3 • Full HD 1080p @ 40 FPS</span>
               </div>
 
-              <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-tight">
-                Создавайте полноценные{" "}
-                <span className="bg-clip-text text-transparent bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400">
-                  8–10 минутные видео
-                </span>{" "}
-                силой искусственного интеллекта
+              <h1 className="text-3xl sm:text-4xl font-bold text-[#E6E0E9] tracking-tight">
+                Генератор видеоисторий 8–10 минут
               </h1>
 
-              <p className="text-sm sm:text-base text-slate-400 max-w-2xl mx-auto leading-relaxed">
-                Сценарий от GPT-4o, натуральная озвучка через OpenAI TTS, визуализация DALL-E 3 и кинематографичный рендер с субтитрами.
+              <p className="text-xs sm:text-sm text-[#938F99] max-w-xl mx-auto leading-relaxed">
+                Введите сюжет от 2 до 10 предложений. ИИ создаст 30–35 связанных кадров, натуральную озвучку на русском или казахском языке и синхронные субтитры.
               </p>
             </div>
 
-            {/* Login / Auth Gate */}
+            {/* Login / Auth Card */}
             <AuthGate
               onSuccess={(u) => {
                 setUser(u);
               }}
             />
 
-            {/* Features showcase */}
-            <div className="max-w-6xl mx-auto px-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-8">
-              <div className="p-5 glass-panel rounded-2xl border border-white/5 space-y-2">
-                <Film className="w-6 h-6 text-indigo-400" />
-                <h3 className="font-semibold text-sm text-white">Хронометраж 8–10 минут</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Полноценные видеоролики из 16–22 сцен с глубоким повествованием.
+            {/* Material 3 Feature Cards */}
+            <div className="max-w-5xl mx-auto px-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-6">
+              <div className="p-4 bg-[#1D1B20] rounded-3xl border border-[#49454F]/30 space-y-1.5">
+                <Film className="w-5 h-5 text-[#D0BCFF]" />
+                <h3 className="font-semibold text-xs text-[#E6E0E9]">30–35 кадров</h3>
+                <p className="text-[11px] text-[#938F99] leading-snug">
+                  Полноценные 8–10 минутные истории с плавной анимацией.
                 </p>
               </div>
 
-              <div className="p-5 glass-panel rounded-2xl border border-white/5 space-y-2">
-                <Wand2 className="w-6 h-6 text-purple-400" />
-                <h3 className="font-semibold text-sm text-white">OpenAI TTS & DALL-E 3</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Чистый дикторский звук и широкоформатные кинематографичные кадры 16:9.
+              <div className="p-4 bg-[#1D1B20] rounded-3xl border border-[#49454F]/30 space-y-1.5">
+                <Mic className="w-5 h-5 text-[#D0BCFF]" />
+                <h3 className="font-semibold text-xs text-[#E6E0E9]">Голоса (RU & KZ)</h3>
+                <p className="text-[11px] text-[#938F99] leading-snug">
+                  Примеры озвучки на русском и казахском по 15 секунд.
                 </p>
               </div>
 
-              <div className="p-5 glass-panel rounded-2xl border border-white/5 space-y-2">
-                <ShieldCheck className="w-6 h-6 text-emerald-400" />
-                <h3 className="font-semibold text-sm text-white">Контроль и квоты</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Вход по кодам с подтверждением администратора. 10 генераций на пользователя.
+              <div className="p-4 bg-[#1D1B20] rounded-3xl border border-[#49454F]/30 space-y-1.5">
+                <ShieldCheck className="w-5 h-5 text-[#D0BCFF]" />
+                <h3 className="font-semibold text-xs text-[#E6E0E9]">Доступ и квота</h3>
+                <p className="text-[11px] text-[#938F99] leading-snug">
+                  Вход по кодам с одобрением админа. 10 генераций на балансе.
                 </p>
               </div>
 
-              <div className="p-5 glass-panel rounded-2xl border border-white/5 space-y-2">
-                <Download className="w-6 h-6 text-pink-400" />
-                <h3 className="font-semibold text-sm text-white">Экспорт WebM / MP4</h3>
-                <p className="text-xs text-slate-400 leading-relaxed">
-                  Мгновенный просмотр в браузере, скачивание и поддержка локального Docker.
+              <div className="p-4 bg-[#1D1B20] rounded-3xl border border-[#49454F]/30 space-y-1.5">
+                <Download className="w-5 h-5 text-[#D0BCFF]" />
+                <h3 className="font-semibold text-xs text-[#E6E0E9]">1080p @ 40 FPS</h3>
+                <p className="text-[11px] text-[#938F99] leading-snug">
+                  Скачивание в Full HD с полной поддержкой перемотки по таймлайну.
                 </p>
               </div>
             </div>
@@ -133,10 +126,10 @@ export default function HomePage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-white/10 py-6 mt-12 bg-black/40">
-        <div className="max-w-7xl mx-auto px-4 text-center text-xs text-slate-500 flex flex-col sm:flex-row items-center justify-between gap-2">
-          <span>© 2026 AI Video Studio. Работает на OpenAI GPT-4o, TTS & DALL-E 3.</span>
-          <span>База данных: Supabase | Хостинг: Vercel</span>
+      <footer className="border-t border-[#49454F]/20 py-5 mt-10 bg-[#141218]">
+        <div className="max-w-7xl mx-auto px-4 text-center text-xs text-[#938F99] flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span>AI Video Studio • Google Material M3 Design</span>
+          <span>OpenAI GPT-4o, TTS & DALL-E 3 • Supabase & Vercel</span>
         </div>
       </footer>
     </div>
