@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
 
     const cleanPrompt = `${String(visualPrompt).slice(0, 500)}. Style: ${String(style).slice(0, 80)}, 16:9 widescreen composition, cinematic lighting, masterpiece.`;
 
-    // Call OpenAI image generation using supported gpt-image-1-mini model
+    // Call OpenAI image generation using supported gpt-image-1-mini with medium quality and widescreen 1536x1024
     const openAiRes = await fetch("https://api.openai.com/v1/images/generations", {
       method: "POST",
       headers: {
@@ -43,6 +43,8 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         model: "gpt-image-1-mini",
         prompt: cleanPrompt,
+        quality: "medium",
+        size: "1536x1024",
         n: 1,
       }),
     });

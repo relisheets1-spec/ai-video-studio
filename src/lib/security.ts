@@ -76,9 +76,17 @@ export function checkOpenAiRateLimit(ip: string): { allowed: boolean; error?: st
 export function sanitizeScriptInput(data: any): {
   valid: boolean;
   error?: string;
-  sanitized?: { topic: string; style: string; voice: string; targetMinutes: number };
+  sanitized?: {
+    topic: string;
+    genre: string;
+    style: string;
+    voice: string;
+    targetMinutes: number;
+    language: "ru" | "kz";
+    secretCode?: string;
+  };
 } {
-  const { topic, style, voice, targetMinutes } = data || {};
+  const { topic, genre, style, voice, targetMinutes, language, secretCode } = data || {};
 
   if (!topic || typeof topic !== "string") {
     return { valid: false, error: "Укажите тему сюжета" };
@@ -89,30 +97,34 @@ export function sanitizeScriptInput(data: any): {
     return { valid: false, error: "Сюжет слишком короткий (минимум 5 символов)" };
   }
 
-  if (cleanTopic.length > 1500) {
-    return { valid: false, error: "Сюжет слишком длинный (максимум 1500 символов для защиты токенов)" };
+  if (cleanTopic.length > 2000) {
+    return { valid: false, error: "Сюжет слишком длинный (максимум 2000 символов)" };
   }
 
-  const chosenVoice = typeof voice === "string" && voice.length > 0 ? voice.slice(0, 80) : "s0phbFBBp708ZeIy8oGx";
-  const cleanStyle = typeof style === "string" ? style.slice(0, 100) : "cinematic photorealistic";
-  
+  const cleanGenre = typeof genre === "string" && genre.length > 0 ? genre.slice(0, 50) : "thriller";
+  const chosenVoice = typeof voice === "string" && voice.length > 0 ? voice.slice(0, 80) : "nPczCjzI2devNBz1zQrb";
+  const cleanStyle = typeof style === "string" ? style.slice(0, 100) : "cinematic photorealistic 8k";
+  const chosenLang: "ru" | "kz" = language === "kz" ? "kz" : "ru";
+  const cleanSecretCode = typeof secretCode === "string" ? secretCode.trim() : undefined;
+
   const numMinutes = Number(targetMinutes);
   let chosenMinutes = 8;
   if (numMinutes <= 1) {
-    chosenMinutes = 0.5; // Test mode (3 frames, ~20-30s)
-  } else if (numMinutes >= 10) {
-    chosenMinutes = 10;
+    chosenMinutes = 0.5; // Quick test mode (3 frames, ~20-30s)
   } else {
-    chosenMinutes = 8;
+    chosenMinutes = 8; // Strictly 8 minutes (25 frames)
   }
 
   return {
     valid: true,
     sanitized: {
       topic: cleanTopic,
+      genre: cleanGenre,
       style: cleanStyle,
       voice: chosenVoice,
       targetMinutes: chosenMinutes,
+      language: chosenLang,
+      secretCode: cleanSecretCode,
     },
   };
 }

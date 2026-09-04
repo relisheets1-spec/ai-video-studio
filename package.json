@@ -9,10 +9,10 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
     "@supabase/supabase-js": "^2.45.4",
     "clsx": "^2.1.1",
     "fix-webm-duration": "^1.0.6",
-    "lucide-react": "^0.453.0",
     "mp4-muxer": "^5.2.2",
     "next": "^14.2.15",
     "openai": "^4.68.0",

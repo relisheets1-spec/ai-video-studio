@@ -24,6 +24,7 @@ export interface VideoGeneration {
   id: string;
   user_id: string;
   topic: string;
+  genre?: string;
   style: string;
   voice: string;
   status: "draft" | "generating_script" | "generating_audio" | "generating_images" | "completed" | "failed";

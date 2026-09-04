@@ -1,0 +1,14 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "studio",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": [
+        "/c",
+        "subst X: \"C:\\Users\\oatmeal\\Desktop\\Nurtaskot#08\" 2>nul & X: & cd \\ & npm run dev"
+      ],
+      "port": 3000
+    }
+  ]
+}

@@ -1,186 +1,257 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { Play, Pause, Volume2 } from "lucide-react";
+import { SpeakerHigh, Play, Pause, User, CheckCircle } from "@phosphor-icons/react";
 import { VoiceOption } from "@/lib/types";
+import { FlagKZ, FlagRU, IconTile, cn } from "@/components/ui";
 
 interface VoiceSelectorProps {
   selectedVoice: VoiceOption;
   onSelectVoice: (voice: VoiceOption) => void;
+  language: "ru" | "kz";
+  onLanguageChange: (lang: "ru" | "kz") => void;
 }
 
-const VOICES: { id: VoiceOption; name: string; tag: string; previewUrl: string }[] = [
+export interface VoiceItem {
+  id: VoiceOption;
+  name: string;
+  gender: "male" | "female";
+  roleTitle: string;
+  tag: string;
+  previewUrl: string;
+  lang: "ru" | "kz";
+}
+
+export const VOICES_CONFIG: VoiceItem[] = [
+  // Russian voices (Strictly 2: 1 Male, 1 Female)
   {
     id: "s0phbFBBp708ZeIy8oGx",
-    name: "Arcadays",
-    tag: "Мужской • Теплый, живой (RU/KZ)",
-    previewUrl:
-      "https://api.us.elevenlabs.io/v1/voices/s0phbFBBp708ZeIy8oGx/previews/audio?payload=eyJ2b2ljZV9zb3VyY2UiOiJjdXN0b20iLCJ1c2VyX2lkIjoidXpsSGRDbHgzdGVoTVl1Z3pDMjJ5Zmw4R1duMSIsImZpbGVuYW1lIjoiMTBhZjlkMjMtMDA4ZC00MjNkLTkwZDItM2JkMzk3N2U2YjgxLm1wMyIsInRpbWVzdGFtcCI6MTc4ODU1MjAwMDAwMDAwMH0%3D",
+    name: "Arcadays (Аркадий)",
+    gender: "male",
+    roleTitle: "Мужской голос",
+    tag: "Глубокий, теплый тон • Идеально для триллеров и историй",
+    previewUrl: "/audio/samples/arcadays_sample.mp3",
+    lang: "ru",
   },
   {
     id: "Jhqrj1kYppTq06Kj3KFa",
-    name: "Mishki",
-    tag: "Женский • Мягкий, душевный (RU/KZ)",
-    previewUrl:
-      "https://storage.googleapis.com/eleven-public-prod/database/user/IetPBzXAXTNaz50V3de9Gn1BiG02/voices/Jhqrj1kYppTq06Kj3KFa/436dcd69-9cbb-4246-a694-9e2d37a6033f.mp3",
+    name: "Mishki (Мишки)",
+    gender: "female",
+    roleTitle: "Женский голос",
+    tag: "Бархатный, кинематографичный тембр • Для драмы и детективов",
+    previewUrl: "/audio/samples/mishki_sample.mp3",
+    lang: "ru",
   },
-  {
-    id: "nPczCjzI2devNBz1zQrb",
-    name: "Brian",
-    tag: "Мужской • Глубокий баритон (RU/KZ)",
-    previewUrl:
-      "https://api.us.elevenlabs.io/v1/voices/nPczCjzI2devNBz1zQrb/previews/audio?payload=eyJ2b2ljZV9zb3VyY2UiOiJwcmVtYWRlIiwiZmlsZW5hbWUiOiIyZGQzZTcyYy00ZmQzLTQyZjEtOTNlYS1hYmM1ZDRlNWFhMWQubXAzIiwidGltZXN0YW1wIjoxNzg4NTUyMDAwMDAwMDAwfQ%3D%3D",
-  },
+
+  // Kazakh voices (Strictly 2: 1 Male, 1 Female)
   {
     id: "JBFqnCBsd6RMkjVDRZzb",
-    name: "George",
-    tag: "Мужской • Рассказчик историй (RU/KZ)",
-    previewUrl:
-      "https://api.us.elevenlabs.io/v1/voices/JBFqnCBsd6RMkjVDRZzb/previews/audio?payload=eyJ2b2ljZV9zb3VyY2UiOiJwcmVtYWRlIiwiZmlsZW5hbWUiOiJlNjIwNmQxYS0wNzIxLTQ3ODctYWFmYi0wNmE2ZTcwNWNhYzUubXAzIiwidGltZXN0YW1wIjoxNzg4NTUyMDAwMDAwMDAwfQ%3D%3D",
+    name: "Ерлан (Ер адам)",
+    gender: "male",
+    roleTitle: "Ер адам дауысы",
+    tag: "Шешен, салиқалы баяндаушы • Тарихи және заманауи оқиғаларға",
+    previewUrl: "/audio/samples/kz_male_sample.mp3",
+    lang: "kz",
   },
   {
     id: "EXAVITQu4vr4xnSDxMaL",
-    name: "Sarah",
-    tag: "Женский • Уверенный, спокойный (RU/KZ)",
-    previewUrl:
-      "https://storage.googleapis.com/eleven-public-prod/premade/voices/EXAVITQu4vr4xnSDxMaL/01a3e33c-6e99-4ee7-8543-ff2216a32186.mp3",
-  },
-  {
-    id: "pNInz6obpgDQGcFmaJgB",
-    name: "Adam",
-    tag: "Мужской • Эпичный нарратор (RU/KZ)",
-    previewUrl:
-      "https://storage.googleapis.com/eleven-public-prod/premade/voices/pNInz6obpgDQGcFmaJgB/d6905d7a-dd26-4187-bfff-1bd3a5ea7cac.mp3",
+    name: "Айгерім (Әйел адам)",
+    gender: "female",
+    roleTitle: "Әйел адам дауысы",
+    tag: "Жұмсақ, анық, әсерлі тембр • Драма және кино хикаяларына",
+    previewUrl: "/audio/samples/kz_female_sample.mp3",
+    lang: "kz",
   },
 ];
 
-export const VoiceSelector: React.FC<VoiceSelectorProps> = ({ selectedVoice, onSelectVoice }) => {
-  const [lang, setLang] = useState<"ru" | "kz">("ru");
-  const [playingVoice, setPlayingVoice] = useState<string | null>(null);
+export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
+  selectedVoice,
+  onSelectVoice,
+  language,
+  onLanguageChange,
+}) => {
+  const [playingVoiceKey, setPlayingVoiceKey] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const handlePlaySample = (e: React.MouseEvent, voiceItem: typeof VOICES[0]) => {
-    e.stopPropagation();
+  const filteredVoices = VOICES_CONFIG.filter((v) => v.lang === language);
 
-    if (playingVoice === voiceItem.id) {
+  const handlePlaySample = (e: React.MouseEvent, voiceItem: VoiceItem) => {
+    e.stopPropagation();
+    const voiceKey = `${voiceItem.lang}_${voiceItem.id}_${voiceItem.name}`;
+
+    if (playingVoiceKey === voiceKey) {
       if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
       }
-      setPlayingVoice(null);
+      setPlayingVoiceKey(null);
       return;
     }
 
-    if (audioRef.current) audioRef.current.pause();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
 
     const audio = new Audio(voiceItem.previewUrl);
     audioRef.current = audio;
 
-    audio.onended = () => setPlayingVoice(null);
-    audio.onerror = () => setPlayingVoice(null);
+    audio.onended = () => setPlayingVoiceKey(null);
+    audio.onerror = () => setPlayingVoiceKey(null);
 
     audio
       .play()
-      .then(() => {
-        setPlayingVoice(voiceItem.id);
-      })
-      .catch(() => {
-        setPlayingVoice(null);
-      });
+      .then(() => setPlayingVoiceKey(voiceKey))
+      .catch(() => setPlayingVoiceKey(null));
+  };
+
+  const switchLanguage = (lang: "ru" | "kz") => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
+    setPlayingVoiceKey(null);
+    onLanguageChange(lang);
+
+    // Automatically select the primary voice of chosen language if current isn't valid for that language
+    const currentMatchesLang = VOICES_CONFIG.some((v) => v.id === selectedVoice && v.lang === lang);
+    if (!currentMatchesLang) {
+      const nextDefaultVoice = lang === "kz" ? "JBFqnCBsd6RMkjVDRZzb" : "s0phbFBBp708ZeIy8oGx";
+      onSelectVoice(nextDefaultVoice);
+    }
   };
 
   return (
-    <div className="space-y-3.5">
-      <div className="flex items-center justify-between">
-        <span className="text-sm sm:text-base font-bold text-zinc-100 flex items-center gap-2">
-          <Volume2 className="w-4 h-4 text-blue-400" />
-          <span>Голос диктора (ElevenLabs v2.5 / v3 Multilingual)</span>
-        </span>
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <IconTile size="sm">
+            <SpeakerHigh size={16} weight="fill" />
+          </IconTile>
+          <div className="min-w-0">
+            <span className="block text-[13px] font-medium text-ink leading-tight">
+              Голос диктора
+            </span>
+          </div>
+        </div>
 
-        {/* Language selector toggle */}
-        <div className="flex items-center rounded-xl bg-zinc-900 border border-white/10 p-1 text-xs sm:text-sm font-semibold shadow-inner">
-          <button
-            type="button"
-            onClick={() => {
-              if (playingVoice && audioRef.current) audioRef.current.pause();
-              setPlayingVoice(null);
-              setLang("ru");
-            }}
-            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-              lang === "ru"
-                ? "bg-blue-600 text-white font-bold shadow-md shadow-blue-600/30"
-                : "text-zinc-400 hover:text-white"
-            }`}
-          >
-            RU (Русский)
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (playingVoice && audioRef.current) audioRef.current.pause();
-              setPlayingVoice(null);
-              setLang("kz");
-            }}
-            className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-              lang === "kz"
-                ? "bg-blue-600 text-white font-bold shadow-md shadow-blue-600/30"
-                : "text-zinc-400 hover:text-white"
-            }`}
-          >
-            KZ (Қазақша)
-          </button>
+        {/* Переключатель языка. Эмодзи-флаги заменены текстовыми бейджами —
+            на Windows они рендерятся пустыми прямоугольниками. */}
+        <div
+          role="tablist"
+          aria-label="Язык озвучки"
+          className="inline-flex items-center p-1 rounded-full bg-surface-2 border border-hairline shrink-0"
+        >
+          {([
+            { code: "ru" as const, label: "Русский", Flag: FlagRU },
+            { code: "kz" as const, label: "Қазақша", Flag: FlagKZ },
+          ]).map((l) => {
+            const active = language === l.code;
+            return (
+              <button
+                key={l.code}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => switchLanguage(l.code)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full",
+                  "text-[12.5px] font-medium transition-colors cursor-pointer",
+                  active
+                    ? "bg-contrast text-contrast-ink"
+                    : "text-muted hover:text-ink"
+                )}
+              >
+                <l.Flag className="w-[18px] h-[13px] rounded-[2px] shrink-0" />
+                <span>{l.label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        {VOICES.map((v) => {
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {filteredVoices.map((v) => {
           const isSelected = selectedVoice === v.id;
-          const isPlaying = playingVoice === v.id;
+          const voiceKey = `${v.lang}_${v.id}_${v.name}`;
+          const isPlaying = playingVoiceKey === voiceKey;
 
           return (
             <div
-              key={v.id}
+              key={voiceKey}
+              role="button"
+              tabIndex={0}
+              aria-pressed={isSelected}
               onClick={() => onSelectVoice(v.id)}
-              className={`p-3.5 rounded-xl border text-left cursor-pointer transition-all flex flex-col justify-between gap-3 select-none ${
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelectVoice(v.id);
+                }
+              }}
+              className={cn(
+                "relative flex items-center justify-between gap-3 p-4 rounded-control border",
+                "text-left cursor-pointer select-none transition-colors duration-150",
                 isSelected
-                  ? "bg-blue-950/40 border-blue-500 ring-2 ring-blue-500/50 shadow-lg shadow-blue-950/50"
-                  : "bg-zinc-900/80 border-white/10 hover:border-white/20 hover:bg-zinc-900 text-zinc-400"
-              }`}
+                  ? "bg-surface-2 border-accent"
+                  : "bg-surface border-hairline hover:border-hairline-strong hover:bg-surface-2"
+              )}
             >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <div className={`text-sm sm:text-base font-bold ${isSelected ? "text-white" : "text-zinc-200"}`}>
-                    {v.name}
-                  </div>
-                  <div className="text-xs text-zinc-400 mt-0.5 line-clamp-1">
-                    {v.tag}
-                  </div>
+              <div className="min-w-0 flex-1 flex flex-col gap-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 h-5 px-2 rounded-full text-[11px] font-medium",
+                      isSelected
+                        ? "bg-contrast text-contrast-ink"
+                        : "bg-surface-3 text-muted"
+                    )}
+                  >
+                    <User size={11} />
+                    {v.roleTitle}
+                  </span>
+
+                  {isSelected && (
+                    <span className="inline-flex items-center gap-1 text-[11.5px] font-medium text-accent">
+                      <CheckCircle size={14} weight="fill" />
+                      Выбран
+                    </span>
+                  )}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={(e) => handlePlaySample(e, v)}
-                  className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 transition-all ${
-                    isPlaying
-                      ? "bg-blue-500 text-white ring-2 ring-blue-400 shadow-md animate-pulse"
-                      : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white"
-                  }`}
-                  title={isPlaying ? "Остановить сэмпл" : "Прослушать образец голоса (15с)"}
-                >
-                  {isPlaying ? (
-                    <Pause className="w-3.5 h-3.5 fill-current" />
-                  ) : (
-                    <Play className="w-3.5 h-3.5 ml-0.5 fill-current" />
-                  )}
-                </button>
+                <div className="text-[14.5px] font-semibold text-ink truncate">
+                  {v.name}
+                </div>
+
+
               </div>
 
-              {isSelected && (
-                <div className="flex items-center gap-2 text-xs font-bold text-blue-400">
-                  <span className="w-2 h-2 rounded-full bg-blue-400" />
-                  <span>Выбран</span>
-                </div>
-              )}
+              <button
+                type="button"
+                onClick={(e) => handlePlaySample(e, v)}
+                title={isPlaying ? "Остановить прослушивание" : "Прослушать сэмпл голоса"}
+                aria-label={isPlaying ? "Остановить прослушивание" : "Прослушать сэмпл голоса"}
+                className={cn(
+                  "w-12 h-12 shrink-0 rounded-control border",
+                  "flex flex-col items-center justify-center gap-0.5",
+                  "transition-colors cursor-pointer",
+                  // Лайм ЗАЛИВКОЙ с тёмным глифом — 12.5:1 в обеих темах.
+                  // Обратный вариант (лаймовый глиф на контрастной плитке)
+                  // в тёмной теме давал 1.36:1.
+                  isPlaying || isSelected
+                    ? "bg-accent text-accent-ink border-transparent"
+                    : "bg-surface-2 text-muted border-hairline hover:text-ink hover:border-hairline-strong"
+                )}
+              >
+                {isPlaying ? (
+                  <Pause size={17} weight="fill" />
+                ) : (
+                  <Play size={17} weight="fill" className="ml-0.5" />
+                )}
+                <span className="text-[9.5px] font-semibold uppercase tracking-wide">
+                  {isPlaying ? "Стоп" : "Сэмпл"}
+                </span>
+              </button>
             </div>
           );
         })}

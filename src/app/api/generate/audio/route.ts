@@ -1,24 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { openai } from "@/lib/openai";
 
-const ELEVENLABS_API_KEY =
-  process.env.ELEVENLABS_API_KEY || "sk_d9b27d5d621e8b5d37ff215dc8280a0f3c140dc89810d9ca";
-
-// Fallback mappings for ElevenLabs free tier in case library voices are restricted
-const FALLBACK_MAP: Record<string, string> = {
-  "s0phbFBBp708ZeIy8oGx": "nPczCjzI2devNBz1zQrb", // Arcadays -> Brian (deep resonant baritone)
-  "Jhqrj1kYppTq06Kj3KFa": "EXAVITQu4vr4xnSDxMaL", // Mishki -> Sarah (warm confident female)
-  "alloy": "nPczCjzI2devNBz1zQrb",
-  "echo": "JBFqnCBsd6RMkjVDRZzb",
-  "fable": "pNInz6obpgDQGcFmaJgB",
-  "onyx": "nPczCjzI2devNBz1zQrb",
-  "nova": "EXAVITQu4vr4xnSDxMaL",
-  "shimmer": "pFZP5JQG7iQjIQuC4Bku",
-};
+// Fallback mappings for ElevenLabs: strictly avoid English voice fallbacks (Brian/Sarah)
+const FALLBACK_MAP: Record<string, string> = {};
 
 export async function POST(req: NextRequest) {
   try {
-    const { videoId, sceneId, narration, voice = "s0phbFBBp708ZeIy8oGx" } = await req.json();
+    const { videoId, sceneId, narration, voice = "s0phbFBBp708ZeIy8oGx", elevenLabsApiKey } = await req.json();
+
+    const effectiveApiKey =
+      typeof elevenLabsApiKey === "string" && elevenLabsApiKey.trim().length > 10
+        ? elevenLabsApiKey.trim()
+        : process.env.ELEVENLABS_API_KEY ? process.env.ELEVENLABS_API_KEY.trim() : "";
 
     if (!videoId || sceneId === undefined || !narration) {
       return NextResponse.json({ error: "videoId, sceneId и narration обязательны" }, { status: 400 });
@@ -28,7 +22,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Недопустимый номер сцены" }, { status: 400 });
     }
 
-    // Verify valid active video session (protects ElevenLabs API from external abuse)
+    // Verify valid active video session (protects TTS from abuse)
     const { data: video, error: videoErr } = await supabaseAdmin
       .from("video_generations")
       .select("id, created_at")
@@ -45,69 +39,118 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanNarration = String(narration).slice(0, 600).trim();
+    let buffer: Buffer | null = null;
 
-    // Determine initial voice ID
-    let voiceId = voice || "s0phbFBBp708ZeIy8oGx";
-    if (
-      FALLBACK_MAP[voiceId] &&
-      !voiceId.includes("s0phbFBBp708ZeIy8oGx") &&
-      !voiceId.includes("Jhqrj1kYppTq06Kj3KFa") &&
-      !voiceId.includes("nPczCjzI2devNBz1zQrb") &&
-      !voiceId.includes("EXAVITQu4vr4xnSDxMaL") &&
-      !voiceId.includes("JBFqnCBsd6RMkjVDRZzb") &&
-      !voiceId.includes("pNInz6obpgDQGcFmaJgB")
-    ) {
-      voiceId = FALLBACK_MAP[voiceId];
-    }
+    // 1. If ElevenLabs key is available, attempt ElevenLabs synthesis first
+    if (effectiveApiKey) {
+      let voiceId = voice || "s0phbFBBp708ZeIy8oGx";
+      if (
+        FALLBACK_MAP[voiceId] &&
+        !voiceId.includes("s0phbFBBp708ZeIy8oGx") &&
+        !voiceId.includes("Jhqrj1kYppTq06Kj3KFa") &&
+        !voiceId.includes("nPczCjzI2devNBz1zQrb") &&
+        !voiceId.includes("EXAVITQu4vr4xnSDxMaL") &&
+        !voiceId.includes("JBFqnCBsd6RMkjVDRZzb") &&
+        !voiceId.includes("pNInz6obpgDQGcFmaJgB") &&
+        !voiceId.includes("FGY2WhTYpPnrIDTdsKH5")
+      ) {
+        voiceId = FALLBACK_MAP[voiceId];
+      }
 
-    // Call ElevenLabs Text-to-Speech API
-    let elevenRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
-      method: "POST",
-      headers: {
-        "xi-api-key": ELEVENLABS_API_KEY,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text: cleanNarration,
-        model_id: "eleven_multilingual_v2", // Multilingual model for RU and KZ
-        voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.75,
-        },
-      }),
-    });
-
-    // If Free tier restricts community library voices, automatically retry with premade ElevenLabs voice
-    if (elevenRes.status === 402 && FALLBACK_MAP[voiceId]) {
-      const fallbackVoiceId = FALLBACK_MAP[voiceId];
-      console.warn(`ElevenLabs free tier library restriction. Falling back to premade voice: ${fallbackVoiceId}`);
-      elevenRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${fallbackVoiceId}`, {
-        method: "POST",
-        headers: {
-          "xi-api-key": ELEVENLABS_API_KEY,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          text: cleanNarration,
-          model_id: "eleven_multilingual_v2",
-          voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
+      try {
+        let elevenRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+          method: "POST",
+          headers: {
+            "xi-api-key": effectiveApiKey,
+            "Content-Type": "application/json",
           },
-        }),
-      });
+          body: JSON.stringify({
+            text: cleanNarration,
+            model_id: "eleven_v3",
+            voice_settings: {
+              stability: 0.5,
+              similarity_boost: 0.75,
+            },
+          }),
+        });
+
+        // If eleven_v3 is restricted or errors, retry with multilingual_v2
+        if (!elevenRes.ok && elevenRes.status !== 401) {
+          elevenRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
+            method: "POST",
+            headers: {
+              "xi-api-key": effectiveApiKey,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              text: cleanNarration,
+              model_id: "eleven_multilingual_v2",
+              voice_settings: {
+                stability: 0.5,
+                similarity_boost: 0.75,
+              },
+            }),
+          });
+        }
+
+        // Retry with premade fallback voice if library voice is restricted
+        if (elevenRes.status === 402 && FALLBACK_MAP[voiceId]) {
+          const fallbackVoiceId = FALLBACK_MAP[voiceId];
+          elevenRes = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${fallbackVoiceId}`, {
+            method: "POST",
+            headers: {
+              "xi-api-key": effectiveApiKey,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              text: cleanNarration,
+              model_id: "eleven_multilingual_v2",
+              voice_settings: {
+                stability: 0.5,
+                similarity_boost: 0.75,
+              },
+            }),
+          });
+        }
+
+        if (elevenRes.ok) {
+          const audioArrayBuffer = await elevenRes.arrayBuffer();
+          buffer = Buffer.from(audioArrayBuffer);
+        } else {
+          console.warn("ElevenLabs TTS returned error status:", elevenRes.status, await elevenRes.text());
+        }
+      } catch (elevenErr) {
+        console.warn("ElevenLabs TTS network error, falling back to OpenAI TTS:", elevenErr);
+      }
     }
 
-    if (!elevenRes.ok) {
-      const errText = await elevenRes.text();
-      console.error("ElevenLabs TTS Error:", elevenRes.status, errText);
-      throw new Error(`Ошибка ElevenLabs (${elevenRes.status}): ${errText}`);
+    // 2. Fallback to OpenAI TTS if ElevenLabs was unavailable or failed
+    if (!buffer) {
+      try {
+        const isFemale =
+          voice.toLowerCase().includes("sarah") ||
+          voice.toLowerCase().includes("mishki") ||
+          voice.toLowerCase().includes("айгерім") ||
+          voice.toLowerCase().includes("female") ||
+          voice === "Jhqrj1kYppTq06Kj3KFa" ||
+          voice === "EXAVITQu4vr4xnSDxMaL";
+        const openaiVoice = isFemale ? "nova" : "onyx";
+
+        const openAiRes = await openai.audio.speech.create({
+          model: "tts-1",
+          voice: openaiVoice,
+          input: cleanNarration,
+        });
+
+        const openAiBuffer = await openAiRes.arrayBuffer();
+        buffer = Buffer.from(openAiBuffer);
+      } catch (openAiErr: any) {
+        console.error("OpenAI TTS Fallback Error:", openAiErr);
+        throw new Error("Не удалось сгенерировать аудио озвучки");
+      }
     }
 
-    const audioArrayBuffer = await elevenRes.arrayBuffer();
-    const buffer = Buffer.from(audioArrayBuffer);
-
-    // Upload to Supabase Storage
+    // 3. Upload audio to Supabase Storage
     const filePath = `audio/${videoId}/scene_${sceneId}.mp3`;
     const { error: uploadError } = await supabaseAdmin.storage
       .from("video-assets")
@@ -135,6 +178,6 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: any) {
     console.error("Audio Generation Error:", err);
-    return NextResponse.json({ error: err.message || "Ошибка при генерации аудио ElevenLabs" }, { status: 500 });
+    return NextResponse.json({ error: err.message || "Ошибка при генерации аудио" }, { status: 500 });
   }
 }

@@ -1,11 +1,42 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Play, History, Loader2, AlertCircle, Wand2, SlidersHorizontal, Clock, Film, Sparkles } from "lucide-react";
+import {
+  Play,
+  Clock,
+  Sliders,
+  FilmStrip,
+  Key,
+  ArrowCounterClockwise,
+  Lightning,
+  MagnifyingGlass,
+  Heart,
+  Smiley,
+  Planet,
+  Ghost,
+  Camera,
+  Archive,
+  Palette,
+  TextAa,
+  Trash,
+} from "@phosphor-icons/react";
 import { Scene, VideoGeneration, VoiceOption } from "@/lib/types";
 import { VideoPlayer } from "./VideoPlayer";
 import { VideoExporter } from "./VideoExporter";
 import { VoiceSelector } from "./VoiceSelector";
+import {
+  Alert,
+  Badge,
+  StatTile,
+  Button,
+  IconTile,
+  Modal,
+  Progress,
+  SelectCard,
+  Textarea,
+  Tile,
+  cn,
+} from "@/components/ui";
 
 interface VideoStudioProps {
   user: {
@@ -19,41 +50,90 @@ interface VideoStudioProps {
   onUserUpdate: (updated: any) => void;
 }
 
-const INSPIRATION_THEMES = [
-  {
-    label: "Римская империя",
-    prompt: "История Римской Империи: путь легионеров от северных рубежей Британии до величия Рима, гладиаторских битв в Колизее и падения Вечного города.",
-  },
-  {
-    label: "Глубины океана",
-    prompt: "В 2045 году глубоководная исследовательская станция обнаруживает древний артефакт на дне Марианской впадины. Экспедиция сталкивается с неизвестными сигналами из бездны.",
-  },
-  {
-    label: "Марсианская колония",
-    prompt: "Хроника первых поселенцев на Марсе: возведение куполов, добыча воды из полярных льдов, выживание в пылевых бурях и рождение первого поколения людей вне Земли.",
-  },
-  {
-    label: "Черные дыры",
-    prompt: "Тайны горизонта событий и гравитационных сингулярностей: как вещество преодолевает предел невозврата и что происходит с тканью пространства и времени.",
-  },
-  {
-    label: "Древний Египет",
-    prompt: "Эпоха фараонов и архитекторов Великих Пирамид: ритуалы жрецов, инженерные подвиги древности и вера в загробное путешествие по Книге Мертвых.",
-  },
+// Genre options with rich Phosphor icons and vibrant individual color accents
+const GENRE_OPTIONS = [
+  { id: "thriller", label: "Триллер", icon: Lightning },
+  { id: "detective", label: "Детектив", icon: MagnifyingGlass },
+  { id: "drama", label: "Драма", icon: Heart },
+  { id: "comedy", label: "Комедия", icon: Smiley },
+  { id: "scifi_adventure", label: "Sci-Fi", icon: Planet },
+  { id: "horror", label: "Хоррор", icon: Ghost },
 ];
 
 const STYLE_OPTIONS = [
-  { id: "cinematic photorealistic 8k", label: "Кинематографичный", desc: "Реалистичное киноосвещение и 8K детализация" },
-  { id: "historical documentary photography", label: "Документальный", desc: "Атмосфера архивных хроник и истории" },
-  { id: "cyberpunk sci-fi dark neon", label: "Sci-Fi / Киберпанк", desc: "Футуристичные технологии и контрастный свет" },
-  { id: "epic dark fantasy digital art", label: "Концепт-арт", desc: "Художественные атмосферные иллюстрации" },
+  { id: "cinematic photorealistic 8k", label: "Кино 8K", icon: Camera },
+  { id: "historical documentary photography", label: "Хроника", icon: Archive },
+  { id: "cyberpunk sci-fi dark neon", label: "Киберпанк", icon: Lightning },
+  { id: "epic dark fantasy digital art", label: "Концепт-арт", icon: Palette },
+];
+
+const INSPIRATION_THEMES_RU = [
+  {
+    label: "💼 IT-стартап: триумф и крах",
+    genre: "drama",
+    prompt: "История амбициозного IT-стартапа: от первой гениальной идеи в гараже и миллиардных инвестиций до сокрушительного краха из-за гордыни основателей и корпоративного шпионажа.",
+  },
+  {
+    label: "🕵️ Тайна горного отеля",
+    genre: "detective",
+    prompt: "В элитном закрытом отеле в горах посреди ночи бесследно исчезает влиятельный постоялец. Детектив начинает расследование и понимает, что каждый свидетель и персонал отеля лгут.",
+  },
+  {
+    label: "🏙️ Ночное ограбление в Алматы",
+    genre: "thriller",
+    prompt: "Ночь в центре Алматы. Дерзкая группа грабителей проникает в защищенное хранилище частного банка, но неожиданный сбой системы безопасности запирает их внутри вместе с заложниками.",
+  },
+  {
+    label: "📱 Афера искусственного интеллекта",
+    genre: "thriller",
+    prompt: "Финансовый аналитик раскрывает сложную мошенническую схему, управляемую самообучающимся алгоритмом, который крадет миллионы долларов и подставляет невиновных сотрудников.",
+  },
+  {
+    label: "⚖️ Судебная битва: невиновный",
+    genre: "drama",
+    prompt: "Напряженный судебный процесс по резонансному делу. Молодой адвокат вступает в схватку с коррумпированной системой, чтобы защитить человека, которого несправедливо обвинили в тяжком преступлении.",
+  },
+];
+
+const INSPIRATION_THEMES_KZ = [
+  {
+    label: "💼 Стартаптың өрлеуі мен құлдырауы",
+    genre: "drama",
+    prompt: "Амбициялы IT-стартаптың шынайы тарихы: гараждағы алғашқы идея мен миллиардтаған инвестициялардан бастап, негізін қалаушылардың өр көкіректігі салдарынан күйреуіне дейін.",
+  },
+  {
+    label: "🕵️ Қонақүйдегі жұмбақ жоғалу",
+    genre: "detective",
+    prompt: "Таудағы элиталық жабық қонақүйде түн ортасында беделді қонақ із-түзсіз жоғалады. Детектив зерттеу барысында куәгерлердің әрқайсысы бірдеңені жасырып тұрғанын аңғарады.",
+  },
+  {
+    label: "🏙️ Алматыдағы түнгі тонау",
+    genre: "thriller",
+    prompt: "Түнгі Алматы орталығы. Тәжірибелі қарақшылар тобы жеке банктің күзетілетін қоймасына кіреді, бірақ дабыл жүйесінің істен шығуы оларды ғимарат ішінде қамап тастайды.",
+  },
+  {
+    label: "📱 Жасанды интеллект алаяқтығы",
+    genre: "thriller",
+    prompt: "Қаржы сарапшысы миллиондаған қаржыны жымқырып, кінәсіз қызметкерлерге жала жауып отырған өздігінен үйренетін алгоритм мен киберқылмыстың ізіне түседі.",
+  },
+  {
+    label: "⚖️ Сот драмасы: жазықсыз сотталушы",
+    genre: "drama",
+    prompt: "Атышулы іс бойынша өткен сот процесі. Жас адвокат жазықсыз айыпталған адамның кінәсіздігін дәлелдеп, шындықты қорғау үшін жемқор жүйемен тайталасады.",
+  },
 ];
 
 export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) => {
+  const [language, setLanguage] = useState<"ru" | "kz">("ru");
   const [topic, setTopic] = useState("");
+  const [selectedGenre, setSelectedGenre] = useState(GENRE_OPTIONS[0].id);
   const [selectedStyle, setSelectedStyle] = useState(STYLE_OPTIONS[0].id);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("s0phbFBBp708ZeIy8oGx");
-  const [targetMinutes, setTargetMinutes] = useState(0.5);
+  const [targetMinutes, setTargetMinutes] = useState(0.5); // Default: test duration
+
+  // Personal ElevenLabs key
+  const [userKey, setUserKey] = useState("");
+  const [showKeyModal, setShowKeyModal] = useState(false);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [progressStep, setProgressStep] = useState("");
@@ -65,17 +145,59 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   const [pastVideos, setPastVideos] = useState<VideoGeneration[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  const syncBalance = async () => {
+    if (!user?.secretCode && !user?.id) return;
+    try {
+      const params = new URLSearchParams();
+      if (user.id) params.set("userId", user.id);
+      if (user.secretCode) params.set("secretCode", user.secretCode);
+      const res = await fetch(`/api/auth?${params.toString()}`);
+      const data = await res.json();
+      if (res.ok && data.user) {
+        if (data.user.remaining !== user.remaining || data.user.generationsLimit !== user.generationsLimit) {
+          onUserUpdate(data.user);
+          localStorage.setItem("ai_video_user", JSON.stringify(data.user));
+        }
+      }
+    } catch (e) {
+      console.error("Balance sync error:", e);
+    }
+  };
+
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const savedKey = localStorage.getItem("elevenlabs_user_key");
+      if (savedKey) setUserKey(savedKey);
+    }
     fetchHistory();
-  }, [user.secretCode]);
+    syncBalance();
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("focus", syncBalance);
+      return () => window.removeEventListener("focus", syncBalance);
+    }
+  }, [user.secretCode, user.id]);
 
   const fetchHistory = async () => {
     setLoadingHistory(true);
     try {
-      const res = await fetch(`/api/videos?secretCode=${encodeURIComponent(user.secretCode)}`);
+      const params = new URLSearchParams();
+      if (user.id) params.set("userId", user.id);
+      if (user.secretCode) params.set("secretCode", user.secretCode);
+      const res = await fetch(`/api/videos?${params.toString()}`);
       const data = await res.json();
       if (res.ok && data.videos) {
         setPastVideos(data.videos);
+        if (!currentVideo && data.videos.length > 0) {
+          const latest = data.videos[0];
+          if (latest.scenes && latest.scenes.length > 0) {
+            setCurrentVideo({
+              id: latest.id,
+              title: latest.topic,
+              scenes: latest.scenes,
+            });
+          }
+        }
       }
     } catch (e) {
       console.error(e);
@@ -84,33 +206,62 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     }
   };
 
+  const inspirationThemes = language === "kz" ? INSPIRATION_THEMES_KZ : INSPIRATION_THEMES_RU;
+
+  const handleSaveKey = (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = userKey.trim();
+    if (clean) {
+      localStorage.setItem("elevenlabs_user_key", clean);
+    } else {
+      localStorage.removeItem("elevenlabs_user_key");
+    }
+    setShowKeyModal(false);
+  };
+
+  const handleLanguageChange = (newLang: "ru" | "kz") => {
+    setLanguage(newLang);
+    // Automatically select the primary voice of the chosen language
+    if (newLang === "kz") {
+      setSelectedVoice("JBFqnCBsd6RMkjVDRZzb");
+    } else {
+      setSelectedVoice("s0phbFBBp708ZeIy8oGx");
+    }
+  };
+
   const handleStartGeneration = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!topic.trim()) return;
 
     if (user.remaining <= 0) {
-      setError("Лимит генераций исчерпан. Обратитесь к администратору для пополнения баланса.");
+      setError("Лимит генераций исчерпан. Обратитесь к администратору.");
       return;
     }
 
     setIsGenerating(true);
     setError(null);
-    setCurrentVideo(null);
     setProgressPercent(5);
     const isTest = targetMinutes <= 1;
-    const frameTarget = isTest ? "3 кадра (быстрый тест)" : targetMinutes >= 10 ? "34 кадра" : "30 кадров";
-    setProgressStep(`Шаг 1 из 4: GPT-4o создает сценарий (${frameTarget})...`);
+    const frameTarget = isTest ? "4 кадра (тест)" : "25 кадров (8 мин)";
+    const currentGenreObj = GENRE_OPTIONS.find((g) => g.id === selectedGenre);
+
+    setProgressStep(
+      `Шаг 1 из 4: GPT-4o создает драматургию (${currentGenreObj?.label || "Сюжет"}, ${frameTarget})...`
+    );
 
     try {
-      // 1. Generate Script
+      // 1. Script generation
       const scriptRes = await fetch("/api/generate/script", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           topic: topic.trim(),
+          genre: selectedGenre,
           style: selectedStyle,
           voice: selectedVoice,
+          language,
           targetMinutes,
+          userId: user.id,
           secretCode: user.secretCode,
         }),
       });
@@ -119,389 +270,494 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       if (!scriptRes.ok) throw new Error(scriptData.error || "Ошибка генерации сценария");
 
       const videoId = scriptData.videoId;
-      const scenes: Scene[] = scriptData.scenes || [];
+      let scenes: Scene[] = scriptData.scenes;
       const totalScenes = scenes.length;
 
-      setProgressPercent(20);
-      setProgressStep(`Шаг 2 из 4: Озвучка ElevenLabs для ${totalScenes} сцен...`);
+      setProgressPercent(25);
 
-      // 2. Generate Audio in parallel batches (3 concurrent for speed)
-      const AUDIO_BATCH = 3;
-      for (let i = 0; i < totalScenes; i += AUDIO_BATCH) {
-        const batch = scenes.slice(i, i + AUDIO_BATCH);
-        setProgressStep(`Озвучка ElevenLabs: сцены ${i + 1}–${Math.min(i + AUDIO_BATCH, totalScenes)} из ${totalScenes}`);
-        setProgressPercent(20 + Math.round(((i + batch.length) / totalScenes) * 35));
-
-        await Promise.all(
-          batch.map(async (scene) => {
-            const audioRes = await fetch("/api/generate/audio", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                videoId,
-                sceneId: scene.id,
-                narration: scene.narration,
-                voice: selectedVoice,
-              }),
-            });
-
-            const audioData = await audioRes.json();
-            if (audioRes.ok) {
-              scene.audioUrl = audioData.audioUrl;
-              scene.durationEstimate = audioData.estimatedDuration || (isTest ? 8 : 17);
-            }
-          })
+      // 2. Audio generation scene by scene
+      const scenesWithAudio: Scene[] = [];
+      for (let i = 0; i < totalScenes; i++) {
+        const scene = scenes[i];
+        setProgressStep(
+          `Шаг 2 из 4: ElevenLabs синтезирует озвучку диктора (кадр ${i + 1}/${totalScenes})...`
         );
+
+        const audioRes = await fetch("/api/generate/audio", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            videoId,
+            sceneId: scene.id,
+            narration: scene.narration,
+            voice: selectedVoice,
+            elevenLabsApiKey: userKey || undefined,
+          }),
+        });
+
+        const audioData = await audioRes.json();
+        if (!audioRes.ok) throw new Error(audioData.error || `Ошибка генерации аудио кадра ${i + 1}`);
+
+        scenesWithAudio.push({
+          ...scene,
+          audioUrl: audioData.audioUrl,
+          durationEstimate: audioData.estimatedDuration || scene.durationEstimate,
+        });
+
+        const audioProgress = 25 + Math.round(((i + 1) / totalScenes) * 30);
+        setProgressPercent(audioProgress);
       }
 
-      // 3. Generate Images in parallel batches (3 concurrent for speed)
-      setProgressPercent(55);
-      setProgressStep(`Шаг 3 из 4: Генерация Full HD кадров под сюжет сцен...`);
-
-      const IMG_BATCH = 3;
-      for (let i = 0; i < totalScenes; i += IMG_BATCH) {
-        const batch = scenes.slice(i, i + IMG_BATCH);
-        setProgressStep(`Генерация кадров ${i + 1}–${Math.min(i + IMG_BATCH, totalScenes)} из ${totalScenes}`);
-        setProgressPercent(55 + Math.round(((i + batch.length) / totalScenes) * 35));
-
-        await Promise.all(
-          batch.map(async (scene) => {
-            const imgRes = await fetch("/api/generate/image", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                videoId,
-                sceneId: scene.id,
-                visualPrompt: scene.visualPrompt,
-                style: selectedStyle,
-              }),
-            });
-
-            const imgData = await imgRes.json();
-            if (imgRes.ok) {
-              scene.imageUrl = imgData.imageUrl;
-            }
-          })
+      // 3. Image generation
+      const finalScenes: Scene[] = [];
+      for (let i = 0; i < totalScenes; i++) {
+        const scene = scenesWithAudio[i];
+        setProgressStep(
+          `Шаг 3 из 4: AI визуализирует кадр ${i + 1}/${totalScenes}: "${scene.title}"...`
         );
+
+        const imgRes = await fetch("/api/generate/image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            videoId,
+            sceneId: scene.id,
+            visualPrompt: scene.visualPrompt,
+            style: selectedStyle,
+          }),
+        });
+
+        const imgData = await imgRes.json();
+        if (!imgRes.ok) throw new Error(imgData.error || `Ошибка генерации изображения кадра ${i + 1}`);
+
+        finalScenes.push({
+          ...scene,
+          imageUrl: imgData.imageUrl,
+        });
+
+        const imgProgress = 55 + Math.round(((i + 1) / totalScenes) * 40);
+        setProgressPercent(imgProgress);
       }
 
       // 4. Finalize
-      setProgressPercent(95);
-      setProgressStep("Шаг 4 из 4: Синхронизация таймлайна и мастеринг...");
-
-      const totalDuration = scenes.reduce((acc, s) => acc + (s.durationEstimate || 17), 0);
-
-      const finRes = await fetch("/api/generate/finalize", {
+      setProgressStep("Шаг 4 из 4: Сохранение фильма и обновление баланса...");
+      const finalizeRes = await fetch("/api/generate/finalize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           videoId,
+          userId: user.id,
           secretCode: user.secretCode,
-          scenes,
-          totalDuration,
+          scenes: finalScenes,
         }),
       });
 
-      const finData = await finRes.json();
-      if (!finRes.ok) throw new Error(finData.error || "Ошибка финализации");
-
-      onUserUpdate({
-        ...user,
-        remaining: finData.remaining,
-        generationsUsed: finData.generationsUsed,
-      });
+      const finData = await finalizeRes.json();
+      if (!finalizeRes.ok) throw new Error(finData.error || "Ошибка сохранения видео");
 
       setProgressPercent(100);
-      setProgressStep("Видео готово к просмотру и экспорту!");
 
       setCurrentVideo({
         id: videoId,
         title: scriptData.title || topic,
-        scenes,
+        scenes: finalScenes,
       });
 
+      if (finData.user) {
+        onUserUpdate(finData.user);
+        localStorage.setItem("ai_video_user", JSON.stringify(finData.user));
+      }
+
       fetchHistory();
+      setTopic("");
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "Произошла ошибка при генерации");
+      setError(err.message || "Произошла ошибка при генерации видео");
     } finally {
       setIsGenerating(false);
+      setProgressStep("");
     }
   };
 
+  const DURATION_OPTIONS = [
+    { value: 0.5, label: "Быстрый тест", badge: "4 кадра", desc: "4 кадра · ~25 сек · $0.05" },
+    { value: 8, label: "Полный фильм", badge: "25 кадров", desc: "25 кадров · ~8 мин · $0.37" },
+  ];
+
+  const activeGenre = GENRE_OPTIONS.find((g) => g.id === selectedGenre);
+  const activeStyle = STYLE_OPTIONS.find((st) => st.id === selectedStyle);
+  const activeDuration = DURATION_OPTIONS.find((d) => d.value === targetMinutes);
+  const wordCount = topic.split(" ").filter(Boolean).length;
+  const plannedFrames = targetMinutes <= 1 ? 4 : 25;
+  const plannedLength = targetMinutes <= 1 ? "~25 сек" : "~8 мин";
+  const currentDuration = currentVideo
+    ? currentVideo.scenes.reduce((acc, sc) => acc + (sc.actualDuration || sc.durationEstimate || 0), 0)
+    : 0;
+  const formatSeconds = (sec: number) =>
+    sec >= 60
+      ? Math.floor(sec / 60) + ":" + String(Math.round(sec % 60)).padStart(2, "0")
+      : Math.round(sec) + " сек";
+
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-8 py-8 space-y-8">
-      {/* Studio Header Bar */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-6 border-b border-white/[0.1]">
-        <div className="space-y-1">
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
-            <span>Генерация видеоистории</span>
-            <span className="px-3 py-1 rounded-full bg-blue-500/15 border border-blue-500/30 text-blue-400 text-xs font-bold font-mono uppercase">
-              1080p @ 45 FPS
-            </span>
+    <div className="w-full max-w-shell mx-auto px-5 sm:px-8 pt-8 pb-32">
+      <div className="flex flex-wrap items-start justify-between gap-4 mb-7">
+        <div className="min-w-0">
+          <h1 className="text-[28px] sm:text-[32px] font-bold tracking-tight text-ink leading-none">
+            Создание видеоистории
           </h1>
-          <p className="text-sm sm:text-base text-zinc-300">
-            Создание полноценного 8–10 минутного фильма из 30–35 кадров с синтезом озвучки OpenAI TTS и субтитрами.
-          </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="px-4 py-2 rounded-xl bg-zinc-900 border border-white/10 text-sm font-semibold text-zinc-200 shadow-sm flex items-center gap-2">
-            <span className="text-zinc-400">Доступно:</span>
-            <span className="text-blue-400 font-mono font-bold text-base">{user.remaining}</span>
-            <span className="text-zinc-400">из {user.generationsLimit} ген.</span>
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => setShowKeyModal(true)}
+          title="Ввести персональный API-ключ ElevenLabs"
+          className={cn(
+            "inline-flex items-center gap-2 h-10 px-4 rounded-full border shrink-0",
+            "text-[13px] font-medium transition-colors cursor-pointer",
+            userKey
+              ? "bg-contrast text-contrast-ink border-transparent"
+              : "bg-surface-2 text-muted border-hairline hover:text-ink hover:border-hairline-strong"
+          )}
+        >
+          <Key size={16} className={userKey ? "text-accent" : "text-faint"} />
+          <span>{userKey ? "Ключ ElevenLabs" : "Добавить ключ"}</span>
+          {userKey && <span className="w-1.5 h-1.5 rounded-full bg-accent" />}
+        </button>
       </div>
 
       {error && (
-        <div className="p-4 rounded-xl bg-red-500/15 border border-red-500/30 text-red-200 text-sm sm:text-base flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-red-400" />
-          <span>{error}</span>
-        </div>
+        <Alert tone="danger" className="mb-5">
+          {error}
+        </Alert>
       )}
 
-      {/* Main Studio Workspace Form */}
-      {!currentVideo && (
-        <form onSubmit={handleStartGeneration} className="space-y-8">
-          <div className="bg-[#13151c] rounded-2xl p-6 sm:p-8 border border-white/[0.12] space-y-8 shadow-2xl relative overflow-hidden">
-            {/* Ambient accent background glow */}
-            <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        {/* ================= ЛЕВО: настройки ================= */}
+        <form
+          id="studio-form"
+          onSubmit={handleStartGeneration}
+          className="lg:col-span-7 flex flex-col gap-5 min-w-0"
+        >
+          <Tile
+            title="Сюжет"
+            icon={<TextAa size={20} />}
+            action={
+              wordCount > 0 ? (
+                <span className="text-[12px] text-faint tabular">{wordCount} слов</span>
+              ) : null
+            }
+          >
+            <Textarea
+              rows={4}
+              required
+              placeholder={
+                language === "kz"
+                  ? "Сюжетті сипаттаңыз... Мысалы: Алматыдағы түнгі тонау оқиғасы немесе IT-стартаптың өрлеуі мен күйреуі туралы драма."
+                  : "Введите сюжет или тему для видео... Например: Ночное ограбление в Алматы. Дерзкая группа взломщиков проникает в банк, но непредвиденный сбой меняет все планы."
+              }
+              value={topic}
+              onChange={(e) => setTopic(e.target.value)}
+              disabled={isGenerating}
+            />
 
-            {/* Prompt Input Area */}
-            <div className="space-y-3 relative z-10">
-              <div className="flex items-center justify-between">
-                <label className="text-sm sm:text-base font-bold text-zinc-100 flex items-center gap-2">
-                  <Wand2 className="w-4 h-4 text-blue-400" />
-                  <span>Сюжет видеоистории (от 2 до 10 предложений)</span>
-                </label>
-                <span className="text-xs sm:text-sm font-medium text-zinc-400">
-                  {topic.length > 0 ? `${topic.split(" ").filter(Boolean).length} слов` : "Подробно опишите желаемый сюжет"}
-                </span>
-              </div>
-
-              <textarea
-                rows={4}
-                required
-                placeholder="Опишите сюжет истории... Например: История Римской Империи: путь легионеров от северных рубежей Британии до величия Рима, гладиаторских битв в Колизее и драматического падения Вечного города."
-                value={topic}
-                onChange={(e) => setTopic(e.target.value)}
-                disabled={isGenerating}
-                className="w-full p-4 sm:p-5 rounded-xl bg-zinc-900 border border-white/15 text-white placeholder-zinc-500 text-base sm:text-lg leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all resize-none shadow-inner"
-              />
-
-              {/* Inspiration theme pills */}
-              <div className="space-y-2 pt-1">
-                <span className="text-xs sm:text-sm font-semibold text-zinc-400">
-                  Быстрые шаблоны историй (нажмите для вставки):
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  {INSPIRATION_THEMES.map((t, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setTopic(t.prompt)}
-                      disabled={isGenerating}
-                      className="px-3.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white border border-white/10 hover:border-blue-500/50 text-xs sm:text-sm font-medium transition-all cursor-pointer"
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            <div className="flex flex-wrap gap-2 mt-3.5">
+              {inspirationThemes.map((t, idx) => (
+                <button
+                  key={idx}
+                  type="button"
+                  onClick={() => {
+                    setTopic(t.prompt);
+                    if (t.genre) setSelectedGenre(t.genre);
+                  }}
+                  disabled={isGenerating}
+                  className="h-8 px-3.5 rounded-full bg-surface-2 border border-hairline text-[12.5px] text-muted hover:text-ink hover:border-hairline-strong transition-colors cursor-pointer disabled:opacity-45"
+                >
+                  {t.label}
+                </button>
+              ))}
             </div>
+          </Tile>
 
-            {/* Voice Selector Component with RU & KZ samples */}
-            <div className="pt-6 border-t border-white/[0.1] relative z-10">
-              <VoiceSelector
-                selectedVoice={selectedVoice}
-                onSelectVoice={(v) => setSelectedVoice(v)}
-              />
-            </div>
-
-            {/* Parameters Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-6 border-t border-white/[0.1] relative z-10">
-              {/* Visual Style */}
-              <div className="space-y-3">
-                <label className="text-sm sm:text-base font-bold text-zinc-100 flex items-center gap-2">
-                  <SlidersHorizontal className="w-4 h-4 text-blue-400" />
-                  <span>Визуальный стиль кадра</span>
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  {STYLE_OPTIONS.map((st) => (
-                    <button
-                      key={st.id}
-                      type="button"
-                      onClick={() => setSelectedStyle(st.id)}
-                      className={`text-left p-3.5 sm:p-4 rounded-xl border transition-all cursor-pointer select-none ${
-                        selectedStyle === st.id
-                          ? "bg-blue-950/40 border-blue-500 ring-2 ring-blue-500/50 text-white shadow-lg shadow-blue-950/40"
-                          : "bg-zinc-900/80 border-white/10 text-zinc-300 hover:text-white hover:bg-zinc-900 hover:border-white/20"
-                      }`}
-                    >
-                      <div className="font-bold text-sm sm:text-base text-white">{st.label}</div>
-                      <div className="text-xs text-zinc-400 mt-1 line-clamp-2">{st.desc}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Duration selection */}
-              <div className="space-y-3">
-                <label className="text-sm sm:text-base font-bold text-zinc-100 flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-blue-400" />
-                  <span>Хронометраж и количество кадров</span>
-                </label>
-                <div className="grid grid-cols-3 gap-2.5">
-                  {[
-                    { value: 0.5, label: "Тест: 20–30 сек", desc: "3 кадра (~20с) • Быстрый тест" },
-                    { value: 8, label: "8 Минут", desc: "30 кадров (~16 сек/кадр)" },
-                    { value: 10, label: "10 Минут", desc: "34 кадра (~18 сек/кадр)" },
-                  ].map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setTargetMinutes(opt.value)}
-                      className={`p-3 sm:p-3.5 rounded-xl border text-center transition-all cursor-pointer select-none ${
-                        targetMinutes === opt.value
-                          ? "bg-blue-950/40 border-blue-500 ring-2 ring-blue-500/50 text-white shadow-lg shadow-blue-950/40"
-                          : "bg-zinc-900/80 border-white/10 text-zinc-300 hover:text-white hover:bg-zinc-900 hover:border-white/20"
-                      }`}
-                    >
-                      <div className="text-sm sm:text-base font-bold text-white">{opt.label}</div>
-                      <div className="text-[11px] sm:text-xs text-zinc-400 mt-1">
-                        {opt.desc}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Live Progress Bar */}
-            {isGenerating && (
-              <div className="space-y-4 p-6 rounded-2xl bg-zinc-900/90 border border-blue-500/40 shadow-xl relative z-10">
-                <div className="flex items-center justify-between text-sm sm:text-base text-zinc-100">
-                  <span className="flex items-center gap-3 font-semibold">
-                    <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
-                    <span>{progressStep}</span>
-                  </span>
-                  <span className="font-mono font-bold text-lg sm:text-xl text-blue-400">{progressPercent}%</span>
-                </div>
-                <div className="w-full h-3 rounded-full bg-zinc-800 overflow-hidden shadow-inner">
-                  <div
-                    className="h-full bg-blue-500 transition-all duration-300 rounded-full shadow-lg shadow-blue-500/50"
-                    style={{ width: `${progressPercent}%` }}
+          <Tile
+            title="Жанр истории"
+            icon={<FilmStrip size={20} />}
+          >
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              {GENRE_OPTIONS.map((g) => {
+                const Icon = g.icon;
+                return (
+                  <SelectCard
+                    key={g.id}
+                    selected={selectedGenre === g.id}
+                    onClick={() => setSelectedGenre(g.id)}
+                    icon={<Icon size={20} />}
+                    title={g.label}
                   />
-                </div>
-                <p className="text-xs sm:text-sm text-zinc-400">
-                  {targetMinutes <= 1
-                    ? "Быстрый тест: 3 кадра и озвучка ElevenLabs генерируются параллельно за 15–20 секунд."
-                    : "Сборка видео (генерация 30–34 сцен, озвучка ElevenLabs и Full HD кадры) выполняется в ускоренном режиме."}
-                </p>
-              </div>
-            )}
+                );
+              })}
+            </div>
+          </Tile>
 
-            {/* Main Action Button */}
-            {!isGenerating && (
-              <button
-                type="submit"
-                disabled={user.remaining <= 0 || !topic.trim()}
-                className="w-full py-4 sm:py-5 px-8 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-[0.99] text-white font-extrabold text-base sm:text-lg shadow-xl shadow-blue-600/30 transition-all flex items-center justify-center gap-3 disabled:opacity-40 cursor-pointer"
-              >
-                <Sparkles className="w-5 h-5" />
-                <span>
-                  {targetMinutes <= 1
-                    ? "Сгенерировать видеоисторию (Тест • 3 кадра • ~25 сек)"
-                    : `Сгенерировать видеоисторию (${targetMinutes} мин • ${targetMinutes >= 10 ? "34" : "30"} кадров)`}
-                </span>
-              </button>
-            )}
+          <Tile>
+            <VoiceSelector
+              selectedVoice={selectedVoice}
+              onSelectVoice={(v) => setSelectedVoice(v)}
+              language={language}
+              onLanguageChange={handleLanguageChange}
+            />
+          </Tile>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <Tile title="Хронометраж" icon={<Clock size={20} />}>
+              <div className="flex flex-col gap-2.5">
+                {DURATION_OPTIONS.map((opt) => (
+                  <SelectCard
+                    key={opt.value}
+                    selected={targetMinutes === opt.value}
+                    onClick={() => setTargetMinutes(opt.value)}
+                    title={opt.label}
+                    meta={opt.desc}
+                  />
+                ))}
+              </div>
+            </Tile>
+
+            <Tile title="Визуальный стиль" icon={<Sliders size={20} />}>
+              <div className="grid grid-cols-1 gap-2.5">
+                {STYLE_OPTIONS.map((st) => {
+                  const Icon = st.icon;
+                  return (
+                    <SelectCard
+                      key={st.id}
+                      layout="horizontal"
+                      selected={selectedStyle === st.id}
+                      onClick={() => setSelectedStyle(st.id)}
+                      icon={<Icon size={20} />}
+                      title={st.label}
+                    />
+                  );
+                })}
+              </div>
+            </Tile>
           </div>
         </form>
-      )}
 
-      {/* Video Player Display */}
-      {currentVideo && (
-        <div className="space-y-5">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">{currentVideo.title}</h2>
-              <p className="text-sm text-zinc-300 mt-1">
-                {currentVideo.scenes.length} сцен • Озвучка ElevenLabs • Full HD 1080p @ 30 FPS
-              </p>
+        {/* ================= ПРАВО: монитор и архив ================= */}
+        <div className="lg:col-span-5 flex flex-col gap-5 min-w-0 lg:sticky lg:top-24">
+          {/* Экран всегда тёмный — в обеих темах, как у любого плеера. */}
+          <section className="rounded-tile bg-stage text-stage-ink border border-white/[0.08] shadow-soft p-4 sm:p-5">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <span className="grid place-items-center w-9 h-9 rounded-control bg-white/[0.06] text-accent shrink-0">
+                  <FilmStrip size={20} weight="fill" />
+                </span>
+                <span className="text-[15px] font-semibold truncate">
+                  Предпросмотр фильма
+                </span>
+              </div>
+
+              {currentVideo && (
+                <Button size="sm" onClick={() => setShowExporter(true)}>
+                  Экспорт MP4
+                </Button>
+              )}
             </div>
-            <button
-              onClick={() => setCurrentVideo(null)}
-              className="text-sm font-semibold px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white transition-colors cursor-pointer"
-            >
-              ← Создать новую историю
-            </button>
-          </div>
 
-          <VideoPlayer
-            title={currentVideo.title}
-            scenes={currentVideo.scenes}
-            onExportClick={() => setShowExporter(true)}
-          />
-
-          {showExporter && (
-            <VideoExporter
-              title={currentVideo.title}
-              scenes={currentVideo.scenes}
-              onClose={() => setShowExporter(false)}
-            />
-          )}
-        </div>
-      )}
-
-      {/* Previous Stories Gallery */}
-      {pastVideos.length > 0 && !currentVideo && (
-        <div className="space-y-4 pt-6 border-t border-white/[0.1]">
-          <div className="flex items-center justify-between">
-            <span className="font-bold text-base sm:text-lg text-white flex items-center gap-2">
-              <History className="w-5 h-5 text-blue-400" />
-              <span>Созданные видеоистории</span>
-            </span>
-            <span className="text-sm font-medium text-zinc-400">{pastVideos.length} видео</span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {pastVideos.map((vid) => (
-              <div
-                key={vid.id}
-                className="p-5 rounded-2xl bg-[#13151c] border border-white/[0.1] hover:border-blue-500/40 transition-all flex items-center justify-between text-sm shadow-md"
-              >
-                <div className="truncate mr-4 space-y-1">
-                  <div className="font-bold text-base text-white truncate">{vid.topic}</div>
-                  <div className="text-xs sm:text-sm text-zinc-400 flex items-center gap-2">
-                    <span>{new Date(vid.created_at).toLocaleDateString("ru-RU")}</span>
-                    <span>•</span>
-                    <span className="text-blue-400 font-semibold">{vid.target_duration_minutes} мин</span>
-                    <span>•</span>
-                    <span>{vid.scenes?.length || 0} кадров</span>
+            {currentVideo ? (
+              <VideoPlayer
+                title={currentVideo.title}
+                scenes={currentVideo.scenes}
+                onExportClick={() => setShowExporter(true)}
+              />
+            ) : (
+              <div className="aspect-video w-full rounded-control bg-black/40 border border-white/[0.08] flex flex-col items-center justify-center gap-3 p-6 text-center select-none">
+                <span className="grid place-items-center w-12 h-12 rounded-control bg-white/[0.05] text-white/40">
+                  <FilmStrip size={24} />
+                </span>
+                <div>
+                  <div className="text-[13.5px] text-white/60">
+                    Здесь появится готовое видео
                   </div>
                 </div>
-
-                <button
-                  onClick={() => {
-                    setCurrentVideo({
-                      id: vid.id,
-                      title: vid.topic,
-                      scenes: vid.scenes,
-                    });
-                    window.scrollTo({ top: 0, behavior: "smooth" });
-                  }}
-                  className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm flex items-center gap-2 transition-all shrink-0 shadow-md shadow-blue-600/25 cursor-pointer"
-                >
-                  <Play className="w-4 h-4 fill-current" />
-                  <span>Открыть</span>
-                </button>
               </div>
-            ))}
+            )}
+          </section>
+
+          {/* Показатели под монитором: заполняют правую колонку и дают
+              быстрый ответ на «что именно сейчас будет сгенерировано». */}
+          <div className="grid grid-cols-3 gap-4">
+            <StatTile
+              label="Кадров"
+              value={currentVideo ? currentVideo.scenes.length : plannedFrames}
+              icon={<FilmStrip size={20} />}
+              valueClassName="text-[26px]"
+            />
+            <StatTile
+              label="Длительность"
+              value={currentVideo ? formatSeconds(currentDuration) : plannedLength}
+              icon={<Clock size={20} />}
+              valueClassName="text-[22px]"
+            />
+            <StatTile
+              label="Осталось"
+              value={user.remaining}
+              icon={<Lightning size={20} />}
+              valueClassName="text-[26px]"
+              tone={user.remaining > 0 ? "contrast" : "surface"}
+            />
           </div>
+
+          {pastVideos.length > 0 && (
+            <Tile
+              title="Архив"
+              icon={<ArrowCounterClockwise size={20} />}
+              action={
+                <span className="text-[12px] text-faint tabular">
+                  {pastVideos.length} видео
+                </span>
+              }
+            >
+              <div className="flex flex-col gap-2 max-h-[320px] overflow-y-auto pr-1">
+                {pastVideos.map((vid) => {
+                  const isCurrent = currentVideo?.id === vid.id;
+                  return (
+                    <button
+                      key={vid.id}
+                      type="button"
+                      onClick={() => {
+                        setCurrentVideo({
+                          id: vid.id,
+                          title: vid.topic,
+                          scenes: vid.scenes,
+                        });
+                      }}
+                      className={cn(
+                        "flex items-center justify-between gap-3 p-3 rounded-control border",
+                        "text-left cursor-pointer transition-colors",
+                        isCurrent
+                          ? "bg-surface-2 border-accent"
+                          : "bg-surface border-hairline hover:border-hairline-strong hover:bg-surface-2"
+                      )}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-[13.5px] font-medium text-ink truncate">
+                          {vid.topic}
+                        </span>
+                        <span className="block text-[12px] text-muted mt-0.5 tabular">
+                          {vid.scenes?.length || 0} сцен • {Math.round(vid.actual_duration_seconds || 0)} сек
+                        </span>
+                      </span>
+                      <span
+                        className={cn(
+                          "grid place-items-center w-8 h-8 rounded-control shrink-0",
+                          isCurrent
+                            ? "bg-accent text-accent-ink"
+                            : "bg-surface-3 text-muted"
+                        )}
+                      >
+                        <Play size={14} weight="fill" />
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </Tile>
+          )}
         </div>
+      </div>
+
+      {/* ============ Липкая нижняя панель: сводка + запуск ============
+          Кнопка вынесена из формы, поэтому привязана к ней через form="studio-form".
+          Так CTA и прогресс всегда на экране и не выталкивают вёрстку. */}
+      <div className="fixed bottom-0 inset-x-0 z-30 border-t border-hairline bg-bg/90 backdrop-blur-xl">
+        <div className="max-w-shell mx-auto px-5 sm:px-8 py-3.5">
+          {isGenerating ? (
+            <Progress value={progressPercent} label={progressStep} />
+          ) : (
+            <div className="flex items-center justify-between gap-4">
+              <div className="hidden md:flex items-center gap-2 min-w-0 text-[12.5px] text-muted">
+                {activeGenre && <Badge tone="outline">{activeGenre.label}</Badge>}
+                {activeStyle && <Badge tone="outline">{activeStyle.label}</Badge>}
+                {activeDuration && <Badge tone="outline">{activeDuration.badge}</Badge>}
+
+              </div>
+
+              <Button
+                type="submit"
+                form="studio-form"
+                size="lg"
+                icon={<Play size={20} weight="fill" />}
+                disabled={user.remaining <= 0 || !topic.trim()}
+                className="w-full md:w-auto"
+              >
+                {targetMinutes <= 1 ? "Запустить тест" : "Запустить генерацию"}
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {showExporter && currentVideo && (
+        <VideoExporter
+          title={currentVideo.title}
+          scenes={currentVideo.scenes}
+          onClose={() => setShowExporter(false)}
+        />
       )}
+
+      <Modal
+        open={showKeyModal}
+        onClose={() => setShowKeyModal(false)}
+        title="Персональный ключ ElevenLabs"
+
+        icon={
+          <IconTile size="md">
+            <Key size={20} weight="fill" />
+          </IconTile>
+        }
+      >
+        <form id="key-form" onSubmit={handleSaveKey} className="flex flex-col gap-4">
+          <label className="flex flex-col gap-2">
+            <span className="text-[13px] font-medium text-ink">
+              Ключ сохранится только в вашем браузере
+            </span>
+            <input
+              type="text"
+              placeholder="sk_..."
+              value={userKey}
+              onChange={(e) => setUserKey(e.target.value)}
+              className="w-full h-11 px-3.5 rounded-control bg-surface-2 border border-hairline text-ink placeholder:text-faint text-[13px] font-mono transition-colors hover:border-hairline-strong focus:outline-none focus:border-accent focus:bg-surface"
+            />
+          </label>
+
+          <div className="flex gap-2.5 pt-1">
+            <Button type="submit" block>
+              Сохранить ключ
+            </Button>
+            {userKey && (
+              <Button
+                type="button"
+                variant="danger"
+                icon={<Trash size={16} />}
+                onClick={() => {
+                  setUserKey("");
+                  localStorage.removeItem("elevenlabs_user_key");
+                  setShowKeyModal(false);
+                }}
+              >
+                Удалить
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setShowKeyModal(false)}
+            >
+              Отмена
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

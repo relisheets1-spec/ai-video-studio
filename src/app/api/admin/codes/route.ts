@@ -1,7 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 
+function isAuthorizedAdmin(req: NextRequest): boolean {
+  // Раньше здесь требовался префикс "ai_video_admin_session_1599_", а /api/admin/login
+  // выдаёт токен вида ai_video_admin_session_${Date.now()}_… — Date.now() никогда не
+  // начинается с 1599, поэтому создание инвайт-кода падало с 401 при любом пароле.
+  // Условие приведено к тому же виду, что и в /api/admin/users.
+  const token = req.headers.get("x-admin-token") || req.headers.get("authorization")?.replace("Bearer ", "");
+  if (token && token.startsWith("ai_video_admin_session_")) return true;
+  return false;
+}
+
 export async function POST(req: NextRequest) {
+  if (!isAuthorizedAdmin(req)) {
+    return NextResponse.json({ error: "Доступ запрещен: требуется авторизация администратора" }, { status: 401 });
+  }
 
   try {
     const { userName, customCode, limit = 10 } = await req.json();

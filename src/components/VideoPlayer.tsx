@@ -6,20 +6,91 @@ import {
   Pause,
   SkipForward,
   SkipBack,
-  Volume2,
-  VolumeX,
-  Maximize2,
-  Minimize2,
-  Download,
-  Subtitles,
-  Loader2,
-} from "lucide-react";
+  SpeakerHigh,
+  SpeakerSimpleX,
+  ArrowsOut,
+  ArrowsIn,
+  DownloadSimple,
+  ClosedCaptioning,
+  CircleNotch,
+  CaretLeft,
+  CaretRight,
+} from "@phosphor-icons/react";
 import { Scene } from "@/lib/types";
 
 interface VideoPlayerProps {
   title: string;
   scenes: Scene[];
   onExportClick?: () => void;
+}
+
+// Robust NLP sentence splitter for RU & KZ narration:
+// - Preserves decimal numbers (e.g. 1.5 млн)
+// - Preserves abbreviations (г., н.э., т.е., млрд., руб.)
+// - Preserves closing quotation marks and brackets
+// - Gracefully chunks sentences without punctuation to prevent massive blocks
+export function splitNarrationIntoSentences(text: string): string[] {
+  if (!text) return [];
+  const clean = text.trim();
+  if (!clean) return [];
+
+  // 1. Protect decimal numbers (e.g. 1.5 -> 1\uFFF05)
+  let protectedText = clean.replace(/(\d+)\.(\d+)/g, "$1\uFFF0$2");
+
+  // 2. Protect known abbreviation patterns
+  protectedText = protectedText.replace(
+    /\b(г|гг|в|вв|н\.э|до н\.э|т\.е|т\.д|т\.п|млн|млрд|тыс|руб|долл|ж|жж|ғ|ғғ)\./gi,
+    (m) => m.replace(/\./g, "\uFFF0")
+  );
+
+  // Also protect dots followed by lowercase letters/digits (continuation of clause/abbreviation)
+  protectedText = protectedText.replace(/\.(?=\s*[а-яёәғқңөұүһa-z0-9])/g, "\uFFF0");
+
+  // 3. Match sentences ending in [.!?…] followed by optional quotes/brackets or end of string
+  const regex = /[^.!?…\n]+(?:[.!?…]+["'»”’\)\]]*(?=\s|$)|$)/g;
+  const rawSentences: string[] = [];
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(protectedText)) !== null) {
+    const s = match[0].replace(/\uFFF0/g, ".").trim();
+    if (s) rawSentences.push(s);
+  }
+
+  // 4. If a piece has no punctuation and is long (> 16 words), chunk it gracefully
+  const finalSentences: string[] = [];
+  for (const sent of rawSentences) {
+    const words = sent.split(/\s+/).filter(Boolean);
+    if (words.length > 16 && !/[.!?…]/.test(sent)) {
+      for (let i = 0; i < words.length; i += 8) {
+        finalSentences.push(words.slice(i, i + 8).join(" "));
+      }
+    } else {
+      finalSentences.push(sent);
+    }
+  }
+
+  return finalSentences.length > 0 ? finalSentences : [clean];
+}
+
+// Determine active sentence proportionally to playback progress in current scene
+export function getActiveSentence(text: string, elapsedSec: number, sceneDuration: number): string {
+  if (!text) return "";
+  const sentences = splitNarrationIntoSentences(text);
+  if (sentences.length <= 1) return sentences[0] || text.trim();
+
+  const weights = sentences.map((s) => Math.max(s.length, 12));
+  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+  const dur = Math.max(sceneDuration, 1);
+  const progress = Math.min(0.999, Math.max(0, elapsedSec / dur));
+  const currentThreshold = progress * totalWeight;
+
+  let accumulated = 0;
+  for (let i = 0; i < sentences.length; i++) {
+    accumulated += weights[i];
+    if (currentThreshold <= accumulated || i === sentences.length - 1) {
+      return sentences[i];
+    }
+  }
+  return sentences[0];
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExportClick }) => {
@@ -31,11 +102,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
   const [isBuffering, setIsBuffering] = useState(false);
   const [sceneElapsed, setSceneElapsed] = useState(0);
 
+  // Timeline scrubber interactive states
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [hoverTooltip, setHoverTooltip] = useState<{ sec: number; x: number; sceneTitle: string } | null>(null);
+
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const timelineRef = useRef<HTMLDivElement | null>(null);
+  const carouselRef = useRef<HTMLDivElement | null>(null);
   const audioCacheRef = useRef<Map<number, HTMLAudioElement>>(new Map());
   const animFrameRef = useRef<number | null>(null);
   const isPlayingRef = useRef(false);
   isPlayingRef.current = isPlaying;
+  const wasPlayingBeforeScrubRef = useRef(false);
 
   const currentSceneIndexRef = useRef(0);
   currentSceneIndexRef.current = currentSceneIndex;
@@ -54,7 +132,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
   // Advance to next scene seamlessly
   const handleAdvanceScene = useCallback(
     (nextIndex: number) => {
-      // Pause current audio
       const currAudio = audioCacheRef.current.get(currentSceneIndexRef.current);
       if (currAudio) {
         currAudio.pause();
@@ -86,7 +163,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
 
   // Pre-instantiate and buffer all audio elements so switching scenes takes 0ms
   useEffect(() => {
-    // Cleanup previous audio elements
     audioCacheRef.current.forEach((audio) => {
       audio.pause();
       audio.src = "";
@@ -170,7 +246,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
     }
   };
 
-  // High precision playback loop using requestAnimationFrame (60 FPS smooth, zero desync)
+  // High precision playback loop using requestAnimationFrame
   useEffect(() => {
     let lastTime = performance.now();
 
@@ -180,7 +256,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
       if (activeAudio && !activeAudio.paused) {
         setSceneElapsed(activeAudio.currentTime);
       } else if (!activeAudio && isPlaying) {
-        // Fallback timer for scenes without audio track
         const now = performance.now();
         const delta = (now - lastTime) / 1000;
         setSceneElapsed((prev) => {
@@ -229,18 +304,120 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
         targetAudio.play().catch(console.warn);
       }
     }
+
+    // Scroll scene card into view in carousel
+    if (carouselRef.current) {
+      const targetCard = carouselRef.current.children[targetIndex] as HTMLElement;
+      if (targetCard) {
+        targetCard.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+      }
+    }
   };
 
   const handleSeek = (targetSec: number) => {
+    const clamped = Math.max(0, Math.min(totalDuration, targetSec));
+    let accumulated = 0;
+    for (let i = 0; i < scenes.length; i++) {
+      const dur = scenes[i].durationEstimate || 17;
+      if (clamped <= accumulated + dur || i === scenes.length - 1) {
+        const offsetInScene = Math.max(0, clamped - accumulated);
+        jumpToScene(i, offsetInScene);
+        break;
+      }
+      accumulated += dur;
+    }
+  };
+
+  const seekFromPointer = (e: React.PointerEvent<HTMLDivElement>, shouldResume: boolean = false) => {
+    if (!timelineRef.current) return;
+    const rect = timelineRef.current.getBoundingClientRect();
+    const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const targetSec = percent * totalDuration;
+
     let accumulated = 0;
     for (let i = 0; i < scenes.length; i++) {
       const dur = scenes[i].durationEstimate || 17;
       if (targetSec <= accumulated + dur || i === scenes.length - 1) {
         const offsetInScene = Math.max(0, targetSec - accumulated);
-        jumpToScene(i, offsetInScene);
+
+        if (currentSceneIndexRef.current !== i) {
+          const prevAudio = audioCacheRef.current.get(currentSceneIndexRef.current);
+          if (prevAudio) {
+            prevAudio.pause();
+            prevAudio.currentTime = 0;
+          }
+          setCurrentSceneIndex(i);
+        }
+
+        setSceneElapsed(offsetInScene);
+
+        const targetAudio = audioCacheRef.current.get(i);
+        if (targetAudio) {
+          targetAudio.currentTime = offsetInScene;
+          if (shouldResume) {
+            targetAudio.play().catch((err) => console.log("Audio seek resume:", err));
+          }
+        }
         break;
       }
       accumulated += dur;
+    }
+  };
+
+  // Timeline scrubber mouse/pointer interactions
+  const handleTimelinePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.currentTarget.setPointerCapture(e.pointerId);
+    wasPlayingBeforeScrubRef.current = isPlayingRef.current;
+    if (isPlayingRef.current) {
+      const activeAudio = audioCacheRef.current.get(currentSceneIndexRef.current);
+      if (activeAudio) activeAudio.pause();
+    }
+    setIsScrubbing(true);
+    seekFromPointer(e, false);
+  };
+
+  const handleTimelinePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!timelineRef.current) return;
+    const rect = timelineRef.current.getBoundingClientRect();
+    const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    const targetSec = percent * totalDuration;
+
+    // Determine which scene is at targetSec for tooltip
+    let accumulated = 0;
+    let sceneName = scenes[0]?.title || "";
+    for (let i = 0; i < scenes.length; i++) {
+      const dur = scenes[i].durationEstimate || 17;
+      if (targetSec <= accumulated + dur || i === scenes.length - 1) {
+        sceneName = `Кадр ${i + 1}: ${scenes[i]?.title}`;
+        break;
+      }
+      accumulated += dur;
+    }
+
+    setHoverTooltip({
+      sec: targetSec,
+      x: e.clientX - rect.left,
+      sceneTitle: sceneName,
+    });
+
+    if (isScrubbing) {
+      seekFromPointer(e, false);
+    }
+  };
+
+  const handleTimelinePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    setIsScrubbing(false);
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
+
+    seekFromPointer(e, wasPlayingBeforeScrubRef.current);
+
+    if (carouselRef.current) {
+      const targetCard = carouselRef.current.children[currentSceneIndexRef.current] as HTMLElement;
+      if (targetCard) {
+        targetCard.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+      }
     }
   };
 
@@ -255,12 +432,49 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
     }
   };
 
+  // Carousel horizontal scroll buttons
+  const scrollCarousel = (direction: "left" | "right") => {
+    if (!carouselRef.current) return;
+    const scrollAmount = direction === "left" ? -280 : 280;
+    carouselRef.current.scrollBy({ left: scrollAmount, behavior: "smooth" });
+  };
+
+  useEffect(() => {
+    const el = carouselRef.current;
+    if (!el) return;
+    const handleWheel = (e: WheelEvent) => {
+      if (e.deltaY !== 0) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY;
+      }
+    };
+    el.addEventListener("wheel", handleWheel, { passive: false });
+    return () => el.removeEventListener("wheel", handleWheel);
+  }, []);
+
+  // Scene boundaries for tick marks on timeline
+  const sceneBoundaries: number[] = [];
+  let accumSec = 0;
+  for (let i = 0; i < scenes.length - 1; i++) {
+    accumSec += scenes[i].durationEstimate || 17;
+    sceneBoundaries.push(accumSec);
+  }
+
+  // Active sentence calculation for current scene (sentence-by-sentence)
+  const activeSentence = getActiveSentence(
+    currentScene?.narration || "",
+    sceneElapsed,
+    sceneDuration
+  );
+
+  const progressPercent = Math.min(100, (overallElapsed / (totalDuration || 1)) * 100);
+
   return (
-    <div className="w-full max-w-5xl mx-auto space-y-3">
+    <div className="w-full max-w-5xl mx-auto space-y-3 select-none">
       {/* Screen Container */}
       <div
         ref={containerRef}
-        className="relative aspect-video w-full rounded-2xl overflow-hidden bg-black border border-white/10 shadow-2xl select-none group"
+        className="relative aspect-video w-full rounded-2xl overflow-hidden bg-stage border border-white/10 shadow-2xl group"
       >
         {/* Visual Frame */}
         {currentScene?.imageUrl ? (
@@ -271,53 +485,60 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
               alt={currentScene.title}
               className="w-full h-full object-cover animate-ken-burns"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-black/30 pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-black/35 pointer-events-none" />
           </div>
         ) : (
-          <div className="w-full h-full flex flex-col items-center justify-center bg-zinc-950 text-center p-6">
-            <div className="w-14 h-14 rounded-full bg-zinc-900 flex items-center justify-center text-white mb-2">
-              <Play className="w-6 h-6 ml-0.5" />
+          <div className="w-full h-full flex flex-col items-center justify-center bg-stage text-center p-6">
+            <div className="w-14 h-14 rounded-2xl bg-zinc-900 border border-white/10 flex items-center justify-center text-accent mb-2 shadow-lg">
+              <Play size={24} weight="fill" className="ml-1" />
             </div>
-            <p className="text-xs text-zinc-400">Кадр {currentSceneIndex + 1}: {currentScene?.title}</p>
+            <p className="text-sm font-bold text-white">Кадр {currentSceneIndex + 1}: {currentScene?.title}</p>
+            <p className="text-xs text-zinc-400 mt-1">Ожидание медиаданных...</p>
           </div>
         )}
 
         {/* Buffering Indicator */}
         {isBuffering && (
-          <div className="absolute inset-0 z-25 flex items-center justify-center bg-black/40 backdrop-blur-xs pointer-events-none">
-            <div className="flex items-center gap-3 px-5 py-2.5 rounded-full bg-black/80 border border-white/15 text-white shadow-xl">
-              <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
-              <span className="text-sm font-semibold">Буферизация...</span>
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/50 backdrop-blur-sm pointer-events-none">
+            <div className="flex items-center gap-2.5 px-4 py-2 rounded-xl bg-black/85 border border-accent/30 text-white shadow-2xl">
+              <CircleNotch size={20} weight="bold" className="animate-spin text-accent" />
+              <span className="text-xs font-bold">Буферизация сцены...</span>
             </div>
           </div>
         )}
 
-        {/* Top status bar */}
-        <div className="absolute top-4 left-4 right-4 flex items-center justify-between pointer-events-none z-20">
-          <div className="px-4 py-2 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-sm text-zinc-100 flex items-center gap-2.5 shadow-lg">
-            <span className="w-2.5 h-2.5 rounded-full bg-blue-500 animate-pulse shrink-0" />
-            <span className="font-semibold">Кадр {currentSceneIndex + 1} из {scenes.length}</span>
-            <span className="text-zinc-500">•</span>
-            <span className="text-zinc-300 max-w-sm truncate">{currentScene?.title}</span>
+        {/* Top Header Bar */}
+        <div className="absolute top-3.5 left-3.5 right-3.5 flex items-center justify-between pointer-events-none z-20">
+          <div className="px-3.5 py-1.5 rounded-xl bg-black/80 backdrop-blur-md border border-white/15 text-xs text-white flex items-center gap-2.5 shadow-xl">
+            <span className="w-2 h-2 rounded-full bg-accent shrink-0 animate-pulse" />
+            <span className="font-extrabold text-accent">
+              Кадр {currentSceneIndex + 1} <span className="text-white/60 font-normal">из {scenes.length}</span>
+            </span>
+            <span className="text-zinc-600">•</span>
+            <span className="text-zinc-200 font-medium max-w-xs sm:max-w-md truncate">
+              {currentScene?.title}
+            </span>
           </div>
 
-          <div className="px-4 py-2 rounded-full bg-black/80 backdrop-blur-md border border-white/15 text-sm font-mono font-bold text-white shadow-lg">
-            {formatTime(overallElapsed)} / {formatTime(totalDuration)}
+          <div className="px-3.5 py-1.5 rounded-xl bg-black/80 backdrop-blur-md border border-white/15 text-xs font-mono font-bold text-white shadow-xl flex items-center gap-1.5">
+            <span className="text-accent">{formatTime(overallElapsed)}</span>
+            <span className="text-zinc-500">/</span>
+            <span>{formatTime(totalDuration)}</span>
           </div>
         </div>
 
-        {/* Subtitles (Clean float safely above player controls) */}
-        {showSubtitles && currentScene?.narration && (
-          <div className="absolute bottom-28 sm:bottom-32 left-6 right-6 flex justify-center z-20 pointer-events-none transition-all">
-            <div className="max-w-3xl px-6 sm:px-8 py-3.5 sm:py-4 rounded-2xl bg-black/90 backdrop-blur-md border border-white/20 text-center shadow-2xl">
-              <p className="text-base sm:text-lg md:text-xl font-bold text-white leading-relaxed tracking-wide drop-shadow-md">
-                {currentScene.narration}
+        {/* Subtitles: STRICTLY ~70% screen width, +10% larger text, ONE sentence at a time */}
+        {showSubtitles && activeSentence && (
+          <div className="absolute bottom-16 sm:bottom-20 left-0 right-0 flex justify-center z-20 pointer-events-none px-4 transition-all duration-150">
+            <div className="w-[70%] max-w-[70%] px-4 sm:px-6 py-2.5 sm:py-3.5 rounded-2xl bg-black/85 backdrop-blur-md border border-white/20 text-center shadow-2xl">
+              <p className="text-[16px] sm:text-[20px] md:text-[22px] font-extrabold text-white leading-snug tracking-wide drop-shadow-lg">
+                {activeSentence}
               </p>
             </div>
           </div>
         )}
 
-        {/* Click to play overlay */}
+        {/* Click overlay for Play / Pause toggle */}
         <div
           onClick={togglePlay}
           className="absolute inset-0 z-10 flex items-center justify-center cursor-pointer"
@@ -325,140 +546,220 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
           {!isPlaying && !isBuffering && (
             <button
               type="button"
-              className="w-20 h-20 rounded-full bg-blue-600 text-white shadow-2xl shadow-blue-600/50 flex items-center justify-center hover:scale-110 active:scale-95 transition-all"
+              className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl bg-accent hover:bg-accent-hover text-accent-ink shadow-2xl flex items-center justify-center hover:scale-105 active:scale-95 transition-all cursor-pointer"
+              title="Воспроизвести"
             >
-              <Play className="w-9 h-9 ml-1 fill-current" />
+              <Play size={32} weight="fill" className="ml-1" />
             </button>
           )}
         </div>
 
-        {/* Bottom Controls */}
-        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/85 to-transparent pt-8 pb-4 px-6 z-30 flex flex-col gap-3">
-          {/* Timeline Bar */}
+        {/* Bottom Floating Control Deck */}
+        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/90 to-transparent pt-8 pb-3 px-4 sm:px-5 z-30 flex flex-col gap-2.5">
+          {/* Enhanced Responsive Timeline Scrubber with Drag, Tick marks & Tooltip */}
           <div
-            className="w-full h-2.5 hover:h-4 bg-white/20 rounded-full cursor-pointer transition-all relative overflow-hidden group/timeline"
-            onClick={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              const clickPercent = (e.clientX - rect.left) / rect.width;
-              handleSeek(clickPercent * totalDuration);
-            }}
+            ref={timelineRef}
+            onPointerDown={handleTimelinePointerDown}
+            onPointerMove={handleTimelinePointerMove}
+            onPointerUp={handleTimelinePointerUp}
+            onPointerLeave={() => setHoverTooltip(null)}
+            className="w-full py-2 cursor-pointer relative group/timeline select-none touch-none"
+            title="Перемотка видео (нажмите или перетащите)"
           >
+            {/* Scrubber Track */}
+            <div className="w-full h-2 group-hover/timeline:h-3 bg-white/20 rounded-full relative overflow-hidden transition-all duration-150">
+              {/* Progress Bar */}
+              <div
+                className="h-full bg-accent rounded-full transition-all"
+                style={{ width: `${progressPercent}%` }}
+              />
+
+              {/* Scene boundary tick marks */}
+              {totalDuration > 0 &&
+                sceneBoundaries.map((b, i) => (
+                  <div
+                    key={i}
+                    className="absolute top-0 bottom-0 w-[1.5px] bg-black/40 pointer-events-none"
+                    style={{ left: `${(b / totalDuration) * 100}%` }}
+                  />
+                ))}
+            </div>
+
+            {/* Glowing Scrubber Thumb Head */}
             <div
-              className="h-full bg-blue-500 rounded-full transition-all group-hover/timeline:bg-blue-400"
-              style={{ width: `${Math.min(100, (overallElapsed / (totalDuration || 1)) * 100)}%` }}
+              className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-4 h-4 rounded-full bg-accent border-2 border-black shadow-md pointer-events-none transition-transform group-hover/timeline:scale-125"
+              style={{ left: `${progressPercent}%` }}
             />
+
+            {/* Hover Tooltip */}
+            {hoverTooltip && (
+              <div
+                className="absolute bottom-full mb-2 -translate-x-1/2 px-2.5 py-1 rounded-lg bg-black/80 border border-white/20 text-xs font-mono text-white shadow-2xl pointer-events-none whitespace-nowrap z-40 flex items-center gap-1.5"
+                style={{ left: `${Math.max(40, Math.min((timelineRef.current?.clientWidth || 300) - 40, hoverTooltip.x))}px` }}
+              >
+                <span className="text-accent font-bold">{formatTime(hoverTooltip.sec)}</span>
+                <span className="text-zinc-400 font-sans">• {hoverTooltip.sceneTitle}</span>
+              </div>
+            )}
           </div>
 
+          {/* Player Buttons Bar */}
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2">
+              {/* Prev Scene Button */}
               <button
+                type="button"
                 onClick={() => {
                   const targetIdx = Math.max(0, currentSceneIndex - 1);
                   jumpToScene(targetIdx, 0);
                 }}
                 disabled={currentSceneIndex === 0}
-                className="p-2.5 rounded-xl hover:bg-white/15 text-zinc-200 disabled:opacity-30 transition-colors cursor-pointer"
+                className="p-2 rounded-xl bg-white/5 hover:bg-white/15 text-zinc-200 disabled:opacity-30 transition-all cursor-pointer"
                 title="Предыдущий кадр"
               >
-                <SkipBack className="w-5 h-5" />
+                <SkipBack size={18} weight="bold" />
               </button>
 
+              {/* Play / Pause Main Button */}
               <button
+                type="button"
                 onClick={togglePlay}
-                className="w-11 h-11 rounded-full bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center shadow-lg shadow-blue-600/30 hover:scale-105 active:scale-95 transition-all cursor-pointer"
+                className="w-10 h-10 rounded-xl bg-accent hover:bg-accent-hover text-accent-ink flex items-center justify-center shadow-lg active:scale-95 transition-all cursor-pointer"
                 title={isPlaying ? "Пауза" : "Воспроизведение"}
               >
-                {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 ml-0.5 fill-current" />}
+                {isPlaying ? <Pause size={18} weight="fill" /> : <Play size={18} weight="fill" className="ml-0.5" />}
               </button>
 
+              {/* Next Scene Button */}
               <button
+                type="button"
                 onClick={() => {
                   const targetIdx = Math.min(scenes.length - 1, currentSceneIndex + 1);
                   jumpToScene(targetIdx, 0);
                 }}
                 disabled={currentSceneIndex === scenes.length - 1}
-                className="p-2.5 rounded-xl hover:bg-white/15 text-zinc-200 disabled:opacity-30 transition-colors cursor-pointer"
+                className="p-2 rounded-xl bg-white/5 hover:bg-white/15 text-zinc-200 disabled:opacity-30 transition-all cursor-pointer"
                 title="Следующий кадр"
               >
-                <SkipForward className="w-5 h-5" />
+                <SkipForward size={18} weight="bold" />
               </button>
 
+              {/* Volume / Mute */}
               <button
+                type="button"
                 onClick={() => setIsMuted(!isMuted)}
-                className="p-2.5 rounded-xl hover:bg-white/15 text-zinc-200 transition-colors ml-1 cursor-pointer"
+                className="p-2 rounded-xl bg-white/5 hover:bg-white/15 text-zinc-200 transition-all cursor-pointer ml-1"
                 title={isMuted ? "Включить звук" : "Выключить звук"}
               >
-                {isMuted ? <VolumeX className="w-5 h-5 text-rose-400" /> : <Volume2 className="w-5 h-5" />}
+                {isMuted ? <SpeakerSimpleX size={18} weight="bold" className="text-rose-400" /> : <SpeakerHigh size={18} weight="bold" />}
               </button>
 
+              {/* Subtitles Toggle */}
               <button
+                type="button"
                 onClick={() => setShowSubtitles(!showSubtitles)}
-                className={`p-2.5 rounded-xl transition-all cursor-pointer ${
-                  showSubtitles ? "bg-blue-600 text-white shadow-md shadow-blue-600/30" : "hover:bg-white/15 text-zinc-400"
+                className={`p-2 rounded-xl transition-all cursor-pointer ${
+                  showSubtitles
+                    ? "bg-accent text-accent-ink font-black shadow-md"
+                    : "bg-white/5 hover:bg-white/15 text-zinc-400"
                 }`}
                 title="Субтитры"
               >
-                <Subtitles className="w-5 h-5" />
+                <ClosedCaptioning size={18} weight="bold" />
               </button>
 
-              <span className="text-sm font-mono font-semibold text-zinc-300 ml-3 hidden sm:inline">
+              {/* Time display */}
+              <span className="text-xs font-mono font-bold text-zinc-300 ml-2 hidden sm:inline">
                 {formatTime(overallElapsed)} / {formatTime(totalDuration)}
               </span>
             </div>
 
-            <div className="flex items-center gap-3">
+            {/* Right Buttons: Export & Fullscreen */}
+            <div className="flex items-center gap-2">
               {onExportClick && (
                 <button
+                  type="button"
                   onClick={onExportClick}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold shadow-lg shadow-blue-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-accent hover:bg-accent-hover active:scale-95 text-accent-ink text-xs font-black shadow-lg transition-all cursor-pointer"
                 >
-                  <Download className="w-4 h-4" />
-                  <span>Скачать MP4 (1080p)</span>
+                  <DownloadSimple size={16} weight="bold" />
+                  <span>Скачать MP4</span>
                 </button>
               )}
 
               <button
+                type="button"
                 onClick={toggleFullscreen}
-                className="p-2.5 rounded-xl hover:bg-white/15 text-zinc-200 transition-colors cursor-pointer"
-                title="Во весь экран"
+                className="p-2 rounded-xl bg-white/5 hover:bg-white/15 text-zinc-200 transition-all cursor-pointer"
+                title={isFullscreen ? "Свернуть" : "Во весь экран"}
               >
-                {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+                {isFullscreen ? <ArrowsIn size={18} weight="bold" /> : <ArrowsOut size={18} weight="bold" />}
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Frame Carousel */}
-      <div className="p-4 bg-zinc-950 rounded-2xl border border-zinc-800">
-        <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-thin">
-          {scenes.map((scene, idx) => (
-            <button
-              key={scene.id || idx}
-              onClick={() => jumpToScene(idx, 0)}
-              className={`shrink-0 w-36 sm:w-44 text-left rounded-xl p-2 transition-all border cursor-pointer ${
-                idx === currentSceneIndex
-                  ? "border-blue-500 bg-blue-950/40 ring-2 ring-blue-500/40 shadow-lg shadow-blue-600/10"
-                  : "border-zinc-800 hover:border-zinc-700 bg-zinc-900/70"
-              }`}
-            >
-              <div className="aspect-video w-full rounded-lg overflow-hidden bg-black mb-2 relative">
-                {scene.imageUrl ? (
-                  <img src={scene.imageUrl} alt={scene.title} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-xs font-semibold text-zinc-500">
-                    Кадр {idx + 1}
-                  </div>
-                )}
-                <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/85 text-[11px] font-mono font-bold text-zinc-200">
-                  {scene.durationEstimate || 17}с
-                </span>
-              </div>
-              <p className="text-xs sm:text-sm font-semibold text-zinc-200 truncate">
-                {idx + 1}. {scene.title}
-              </p>
-            </button>
-          ))}
+      {/* Frame Carousel with Left/Right Scroll Chevrons & Smooth Wheel Navigation */}
+      <div className="relative p-3.5 bg-stage rounded-2xl border border-white/10 shadow-xl group/carousel">
+        {/* Left Scroll Chevron */}
+        <button
+          type="button"
+          onClick={() => scrollCarousel("left")}
+          className="absolute left-1.5 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-black/85 hover:bg-black text-white hover:text-accent border border-white/20 flex items-center justify-center shadow-xl transition-all cursor-pointer"
+          title="Прокрутить назад"
+        >
+          <CaretLeft size={18} weight="bold" />
+        </button>
+
+        {/* Right Scroll Chevron */}
+        <button
+          type="button"
+          onClick={() => scrollCarousel("right")}
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-black/85 hover:bg-black text-white hover:text-accent border border-white/20 flex items-center justify-center shadow-xl transition-all cursor-pointer"
+          title="Прокрутить вперед"
+        >
+          <CaretRight size={18} weight="bold" />
+        </button>
+
+        {/* Carousel Tracks */}
+        <div
+          ref={carouselRef}
+          className="flex gap-3 overflow-x-auto px-6 pb-1 scroll-smooth"
+        >
+          {scenes.map((scene, idx) => {
+            const isSelected = idx === currentSceneIndex;
+            return (
+              <button
+                key={scene.id || idx}
+                onClick={() => jumpToScene(idx, 0)}
+                className={`shrink-0 w-36 sm:w-44 text-left rounded-xl p-2 transition-all duration-150 border cursor-pointer ${
+                  isSelected
+                    ? "border-accent bg-white/[0.06] shadow-lg ring-1 ring-accent/40 scale-[1.02]"
+                    : "border-white/10 hover:border-white/25 bg-black/40"
+                }`}
+              >
+                <div className="aspect-video w-full rounded-lg overflow-hidden bg-black mb-2 relative">
+                  {scene.imageUrl ? (
+                    <img src={scene.imageUrl} alt={scene.title} className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-xs font-medium text-zinc-500">
+                      Кадр {idx + 1}
+                    </div>
+                  )}
+                  <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/85 text-[10px] font-mono font-bold text-white border border-white/10">
+                    {scene.durationEstimate || 17}с
+                  </span>
+                  {isSelected && (
+                    <span className="absolute top-1 left-1 w-2.5 h-2.5 rounded-full bg-accent" />
+                  )}
+                </div>
+                <p className="text-xs font-bold text-white truncate">
+                  {idx + 1}. {scene.title}
+                </p>
+              </button>
+            );
+          })}
         </div>
       </div>
     </div>

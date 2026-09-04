@@ -2,51 +2,193 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --bg-app: #09090b;
-  --bg-surface: #121215;
-  --bg-subtle: #18181b;
-  --border-subtle: rgba(255, 255, 255, 0.07);
-  --border-strong: rgba(255, 255, 255, 0.14);
-  --text-main: #f4f4f5;
-  --text-muted: #a1a1aa;
-  --text-faint: #71717a;
+/* ============================================================
+   ДИЗАЙН-ТОКЕНЫ
+   Значения — триплеты RGB-каналов, чтобы работали alpha-модификаторы
+   Tailwind вида bg-surface/50. Тему переключает [data-theme] на <html>.
+   ============================================================ */
+
+:root,
+:root[data-theme="light"] {
+  --bg: 242 243 241;
+  --surface: 255 255 255;
+  --surface-2: 247 248 246;
+  --surface-3: 236 238 235;
+
+  --border: 226 228 223;
+  --border-strong: 209 212 205;
+
+  --text: 20 22 26;
+  --text-muted: 99 105 111;
+  --text-faint: 101 107 114;
+
+  --accent: 180 227 61;
+  --accent-hover: 166 214 46;
+  --accent-ink: 16 19 10;
+  /* Лайм текстом на светлом даёт 1.5:1 — нечитаемо.
+     Для акцентного ТЕКСТА в светлой теме используется олива: 5.36:1 на белом. */
+  --accent-text: 88 116 16;
+
+  --contrast: 20 22 26;
+  --contrast-ink: 242 243 241;
+
+  --ok-text: 74 101 12;
+  --ok-soft: 226 244 178;
+  --warn-text: 146 84 6;
+  --warn-soft: 253 237 205;
+  --danger-text: 176 42 55;
+  --danger-soft: 253 226 229;
+  --neutral-text: 99 105 111;
+  --neutral-soft: 236 238 235;
+
+  --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+
+  /* Поверхность видеомонитора. НЕ меняется между темами: кадр на светлом
+     фоне выглядит выцветшим, поэтому экран всегда тёмный — как в любом плеере. */
+  --stage: 12 13 15;
+  --stage-ink: 242 244 245;
+
+  --shadow-soft: 0 1px 2px rgb(16 19 26 / 0.04), 0 4px 16px rgb(16 19 26 / 0.05);
+  --shadow-lift: 0 2px 4px rgb(16 19 26 / 0.05), 0 12px 32px rgb(16 19 26 / 0.09);
+  --scroll-thumb: 0 0 0 / 0.18;
+  --scroll-thumb-hover: 0 0 0 / 0.3;
+  color-scheme: light;
 }
 
-body {
-  color: var(--text-main);
-  background-color: var(--bg-app);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  letter-spacing: -0.01em;
-  min-height: 100vh;
-  margin: 0;
-  padding: 0;
-  -webkit-font-smoothing: antialiased;
+:root[data-theme="dark"] {
+  --bg: 14 15 17;
+  --surface: 22 24 28;
+  --surface-2: 30 33 38;
+  --surface-3: 39 43 49;
+
+  --border: 38 42 47;
+  --border-strong: 54 59 66;
+
+  --text: 242 244 245;
+  --text-muted: 154 161 169;
+  --text-faint: 138 146 155;
+
+  --accent: 180 227 61;
+  --accent-hover: 195 239 82;
+  --accent-ink: 16 19 10;
+  /* На графите тот же лайм даёт 12.78:1 — можно использовать текстом напрямую. */
+  --accent-text: 180 227 61;
+
+  --contrast: 242 244 245;
+  --contrast-ink: 14 15 17;
+
+  --ok-text: 180 227 61;
+  --ok-soft: 45 58 20;
+  --warn-text: 245 190 90;
+  --warn-soft: 62 47 18;
+  --danger-text: 255 138 148;
+  --danger-soft: 66 28 33;
+  --neutral-text: 154 161 169;
+  --neutral-soft: 39 43 49;
+
+
+  /* Поверхность видеомонитора. НЕ меняется между темами: кадр на светлом
+     фоне выглядит выцветшим, поэтому экран всегда тёмный — как в любом плеере. */
+  --stage: 12 13 15;
+  --stage-ink: 242 244 245;
+
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / 0.4), 0 4px 16px rgb(0 0 0 / 0.3);
+  --shadow-lift: 0 2px 4px rgb(0 0 0 / 0.45), 0 12px 32px rgb(0 0 0 / 0.5);
+  --scroll-thumb: 255 255 255 / 0.14;
+  --scroll-thumb-hover: 255 255 255 / 0.26;
+  color-scheme: dark;
 }
 
-/* Subtle smooth pan/zoom */
-@keyframes studio-pan {
-  0% { transform: scale(1); }
-  50% { transform: scale(1.05) translate(-0.5%, -0.5%); }
-  100% { transform: scale(1); }
+/* ============================================================
+   БАЗА
+   ============================================================ */
+
+@layer base {
+  * {
+    border-color: rgb(var(--border));
+  }
+
+  body {
+    background-color: rgb(var(--bg));
+    color: rgb(var(--text));
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: "cv11", "ss01";
+    font-variant-ligatures: contextual;
+  }
+
+  /* Цифры в плитках и таймкодах не должны «прыгать» при смене значения */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  ::selection {
+    background-color: rgb(var(--accent));
+    color: rgb(var(--accent-ink));
+  }
+
+  :focus-visible {
+    outline: 2px solid rgb(var(--accent));
+    outline-offset: 2px;
+  }
 }
 
-.animate-studio-pan {
-  animation: studio-pan 22s ease-in-out infinite alternate;
+/* ============================================================
+   АНИМАЦИИ
+   ============================================================ */
+
+@keyframes ken-burns {
+  0%   { transform: scale(1) translate(0, 0); }
+  100% { transform: scale(1.06) translate(-0.6%, -0.6%); }
 }
 
-/* Custom minimal scrollbar */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-ken-burns { animation: none !important; }
+}
+
+/* ============================================================
+   СКРОЛЛБАР — цвет из токена, поэтому виден в обеих темах
+   ============================================================ */
+
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.12);
+  background: rgb(var(--scroll-thumb));
   border-radius: 9999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.22);
+  background: rgb(var(--scroll-thumb-hover));
+  background-clip: content-box;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--scroll-thumb)) transparent;
 }
