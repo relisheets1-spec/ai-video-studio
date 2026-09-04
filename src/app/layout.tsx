@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "AI Video Studio · Full HD 1080p @ 45 FPS",
-  description: "Генерация 8–10 минутных видеоисторий из 30–35 Full HD кадров с озвучкой OpenAI TTS и синхронными субтитрами.",
+  title: "AI Video Studio · Full HD 1080p @ 30 FPS",
+  description: "Генерация видеоисторий из Full HD кадров с озвучкой ElevenLabs и синхронными субтитрами.",
 };
 
 export default function RootLayout({
