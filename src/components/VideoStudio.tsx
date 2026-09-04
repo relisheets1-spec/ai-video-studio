@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Sparkles, Film, Palette, Clock, Play, History, Loader2, AlertCircle, Layers } from "lucide-react";
+import { Sparkles, Film, Clock, Play, History, Loader2, AlertCircle } from "lucide-react";
 import { Scene, VideoGeneration, VoiceOption } from "@/lib/types";
 import { VideoPlayer } from "./VideoPlayer";
 import { VideoExporter } from "./VideoExporter";
@@ -20,17 +20,17 @@ interface VideoStudioProps {
 }
 
 const PRESET_PROMPTS = [
-  "В 2045 году на дне Марианской впадины исследовательская станция обнаруживает светящийся монолит древней цивилизации. Ученые начинают спуск и сталкиваются с аномалиями, понимая, что это космический маяк.",
-  "История Римской Империи глазами легионера: путь от северных границ Британии до триумфального марша и драматического падения Вечного города.",
-  "Первая марсианская колония: постройка первого купола, добыча кислорода из атмосферы и рождение первого поколения людей на Красной планете.",
-  "Загадки черных дыр и гравитации: что происходит за горизонтом событий и как искривляется пространство-время вблизи сингулярности.",
+  "История Римской Империи: путь от легионеров на границах до величия Рима, Колизея и падения Вечного города.",
+  "В 2045 году глубоководная станция находит древний артефакт в Марианской впадине. Ученые сталкиваются с аномалиями и сигналами в космос.",
+  "Колонизация Марса: постройка первых куполов, выживание в пылевых бурях и создание независимого города на красной планете.",
+  "Тайны черных дыр: что происходит за горизонтом событий и как искажается пространство-время вблизи гравитационной сингулярности.",
 ];
 
 const STYLE_OPTIONS = [
-  { id: "cinematic photorealistic 8k", label: "Кинематографичный 8K", desc: "Реалистичные фотокадры с киноосвещением" },
-  { id: "cyberpunk sci-fi dark synthwave", label: "Киберпанк / Sci-Fi", desc: "Неоновые огни, технологии будущего" },
-  { id: "vintage documentary photography", label: "Винтажная хроника", desc: "Атмосфера исторических архивов" },
-  { id: "epic dark fantasy digital art", label: "Эпическое фэнтези", desc: "Художественные иллюстрации и атмосфера" },
+  { id: "cinematic photorealistic 8k", label: "Кинематографичный", desc: "Реалистичные кадры с киноосвещением" },
+  { id: "cyberpunk sci-fi", label: "Киберпанк / Sci-Fi", desc: "Футуристичные технологии и огни" },
+  { id: "historical documentary archive", label: "Историческая хроника", desc: "Атмосфера архивов и эпохи" },
+  { id: "epic dark fantasy", label: "Эпический арт", desc: "Художественные иллюстрации" },
 ];
 
 export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) => {
@@ -39,7 +39,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("onyx");
   const [targetMinutes, setTargetMinutes] = useState(10);
 
-  // Generation state
   const [isGenerating, setIsGenerating] = useState(false);
   const [progressStep, setProgressStep] = useState("");
   const [progressPercent, setProgressPercent] = useState(0);
@@ -47,7 +46,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   const [showExporter, setShowExporter] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Past videos
   const [pastVideos, setPastVideos] = useState<VideoGeneration[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
@@ -75,7 +73,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     if (!topic.trim()) return;
 
     if (user.remaining <= 0) {
-      setError("Лимит генераций исчерпан (0 осталось). Обратитесь к администратору за пополнением.");
+      setError("Лимит генераций исчерпан (0 осталось). Обратитесь к администратору.");
       return;
     }
 
@@ -113,7 +111,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       // 2. Generate Audio
       for (let i = 0; i < totalScenes; i++) {
         const scene = scenes[i];
-        setProgressStep(`Озвучка сцены ${i + 1}/${totalScenes}: "${scene.title}"`);
+        setProgressStep(`Озвучка кадра ${i + 1}/${totalScenes}: "${scene.title}"`);
         setProgressPercent(20 + Math.round(((i + 1) / totalScenes) * 35));
 
         const audioRes = await fetch("/api/generate/audio", {
@@ -134,9 +132,9 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
         }
       }
 
-      // 3. Generate Images
+      // 3. Generate Images via gpt-image-1-mini
       setProgressPercent(55);
-      setProgressStep(`Шаг 3 из 4: Генерация кадров 16:9 под озвучку...`);
+      setProgressStep(`Шаг 3 из 4: Генерация кадров 16:9 под сюжет...`);
 
       for (let i = 0; i < totalScenes; i++) {
         const scene = scenes[i];
@@ -162,7 +160,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
 
       // 4. Finalize
       setProgressPercent(95);
-      setProgressStep("Шаг 4 из 4: Сохранение и синхронизация субтитров...");
+      setProgressStep("Шаг 4 из 4: Синхронизация субтитров и сохранение...");
 
       const totalDuration = scenes.reduce((acc, s) => acc + (s.durationEstimate || 17), 0);
 
@@ -187,7 +185,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       });
 
       setProgressPercent(100);
-      setProgressStep("Готово! Видеоистория создана!");
+      setProgressStep("Готово! Видеоистория собрана!");
 
       setCurrentVideo({
         id: videoId,
@@ -205,138 +203,120 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
-      {/* Material 3 Top Card */}
-      <div className="p-6 sm:p-7 bg-[#1D1B20] rounded-3xl border border-[#49454F]/30 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-bold text-[#E6E0E9] tracking-tight">
-              Студия видеоисторий
-            </h1>
-            <span className="text-xs px-3 py-1 rounded-full bg-[#2B2930] text-[#D0BCFF] border border-[#49454F]/40 flex items-center gap-1 font-medium">
-              <Layers className="w-3.5 h-3.5" />
-              30–35 кадров • 8–10 мин
-            </span>
-          </div>
-          <p className="text-xs text-[#938F99]">
-            Пользователь: <strong className="text-[#E6E0E9]">{user.userName}</strong>. Введите сюжет от 2 до 10 предложений, выберите голос и стиль.
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+      {/* Top Header Card */}
+      <div className="p-5 bg-zinc-950 rounded-2xl border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold text-white tracking-tight">
+            Студия видеоисторий
+          </h1>
+          <p className="text-xs text-zinc-400 mt-0.5">
+            Пользователь: <span className="text-zinc-200">{user.userName}</span> • 30–35 кадров • Full HD @ 45 FPS
           </p>
         </div>
 
-        <div className="px-4 py-2 rounded-2xl bg-[#2B2930] border border-[#49454F]/40 self-start md:self-auto text-center">
-          <span className="text-[11px] text-[#938F99] block">Осталось генераций</span>
-          <span className="text-lg font-bold text-[#E6E0E9]">
-            <span className="text-[#D0BCFF]">{user.remaining}</span> / {user.generationsLimit}
-          </span>
+        <div className="px-3.5 py-1.5 rounded-xl bg-zinc-900 border border-white/10 self-start sm:self-auto text-xs text-zinc-300">
+          Осталось: <strong className="text-white font-semibold">{user.remaining}</strong> из {user.generationsLimit} генераций
         </div>
       </div>
 
       {error && (
-        <div className="p-4 rounded-2xl bg-[#8C1D18]/30 border border-[#F2B8B5]/30 text-[#F2B8B5] text-xs flex items-start gap-2.5">
+        <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-start gap-2">
           <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
           <span>{error}</span>
         </div>
       )}
 
-      {/* Main Form */}
+      {/* Main Studio Form */}
       {!currentVideo && (
-        <form onSubmit={handleStartGeneration} className="space-y-6">
-          <div className="bg-[#1D1B20] rounded-3xl p-6 sm:p-8 border border-[#49454F]/30 space-y-6">
+        <form onSubmit={handleStartGeneration} className="space-y-5">
+          <div className="bg-zinc-950 rounded-2xl p-5 sm:p-6 border border-white/10 space-y-5">
             {/* Prompt Input */}
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <div className="flex items-center justify-between">
-                <label className="block text-sm font-medium text-[#E6E0E9]">
-                  Промпт для видеоистории (2–10 предложений)
+                <label className="text-xs font-semibold text-zinc-200">
+                  Промпт для видеоистории (от 2 до 10 предложений)
                 </label>
-                <span className="text-xs text-[#D0BCFF]">
-                  Ролик из {targetMinutes >= 10 ? "34" : "30"} кадров с озвучкой
+                <span className="text-[11px] text-zinc-400 font-mono">
+                  {targetMinutes >= 10 ? "34 кадра" : "30 кадров"}
                 </span>
               </div>
 
               <textarea
                 rows={4}
                 required
-                placeholder="Опишите сюжет истории в 2–10 предложениях... Например: В 2045 году на дне океана находят древний артефакт. Ученые начинают спуск и сталкиваются с аномалиями. По мере расшифровки сигналов становится ясно, что это космический маяк древней цивилизации."
+                placeholder="Опишите сюжет истории в 2-10 предложениях... Например: История Римской Империи: путь от легионеров на границах до величия Рима, Колизея и падения Вечного города."
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
                 disabled={isGenerating}
-                className="w-full px-4 py-3.5 rounded-2xl bg-[#2B2930] border border-[#49454F]/40 text-[#E6E0E9] placeholder-[#938F99] text-xs leading-relaxed focus:outline-none focus:border-[#D0BCFF] focus:ring-1 focus:ring-[#D0BCFF] transition-all resize-none"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-zinc-900 border border-white/10 text-white placeholder-zinc-500 text-xs focus:outline-none focus:border-white transition-colors resize-none"
               />
 
-              {/* Preset prompt pills */}
-              <div className="space-y-1.5 pt-1">
-                <span className="text-xs text-[#938F99]">Примеры сюжетов:</span>
-                <div className="flex flex-col gap-1.5">
-                  {PRESET_PROMPTS.map((p, idx) => (
-                    <button
-                      key={idx}
-                      type="button"
-                      onClick={() => setTopic(p)}
-                      disabled={isGenerating}
-                      className="text-left text-xs p-2.5 rounded-xl bg-[#2B2930]/60 hover:bg-[#2B2930] text-[#CAC4D0] hover:text-[#E6E0E9] border border-[#49454F]/30 transition-colors line-clamp-1"
-                    >
-                      • {p}
-                    </button>
-                  ))}
-                </div>
+              {/* Fast Presets */}
+              <div className="flex flex-wrap gap-1.5 pt-0.5">
+                {PRESET_PROMPTS.map((p, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setTopic(p)}
+                    disabled={isGenerating}
+                    className="text-[11px] px-2.5 py-1 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-white/5 transition-colors line-clamp-1 text-left"
+                  >
+                    • {p.slice(0, 55)}...
+                  </button>
+                ))}
               </div>
             </div>
 
-            {/* Voice Selector Component with Russian and Kazakh Audio Samples */}
-            <div className="pt-2 border-t border-[#49454F]/30">
+            {/* Minimal Voice Selector with 15-second audio previews */}
+            <div className="pt-3 border-t border-white/10">
               <VoiceSelector
                 selectedVoice={selectedVoice}
                 onSelectVoice={(v) => setSelectedVoice(v)}
               />
             </div>
 
-            {/* Styles & Duration Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 border-t border-[#49454F]/30">
-              {/* Visual Style Selection */}
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-[#E6E0E9] flex items-center gap-1.5">
-                  <Palette className="w-4 h-4 text-[#D0BCFF]" />
-                  Стиль визуализации кадров
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {/* Style & Duration in one minimal grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-white/10">
+              {/* Visual Style */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-zinc-200">Стиль кадров</label>
+                <div className="grid grid-cols-2 gap-1.5">
                   {STYLE_OPTIONS.map((st) => (
                     <button
                       key={st.id}
                       type="button"
                       onClick={() => setSelectedStyle(st.id)}
-                      className={`text-left p-3 rounded-2xl border text-xs transition-all ${
+                      className={`text-left p-2.5 rounded-xl border text-xs transition-all ${
                         selectedStyle === st.id
-                          ? "bg-[#2B2930] border-[#D0BCFF] text-[#E6E0E9] ring-1 ring-[#D0BCFF]"
-                          : "bg-[#141218] border-[#49454F]/40 text-[#CAC4D0] hover:bg-[#25232A]"
+                          ? "bg-zinc-800 border-white text-white font-medium"
+                          : "bg-zinc-900/60 border-white/5 text-zinc-400 hover:text-white"
                       }`}
                     >
-                      <div className="font-medium text-[#E6E0E9]">{st.label}</div>
-                      <div className="text-[11px] text-[#938F99] mt-0.5">{st.desc}</div>
+                      <div>{st.label}</div>
+                      <div className="text-[10px] text-zinc-500 mt-0.5">{st.desc}</div>
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Duration selection */}
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-[#E6E0E9] flex items-center gap-1.5">
-                  <Clock className="w-4 h-4 text-[#D0BCFF]" />
-                  Хронометраж истории
-                </label>
-                <div className="grid grid-cols-2 gap-2">
+              {/* Duration */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-zinc-200">Длительность истории</label>
+                <div className="grid grid-cols-2 gap-1.5">
                   {[8, 10].map((min) => (
                     <button
                       key={min}
                       type="button"
                       onClick={() => setTargetMinutes(min)}
-                      className={`p-3 rounded-2xl border text-center transition-all ${
+                      className={`p-2.5 rounded-xl border text-center transition-all ${
                         targetMinutes === min
-                          ? "bg-[#2B2930] border-[#D0BCFF] text-[#D0BCFF] ring-1 ring-[#D0BCFF]"
-                          : "bg-[#141218] border-[#49454F]/40 text-[#CAC4D0] hover:bg-[#25232A]"
+                          ? "bg-zinc-800 border-white text-white font-semibold"
+                          : "bg-zinc-900/60 border-white/5 text-zinc-400 hover:text-white"
                       }`}
                     >
-                      <div className="font-bold text-sm text-[#E6E0E9]">{min} Минут</div>
-                      <div className="text-[11px] text-[#938F99] mt-0.5">
+                      <div className="text-xs">{min} Минут</div>
+                      <div className="text-[10px] text-zinc-500 mt-0.5">
                         {min >= 10 ? "34 кадра" : "30 кадров"}
                       </div>
                     </button>
@@ -345,34 +325,31 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
               </div>
             </div>
 
-            {/* M3 Linear Progress Bar */}
+            {/* Progress Bar */}
             {isGenerating && (
-              <div className="space-y-3 p-5 rounded-2xl bg-[#2B2930] border border-[#D0BCFF]/30">
-                <div className="flex items-center justify-between text-xs text-[#E6E0E9]">
-                  <span className="flex items-center gap-2 font-medium">
-                    <Loader2 className="w-4 h-4 animate-spin text-[#D0BCFF]" />
+              <div className="space-y-2.5 p-4 rounded-xl bg-zinc-900 border border-white/10">
+                <div className="flex items-center justify-between text-xs text-white">
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
                     <span>{progressStep}</span>
                   </span>
-                  <span className="font-mono font-bold text-[#D0BCFF]">{progressPercent}%</span>
+                  <span className="font-mono font-bold">{progressPercent}%</span>
                 </div>
-                <div className="w-full h-2 rounded-full bg-[#36343B] overflow-hidden">
+                <div className="w-full h-1.5 rounded-full bg-zinc-800 overflow-hidden">
                   <div
-                    className="h-full bg-[#D0BCFF] transition-all duration-500 rounded-full"
+                    className="h-full bg-white transition-all duration-300 rounded-full"
                     style={{ width: `${progressPercent}%` }}
                   />
                 </div>
-                <p className="text-[11px] text-[#938F99]">
-                  Идет сборка аудио и визуальных сцен. Пожалуйста, не закрывайте страницу.
-                </p>
               </div>
             )}
 
-            {/* Submit Button */}
+            {/* Submit */}
             {!isGenerating && (
               <button
                 type="submit"
                 disabled={user.remaining <= 0 || !topic.trim()}
-                className="w-full py-3.5 px-6 rounded-full bg-[#D0BCFF] text-[#381E72] font-semibold text-sm shadow-md hover:opacity-90 transition-all flex items-center justify-center gap-2.5 disabled:opacity-40"
+                className="w-full py-3 px-6 rounded-xl bg-white text-black hover:bg-zinc-200 font-semibold text-xs transition-colors flex items-center justify-center gap-2 disabled:opacity-40"
               >
                 <Sparkles className="w-4 h-4" />
                 <span>Сгенерировать видеоисторию ({targetMinutes} мин, {targetMinutes >= 10 ? "34" : "30"} кадров)</span>
@@ -382,19 +359,17 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
         </form>
       )}
 
-      {/* Active Video Player Screen */}
+      {/* Video Player */}
       {currentVideo && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <div className="flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-bold text-[#E6E0E9]">{currentVideo.title}</h2>
-              <p className="text-xs text-[#938F99]">
-                {currentVideo.scenes.length} кадров • Синхронный звук и субтитры
-              </p>
+              <h2 className="text-base font-semibold text-white">{currentVideo.title}</h2>
+              <p className="text-xs text-zinc-400">{currentVideo.scenes.length} кадров • Full HD 45 FPS</p>
             </div>
             <button
               onClick={() => setCurrentVideo(null)}
-              className="text-xs px-4 py-2 rounded-full bg-[#2B2930] hover:bg-[#36343B] text-[#CAC4D0] font-medium transition-colors"
+              className="text-xs px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 transition-colors"
             >
               ← Создать новую историю
             </button>
@@ -416,41 +391,33 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
         </div>
       )}
 
-      {/* Previous History (Material 3 Cards) */}
-      <div className="space-y-4 pt-4 border-t border-[#49454F]/30">
+      {/* History */}
+      <div className="space-y-3 pt-3 border-t border-white/10">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium text-[#E6E0E9] flex items-center gap-2">
-            <History className="w-4 h-4 text-[#D0BCFF]" />
-            История ваших историй
+          <h3 className="text-xs font-semibold text-zinc-300 flex items-center gap-1.5">
+            <History className="w-3.5 h-3.5 text-zinc-400" />
+            История видеоисторий
           </h3>
-          <span className="text-xs text-[#938F99]">{pastVideos.length} видео</span>
+          <span className="text-[11px] text-zinc-500">{pastVideos.length} видео</span>
         </div>
 
-        {loadingHistory ? (
-          <div className="p-8 text-center text-xs text-[#938F99] flex items-center justify-center gap-2">
-            <Loader2 className="w-4 h-4 animate-spin text-[#D0BCFF]" />
-            <span>Загрузка истории...</span>
-          </div>
-        ) : pastVideos.length === 0 ? (
-          <div className="p-8 rounded-3xl bg-[#1D1B20] text-center text-xs text-[#938F99] border border-[#49454F]/30">
-            У вас пока нет созданных видеоисторий. Заполните форму выше для первой генерации!
+        {pastVideos.length === 0 ? (
+          <div className="p-6 rounded-xl bg-zinc-950 text-center text-xs text-zinc-500 border border-white/5">
+            Пока нет созданных историй. Заполните форму выше для первой генерации.
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
             {pastVideos.map((vid) => (
               <div
                 key={vid.id}
-                className="p-4 rounded-3xl bg-[#1D1B20] border border-[#49454F]/30 hover:border-[#938F99] transition-all flex flex-col justify-between space-y-3"
+                className="p-3 rounded-xl bg-zinc-950 border border-white/10 hover:border-white/20 transition-colors flex flex-col justify-between space-y-2"
               >
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-[11px] text-[#938F99]">
+                <div>
+                  <div className="flex items-center justify-between text-[10px] text-zinc-400 mb-1">
                     <span>{new Date(vid.created_at).toLocaleDateString("ru-RU")}</span>
-                    <span className="px-2 py-0.5 rounded-full bg-[#2B2930] text-[#D0BCFF]">
-                      {vid.target_duration_minutes} мин
-                    </span>
+                    <span>{vid.target_duration_minutes} мин</span>
                   </div>
-                  <h4 className="font-semibold text-xs text-[#E6E0E9] line-clamp-2">{vid.topic}</h4>
-                  <p className="text-[11px] text-[#938F99]">Кадров: {vid.scenes?.length || 0}</p>
+                  <h4 className="font-medium text-xs text-zinc-200 line-clamp-2">{vid.topic}</h4>
                 </div>
 
                 <button
@@ -462,10 +429,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                     });
                     window.scrollTo({ top: 0, behavior: "smooth" });
                   }}
-                  className="w-full py-2 px-3 rounded-full bg-[#2B2930] hover:bg-[#36343B] text-[#D0BCFF] text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
+                  className="w-full py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-[11px] font-medium flex items-center justify-center gap-1.5 transition-colors"
                 >
-                  <Play className="w-3.5 h-3.5 fill-current" />
-                  <span>Открыть плеер</span>
+                  <Play className="w-3 h-3" />
+                  <span>Открыть</span>
                 </button>
               </div>
             ))}

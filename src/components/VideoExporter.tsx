@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import { Download, X, Film, CheckCircle2, AlertCircle, Loader2, Sparkles, Sliders } from "lucide-react";
+import { Download, X, Film, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import { Scene } from "@/lib/types";
 import fixWebmDuration from "fix-webm-duration";
 
@@ -20,25 +20,25 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
 
   const cancelRef = useRef(false);
 
-  // Full HD 1080p, 40 FPS settings
+  // Full HD 1080p, 45 FPS
   const WIDTH = 1920;
   const HEIGHT = 1080;
-  const FPS = 40;
+  const FPS = 45;
 
   const startExport = async () => {
     try {
       setStatus("rendering");
       cancelRef.current = false;
       setProgressPercent(0);
-      setStatusText("Инициализация Full HD холста (1920x1080 @ 40 FPS)...");
+      setStatusText("Подготовка Full HD холста (1920x1080 @ 45 FPS)...");
 
       const canvas = document.createElement("canvas");
       canvas.width = WIDTH;
       canvas.height = HEIGHT;
       const ctx = canvas.getContext("2d", { alpha: false });
-      if (!ctx) throw new Error("Не удалось инициализировать 2D контекст");
+      if (!ctx) throw new Error("Не удалось создать 2D контекст");
 
-      // Audio setup using Web Audio API
+      // Web Audio API destination
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const audioCtx = new AudioContextClass();
       const audioDest = audioCtx.createMediaStreamDestination();
@@ -59,8 +59,8 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
 
       const recorder = new MediaRecorder(combinedStream, {
         mimeType,
-        videoBitsPerSecond: 10000000, // 10 Mbps crisp Full HD quality
-        audioBitsPerSecond: 192000,   // 192 kbps audio
+        videoBitsPerSecond: 10000000, // 10 Mbps for crisp Full HD quality
+        audioBitsPerSecond: 192000,
       });
 
       const chunks: Blob[] = [];
@@ -71,18 +71,18 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
       let totalDurationSeconds = 0;
 
       recorder.onstop = () => {
-        setStatusText("Финализация и запись индексных меток (cue points) для плавной перемотки...");
+        setStatusText("Запись индексных меток (cue points) для плавной перемотки...");
         const rawBlob = new Blob(chunks, { type: mimeType });
         const durationMs = Math.max(1000, Math.round(totalDurationSeconds * 1000));
 
-        // Fix missing cues and duration so video can be seeked and scrubbed across timeline!
+        // Fix timeline seeking with exact cue points and duration
         try {
           fixWebmDuration(rawBlob, durationMs, (fixedBlob: Blob) => {
             const url = URL.createObjectURL(fixedBlob);
             setDownloadUrl(url);
             setFileSizeMb((fixedBlob.size / (1024 * 1024)).toFixed(1));
             setStatus("finished");
-            setStatusText("Видео успешно скомпилировано в Full HD с поддержкой перемотки!");
+            setStatusText("Видео Full HD скомпилировано с поддержкой перемотки!");
           });
         } catch (fixErr) {
           console.warn("Duration patch fallback:", fixErr);
@@ -104,10 +104,10 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
 
         const scene = scenes[i];
         const sceneNum = i + 1;
-        setStatusText(`Обработка кадра ${sceneNum} из ${scenes.length}: ${scene.title}`);
+        setStatusText(`Кадр ${sceneNum} из ${scenes.length}: ${scene.title}`);
         setProgressPercent(Math.round((i / scenes.length) * 100));
 
-        // 1. Preload scene image with CORS support
+        // 1. Preload image
         const img = new Image();
         img.crossOrigin = "anonymous";
         await new Promise((resolve) => {
@@ -116,7 +116,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
           img.src = scene.imageUrl || "";
         });
 
-        // 2. Decode and play audio buffer into stream
+        // 2. Decode audio
         let audioBuffer: AudioBuffer | null = null;
         let durationSec = scene.durationEstimate || 17;
 
@@ -127,13 +127,12 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
             audioBuffer = await audioCtx.decodeAudioData(arrayBuf);
             durationSec = audioBuffer.duration;
           } catch (err) {
-            console.warn("Audio load error for scene", sceneNum, err);
+            console.warn("Audio load error:", sceneNum, err);
           }
         }
 
         totalDurationSeconds += durationSec;
 
-        // Play audio into recorder destination
         if (audioBuffer) {
           const source = audioCtx.createBufferSource();
           source.buffer = audioBuffer;
@@ -141,7 +140,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
           source.start();
         }
 
-        // Render scene frames at 40 FPS with Ken Burns pan and zoom
+        // Render frames at 45 FPS
         const totalFrames = Math.floor(durationSec * FPS);
         const frameIntervalMs = 1000 / FPS;
         const sceneStartTime = Date.now();
@@ -152,11 +151,11 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
           const progress = frame / totalFrames;
           const zoomScale = 1 + progress * 0.08;
 
-          // Background canvas fill
-          ctx.fillStyle = "#141218";
+          // Black background
+          ctx.fillStyle = "#09090b";
           ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-          // Render image if loaded
+          // Draw image
           if (img.complete && img.naturalWidth > 0) {
             ctx.save();
             ctx.translate(WIDTH / 2, HEIGHT / 2);
@@ -165,32 +164,32 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
             ctx.restore();
           }
 
-          // Dark cinematic gradient for subtitles
-          const gradient = ctx.createLinearGradient(0, HEIGHT - 320, 0, HEIGHT);
-          gradient.addColorStop(0, "rgba(20, 18, 24, 0)");
-          gradient.addColorStop(1, "rgba(20, 18, 24, 0.92)");
+          // Dark vignette gradient for subtitles
+          const gradient = ctx.createLinearGradient(0, HEIGHT - 330, 0, HEIGHT);
+          gradient.addColorStop(0, "rgba(9, 9, 11, 0)");
+          gradient.addColorStop(1, "rgba(9, 9, 11, 0.94)");
           ctx.fillStyle = gradient;
-          ctx.fillRect(0, HEIGHT - 320, WIDTH, 320);
+          ctx.fillRect(0, HEIGHT - 330, WIDTH, 330);
 
-          // Render Subtitles in High-Resolution Google Sans style
+          // Subtitles (+10% increased to 39px font for crystal clear readability)
           if (scene.narration) {
-            ctx.font = "bold 34px -apple-system, BlinkMacSystemFont, 'Google Sans', sans-serif";
+            ctx.font = "bold 39px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
             ctx.fillStyle = "#FFFFFF";
             ctx.textAlign = "center";
-            ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
-            ctx.shadowBlur = 10;
+            ctx.shadowColor = "rgba(0, 0, 0, 0.95)";
+            ctx.shadowBlur = 12;
 
             const words = scene.narration.split(" ");
             let line = "";
             let y = HEIGHT - 110;
-            const maxLineWidth = WIDTH - 280;
+            const maxLineWidth = WIDTH - 260;
 
             for (const word of words) {
               const testLine = line + word + " ";
               if (ctx.measureText(testLine).width > maxLineWidth) {
                 ctx.fillText(line, WIDTH / 2, y);
                 line = word + " ";
-                y += 46;
+                y += 50;
               } else {
                 line = testLine;
               }
@@ -198,7 +197,6 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
             ctx.fillText(line, WIDTH / 2, y);
           }
 
-          // Maintain strict frame timing
           const elapsed = Date.now() - sceneStartTime;
           const expected = (frame + 1) * frameIntervalMs;
           const delay = Math.max(0, expected - elapsed);
@@ -213,118 +211,114 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
     } catch (err: any) {
       console.error("Export Error:", err);
       setStatus("error");
-      setStatusText(err.message || "Ошибка при сборке видео");
+      setStatusText(err.message || "Ошибка при экспорте видео");
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md select-none">
-      {/* Material 3 Dialog Card */}
-      <div className="bg-[#211F26] max-w-lg w-full rounded-3xl p-6 sm:p-8 border border-[#49454F]/40 shadow-2xl relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm select-none">
+      <div className="bg-[#121215] max-w-md w-full rounded-2xl p-6 border border-white/10 shadow-2xl relative">
         <button
           onClick={() => {
             cancelRef.current = true;
             onClose();
           }}
-          className="absolute top-5 right-5 p-2 rounded-full hover:bg-[#36343B] text-[#938F99] hover:text-[#E6E0E9] transition-colors"
+          className="absolute top-4 right-4 p-2 text-zinc-400 hover:text-white transition-colors"
         >
           <X className="w-5 h-5" />
         </button>
 
-        <div className="flex items-center gap-3.5 mb-6">
-          <div className="w-12 h-12 rounded-2xl bg-[#4F378B] text-[#D0BCFF] flex items-center justify-center">
-            <Film className="w-6 h-6" />
+        <div className="flex items-center gap-3 mb-5">
+          <div className="w-10 h-10 rounded-xl bg-zinc-800 text-white flex items-center justify-center">
+            <Film className="w-5 h-5" />
           </div>
           <div>
-            <h3 className="text-xl font-bold text-[#E6E0E9]">Экспорт видеоистории</h3>
-            <p className="text-xs text-[#938F99] mt-0.5 truncate max-w-sm">{title}</p>
+            <h3 className="text-base font-semibold text-white">Экспорт в Full HD</h3>
+            <p className="text-xs text-zinc-400 mt-0.5 truncate max-w-xs">{title}</p>
           </div>
         </div>
 
-        {/* Specifications Chip Card */}
-        <div className="p-4 rounded-2xl bg-[#2B2930] border border-[#49454F]/30 space-y-2 mb-6 text-xs text-[#CAC4D0]">
-          <div className="flex items-center justify-between font-medium">
-            <span className="text-[#E6E0E9] flex items-center gap-1.5">
-              <Sliders className="w-3.5 h-3.5 text-[#D0BCFF]" />
-              Параметры видеоролика:
-            </span>
-            <span className="px-2 py-0.5 rounded-full bg-[#4F378B] text-[#EADDFF] font-mono text-[11px]">
-              Full HD @ 40 FPS
-            </span>
+        {/* Minimal Specs */}
+        <div className="p-3.5 rounded-xl bg-zinc-900 border border-white/5 space-y-1.5 mb-5 text-xs text-zinc-300">
+          <div className="flex justify-between">
+            <span className="text-zinc-400">Формат:</span>
+            <span className="font-medium text-white">1920 × 1080 (Full HD)</span>
           </div>
-          <div className="grid grid-cols-2 gap-2 pt-1 text-[11px] text-[#938F99]">
-            <div>• Разрешение: <strong className="text-[#E6E0E9]">1920 × 1080</strong></div>
-            <div>• Частота кадров: <strong className="text-[#E6E0E9]">40 FPS</strong></div>
-            <div>• Кадров в истории: <strong className="text-[#E6E0E9]">{scenes.length}</strong></div>
-            <div>• Перемотка по таймлайну: <strong className="text-[#E6E0E9]">Включена</strong></div>
+          <div className="flex justify-between">
+            <span className="text-zinc-400">Частота кадров:</span>
+            <span className="font-medium text-white">45 FPS</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-zinc-400">Кадров в ролике:</span>
+            <span className="font-medium text-white">{scenes.length}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-zinc-400">Перемотка по таймлайну:</span>
+            <span className="font-medium text-emerald-400">Поддерживается</span>
           </div>
         </div>
 
-        {/* Progress Display */}
+        {/* Progress */}
         {status === "rendering" && (
-          <div className="space-y-3 p-4 rounded-2xl bg-[#2B2930] border border-[#D0BCFF]/30 mb-6">
-            <div className="flex items-center justify-between text-xs text-[#E6E0E9]">
-              <span className="flex items-center gap-2 font-medium">
-                <Loader2 className="w-4 h-4 animate-spin text-[#D0BCFF]" />
-                <span>Сборка 1080p видеопотока...</span>
+          <div className="space-y-3 p-4 rounded-xl bg-zinc-900 border border-white/10 mb-5">
+            <div className="flex items-center justify-between text-xs text-white">
+              <span className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-zinc-400" />
+                <span>Сборка 1080p видео...</span>
               </span>
-              <span className="font-mono font-bold text-[#D0BCFF]">{progressPercent}%</span>
+              <span className="font-mono font-bold">{progressPercent}%</span>
             </div>
-            {/* M3 Linear Progress Indicator */}
-            <div className="w-full h-2 rounded-full bg-[#36343B] overflow-hidden">
+            <div className="w-full h-2 rounded-full bg-zinc-800 overflow-hidden">
               <div
-                className="h-full bg-[#D0BCFF] transition-all duration-300 rounded-full"
+                className="h-full bg-white transition-all duration-300 rounded-full"
                 style={{ width: `${progressPercent}%` }}
               />
             </div>
-            <p className="text-[11px] text-[#938F99] truncate">{statusText}</p>
+            <p className="text-[11px] text-zinc-400 truncate">{statusText}</p>
           </div>
         )}
 
-        {/* Finished / Ready for Download */}
+        {/* Finished */}
         {status === "finished" && downloadUrl && (
-          <div className="space-y-4 p-5 rounded-2xl bg-[#1D1B20] border border-[#D0BCFF]/40 text-center mb-6">
-            <div className="flex items-center justify-center gap-2 text-[#D0BCFF] font-semibold text-sm">
-              <CheckCircle2 className="w-5 h-5" />
+          <div className="space-y-4 p-4 rounded-xl bg-zinc-900 border border-white/10 text-center mb-5">
+            <div className="flex items-center justify-center gap-2 text-white font-medium text-xs">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
               <span>Full HD видео готово к скачиванию!</span>
             </div>
-            <p className="text-xs text-[#938F99]">
-              Размер файла: ~{fileSizeMb} МБ. Файл можно свободно открывать в любых плеерах и перематывать по таймлайну.
-            </p>
             <a
               href={downloadUrl}
-              download={`${title.replace(/[^a-zA-Z0-9а-яА-Я]/g, "_")}_1080p.webm`}
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-[#D0BCFF] text-[#381E72] font-semibold text-sm shadow-md hover:opacity-90 transition-all"
+              download={`${title.replace(/[^a-zA-Z0-9а-яА-Я]/g, "_")}_1080p_45fps.webm`}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white text-black font-semibold text-xs hover:bg-zinc-200 transition-all"
             >
               <Download className="w-4 h-4" />
-              <span>Сохранить файл ({fileSizeMb} МБ)</span>
+              <span>Скачать файл ({fileSizeMb} МБ)</span>
             </a>
           </div>
         )}
 
         {/* Error */}
         {status === "error" && (
-          <div className="p-4 rounded-2xl bg-[#8C1D18]/30 border border-[#F2B8B5]/30 text-xs text-[#F2B8B5] flex items-start gap-2.5 mb-6">
+          <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-300 flex items-start gap-2 mb-5">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{statusText}</span>
           </div>
         )}
 
-        {/* Idle action button */}
+        {/* Action */}
         {status === "idle" && (
-          <div className="flex gap-3">
+          <div className="flex gap-2.5">
             <button
               onClick={onClose}
-              className="flex-1 py-3 rounded-full bg-[#2B2930] hover:bg-[#36343B] text-[#CAC4D0] font-medium text-xs transition-colors"
+              className="flex-1 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition-colors"
             >
               Отмена
             </button>
             <button
               onClick={startExport}
-              className="flex-1 py-3 rounded-full bg-[#D0BCFF] text-[#381E72] font-semibold text-xs shadow-md hover:opacity-90 transition-all flex items-center justify-center gap-2"
+              className="flex-1 py-2.5 rounded-xl bg-white text-black hover:bg-zinc-200 font-semibold text-xs transition-all flex items-center justify-center gap-2"
             >
               <Film className="w-4 h-4" />
-              <span>Начать экспорт (1080p, 40 FPS)</span>
+              <span>Экспорт 1080p (45 FPS)</span>
             </button>
           </div>
         )}

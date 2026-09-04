@@ -1,68 +1,70 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { openai } from "@/lib/openai";
+
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 export async function POST(req: NextRequest) {
   try {
-    const { videoId, sceneId, visualPrompt, style = "cinematic" } = await req.json();
+    const { videoId, sceneId, visualPrompt, style = "cinematic photorealistic" } = await req.json();
 
     if (!videoId || sceneId === undefined || !visualPrompt) {
       return NextResponse.json({ error: "videoId, sceneId и visualPrompt обязательны" }, { status: 400 });
     }
 
-    const enhancedPrompt = `${visualPrompt.slice(0, 800)}. Style: ${style}, widescreen 16:9 cinematic shot, 8k resolution, dramatic cinematic atmosphere, hyper-detailed.`;
+    const cleanPrompt = `${visualPrompt.slice(0, 700)}. Style: ${style}, 16:9 widescreen composition, high detail, masterpiece.`;
 
-    let imageUrl = "";
-
-    try {
-      const response = await openai.images.generate({
-        model: "dall-e-3",
-        prompt: enhancedPrompt,
+    // Call OpenAI image generation using supported gpt-image-1-mini model
+    const openAiRes = await fetch("https://api.openai.com/v1/images/generations", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-image-1-mini",
+        prompt: cleanPrompt,
         n: 1,
-        size: "1792x1024",
-        quality: "standard",
-        response_format: "url",
+      }),
+    });
+
+    const openAiData = await openAiRes.json();
+
+    if (!openAiRes.ok || !openAiData?.data?.[0]) {
+      console.error("OpenAI Image error:", openAiData);
+      throw new Error(openAiData?.error?.message || "Не удалось сгенерировать изображение");
+    }
+
+    const b64Json = openAiData.data[0].b64_json;
+    if (!b64Json) {
+      throw new Error("Отсутствуют base64 данные изображения");
+    }
+
+    const imgBuffer = Buffer.from(b64Json, "base64");
+    const filePath = `images/${videoId}/scene_${sceneId}.png`;
+
+    // Upload to Supabase Storage
+    const { error: uploadError } = await supabaseAdmin.storage
+      .from("video-assets")
+      .upload(filePath, imgBuffer, {
+        contentType: "image/png",
+        upsert: true,
       });
 
-      const openAiImageUrl = response?.data?.[0]?.url;
-      if (!openAiImageUrl) {
-        throw new Error("OpenAI не вернул URL изображения");
-      }
-
-      // Download the image to save into Supabase Storage
-      const imgRes = await fetch(openAiImageUrl);
-      const imgBuffer = Buffer.from(await imgRes.arrayBuffer());
-
-      const filePath = `images/${videoId}/scene_${sceneId}.png`;
-      const { error: uploadError } = await supabaseAdmin.storage
-        .from("video-assets")
-        .upload(filePath, imgBuffer, {
-          contentType: "image/png",
-          upsert: true,
-        });
-
-      if (uploadError) {
-        console.error("Image upload to storage error:", uploadError);
-        // Fallback to direct OpenAI URL if upload failed
-        imageUrl = openAiImageUrl;
-      } else {
-        const { data: publicUrlData } = supabaseAdmin.storage
-          .from("video-assets")
-          .getPublicUrl(filePath);
-        imageUrl = publicUrlData.publicUrl;
-      }
-    } catch (dalleErr: any) {
-      console.error("DALL-E generation error:", dalleErr);
-      // Fallback placeholder
-      imageUrl = `https://picsum.photos/seed/${videoId}_scene_${sceneId}/1792/1024`;
+    if (uploadError) {
+      console.error("Storage upload error:", uploadError);
+      return NextResponse.json({ error: uploadError.message }, { status: 500 });
     }
+
+    const { data: publicUrlData } = supabaseAdmin.storage
+      .from("video-assets")
+      .getPublicUrl(filePath);
 
     return NextResponse.json({
       sceneId,
-      imageUrl,
+      imageUrl: publicUrlData.publicUrl,
     });
   } catch (err: any) {
-    console.error("Image Generation Route Error:", err);
+    console.error("Image Route Error:", err);
     return NextResponse.json({ error: err.message || "Ошибка при генерации изображения" }, { status: 500 });
   }
 }
