@@ -1,7 +1,9 @@
 import { splitNarrationIntoSentences } from "../subtitles";
+import { MAX_SCENES } from "../plan";
+import type { ContentLanguage } from "../content/languages";
 
-/** Жёсткий потолок: sceneId валидируется в диапазоне 0..40 в audio- и image-роутах. */
-export const HARD_MAX_SCENES = 36;
+/** Жёсткий потолок кадров — он же бюджет картинок. */
+export const HARD_MAX_SCENES = MAX_SCENES;
 
 export const SCENE_MARKER = "|||";
 
@@ -180,4 +182,84 @@ export function assignBeats(fragments: string[], beats: Array<{ share?: number }
     const idx = bounds.findIndex((b) => mid < b);
     return idx === -1 ? n - 1 : idx;
   });
+}
+
+// ---------------------------------------------------------------------------
+// Ритм предложений: измерение для промпта и для прохода «ритм»
+// ---------------------------------------------------------------------------
+
+export interface RhythmStats {
+  sentences: number;
+  mean: number;
+  /** Доля предложений ≤ 6 слов. */
+  shortShare: number;
+  /** Доля предложений ≥ 18 слов. */
+  longShare: number;
+  /** Самая длинная серия подряд идущих предложений ≥ 15 слов. */
+  longestLongRun: number;
+  maxWords: number;
+  over22: number;
+  /** Оценка деепричастных оборотов (только ru, только для лога). */
+  gerundEstimate: number;
+}
+
+export const RHYTHM = {
+  shortMaxWords: 6,
+  longMinWords: 18,
+  runMinWords: 15,
+  minShortShare: 0.25,
+  maxLongShare: 0.35,
+  maxLongRun: 2,
+  maxSentenceWords: 28,
+  maxMean: { ru: 13, kz: 13, en: 15 } as Record<ContentLanguage, number>,
+};
+
+const GERUND_RE = /[а-яё]{3,}(?:вшись|вши|ясь|учи|ючи)/gi;
+
+export function rhythmStats(text: string): RhythmStats {
+  const clean = normalizeNarration(text).replace(/\|\|\|/g, " ");
+  const sentences = splitNarrationIntoSentences(clean).map(countWords).filter((n) => n > 0);
+  const n = sentences.length;
+  if (n === 0) {
+    return { sentences: 0, mean: 0, shortShare: 0, longShare: 0, longestLongRun: 0, maxWords: 0, over22: 0, gerundEstimate: 0 };
+  }
+  let run = 0;
+  let longestLongRun = 0;
+  for (const w of sentences) {
+    run = w >= RHYTHM.runMinWords ? run + 1 : 0;
+    longestLongRun = Math.max(longestLongRun, run);
+  }
+  return {
+    sentences: n,
+    mean: Math.round((sentences.reduce((a, b) => a + b, 0) / n) * 10) / 10,
+    shortShare: Math.round((sentences.filter((w) => w <= RHYTHM.shortMaxWords).length / n) * 100) / 100,
+    longShare: Math.round((sentences.filter((w) => w >= RHYTHM.longMinWords).length / n) * 100) / 100,
+    longestLongRun,
+    maxWords: Math.max(...sentences),
+    over22: sentences.filter((w) => w > 22).length,
+    gerundEstimate: (clean.match(GERUND_RE) || []).length,
+  };
+}
+
+/** Пустой список — ритм в норме. */
+export function rhythmFailures(s: RhythmStats, language: ContentLanguage): string[] {
+  const out: string[] = [];
+  if (s.sentences < 4) return out;
+  if (s.shortShare < RHYTHM.minShortShare) out.push(`коротких ${Math.round(s.shortShare * 100)}% < ${RHYTHM.minShortShare * 100}%`);
+  if (s.longShare > RHYTHM.maxLongShare) out.push(`длинных ${Math.round(s.longShare * 100)}% > ${RHYTHM.maxLongShare * 100}%`);
+  if (s.longestLongRun > RHYTHM.maxLongRun) out.push(`длинных подряд ${s.longestLongRun} > ${RHYTHM.maxLongRun}`);
+  if (s.maxWords > RHYTHM.maxSentenceWords) out.push(`самое длинное ${s.maxWords} слов > ${RHYTHM.maxSentenceWords}`);
+  if (s.mean > RHYTHM.maxMean[language]) out.push(`средняя ${s.mean} > ${RHYTHM.maxMean[language]}`);
+  return out;
+}
+
+/** Чем больше, тем хуже; сравниваем до и после прохода «ритм». */
+export function rhythmPenalty(s: RhythmStats, language: ContentLanguage): number {
+  return (
+    Math.max(0, 0.3 - s.shortShare) * 10 +
+    Math.max(0, s.longShare - 0.3) * 10 +
+    Math.max(0, s.longestLongRun - RHYTHM.maxLongRun) +
+    Math.max(0, s.mean - RHYTHM.maxMean[language]) * 0.5 +
+    Math.max(0, s.maxWords - RHYTHM.maxSentenceWords) * 0.1
+  );
 }

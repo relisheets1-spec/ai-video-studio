@@ -4,8 +4,11 @@ import { imageApiSize, normalizeOrientation, promptAspectHint } from "@/lib/orie
 import { resolveStyleFragment } from "@/lib/content/styles";
 import { logPipelineError } from "@/lib/pipeline-log";
 import { requireUser } from "@/lib/session";
+import { MAX_SCENES } from "@/lib/plan";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const IMAGE_MODEL = "gpt-image-1-mini";
+const IMAGE_QUALITY = "medium";
 
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
@@ -22,7 +25,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "videoId, sceneId и visualPrompt обязательны" }, { status: 400 });
     }
 
-    if (typeof sceneId !== "number" || sceneId < 0 || sceneId > 40) {
+    if (!Number.isInteger(sceneId) || sceneId < 1 || sceneId > MAX_SCENES) {
       return NextResponse.json({ error: "Недопустимый номер сцены" }, { status: 400 });
     }
 
@@ -55,9 +58,9 @@ export async function POST(req: NextRequest) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "gpt-image-1-mini",
+        model: IMAGE_MODEL,
         prompt: cleanPrompt,
-        quality: "medium",
+        quality: IMAGE_QUALITY,
         size: imageApiSize(frameOrientation),
         n: 1,
       }),
@@ -94,9 +97,23 @@ export async function POST(req: NextRequest) {
       .from("video-assets")
       .getPublicUrl(filePath);
 
+    // usage приходит у gpt-image-1: пишем токены для сверки с официальной таблицей за штуку.
+    const u = openAiData.usage;
+    const usage = u
+      ? {
+          inputTokens: Number(u.input_tokens) || 0,
+          outputTokens: Number(u.output_tokens) || 0,
+          totalTokens: Number(u.total_tokens) || 0,
+        }
+      : null;
+
     return NextResponse.json({
       sceneId,
       imageUrl: publicUrlData.publicUrl,
+      model: IMAGE_MODEL,
+      quality: IMAGE_QUALITY,
+      size: imageApiSize(frameOrientation),
+      usage,
     });
   } catch (err: any) {
     await logPipelineError({ stage: "image", videoId: loggedVideoId, message: err?.message || String(err) });

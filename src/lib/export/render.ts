@@ -9,6 +9,7 @@ import {
   type Cue,
   type SubtitleLayout,
 } from "@/lib/subtitles";
+import { kenBurnsAt, kenBurnsPreset, type KenBurnsState } from "@/lib/kenburns";
 
 /**
  * Чистые функции отрисовки кадра экспорта. Их используют и WebCodecs-путь,
@@ -32,9 +33,8 @@ export interface CueBox {
   cardY: number;
 }
 
-/** Кроссфейд между кадрами и амплитуда наезда — одни и те же в превью и в файле. */
+/** Кроссфейд между кадрами — тот же, что в превью (XFADE_MS в плеере). */
 export const XFADE_SEC = 0.5;
-export const KEN_BURNS_ZOOM = 0.05;
 
 export const EXPORT_BG = "#0A0B0E";
 
@@ -101,10 +101,9 @@ export function buildCueBoxes(
   });
 }
 
-/** Наезд чередуется по чётности кадра: вперёд, назад, вперёд — иначе все кадры «дышат» одинаково. */
-export function zoomAt(sceneIndex: number, progress: number): number {
-  const p = Math.max(0, Math.min(1, progress));
-  return sceneIndex % 2 === 0 ? 1 + p * KEN_BURNS_ZOOM : 1 + KEN_BURNS_ZOOM - p * KEN_BURNS_ZOOM;
+/** Ken Burns: состояние картинки в момент progress ∈ [0, 1] сцены (пресет по индексу). */
+export function motionAt(sceneIndex: number, progress: number): KenBurnsState {
+  return kenBurnsAt(kenBurnsPreset(sceneIndex), progress);
 }
 
 function drawCover(
@@ -112,17 +111,19 @@ function drawCover(
   img: HTMLImageElement,
   W: number,
   H: number,
-  zoom: number
+  motion: KenBurnsState
 ): void {
   if (!(img.complete && img.naturalWidth > 0)) return;
   // Вписывание по короткой стороне (cover), а не растяжение под холст:
   // gpt-image-1-mini отдаёт 3:2 / 2:3, поэтому растяжение исказило бы кадр.
   // То же правило даёт корректный центр-кроп при экспорте 16:9 в 9:16.
+  // Поверх — Ken Burns: масштаб от центра и сдвиг в долях кадра, как
+  // translate(x, y) scale(s) в плеере.
   const cover = Math.max(W / img.naturalWidth, H / img.naturalHeight);
-  const scale = cover * zoom;
+  const scale = cover * motion.scale;
   const dw = img.naturalWidth * scale;
   const dh = img.naturalHeight * scale;
-  ctx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh);
+  ctx.drawImage(img, (W - dw) / 2 + motion.x * W, (H - dh) / 2 + motion.y * H, dw, dh);
 }
 
 export interface FrameParams {
@@ -141,7 +142,7 @@ export interface FrameParams {
 export function drawSceneFrame(ctx: CanvasRenderingContext2D, p: FrameParams): void {
   const { W, H, layout } = p;
   const progress = p.durationSec > 0 ? p.elapsedSec / p.durationSec : 0;
-  const zoom = zoomAt(p.sceneIndex, progress);
+  const motion = motionAt(p.sceneIndex, progress);
 
   ctx.fillStyle = EXPORT_BG;
   ctx.fillRect(0, 0, W, H);
@@ -149,12 +150,12 @@ export function drawSceneFrame(ctx: CanvasRenderingContext2D, p: FrameParams): v
   if (p.sceneIndex > 0 && p.prevAsset && p.elapsedSec < XFADE_SEC) {
     // Первые полсекунды новый кадр проявляется поверх предыдущего —
     // жёсткая склейка читалась как слайд-шоу.
-    drawCover(ctx, p.prevAsset.img, W, H, zoomAt(p.sceneIndex - 1, 1));
+    drawCover(ctx, p.prevAsset.img, W, H, motionAt(p.sceneIndex - 1, 1));
     ctx.globalAlpha = Math.max(0, Math.min(1, p.elapsedSec / XFADE_SEC));
-    drawCover(ctx, p.asset.img, W, H, zoom);
+    drawCover(ctx, p.asset.img, W, H, motion);
     ctx.globalAlpha = 1;
   } else {
-    drawCover(ctx, p.asset.img, W, H, zoom);
+    drawCover(ctx, p.asset.img, W, H, motion);
   }
 
   // Нижняя шторка — те же пропорции, что и в превью

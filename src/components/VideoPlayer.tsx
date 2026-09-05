@@ -22,6 +22,7 @@ import {
   normalizeOrientation,
   type Orientation,
 } from "@/lib/orientation";
+import { kenBurnsKeyframes, kenBurnsPreset } from "@/lib/kenburns";
 import {
   buildCues,
   computeSubtitleLayout,
@@ -75,6 +76,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
   const frameAspect = aspectRatioCss(frameOrientation);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const kenBurnsRef = useRef<Animation | null>(null);
   const fsWrapperRef = useRef<HTMLDivElement | null>(null);
   const pseudoFsRef = useRef(false);
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -92,6 +95,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
 
   const currentSceneIndexRef = useRef(0);
   currentSceneIndexRef.current = currentSceneIndex;
+  const sceneDurationRef = useRef(0);
+  const sceneElapsedRef = useRef(0);
   const lastSceneIndexRef = useRef(0);
   const isMutedRef = useRef(false);
   isMutedRef.current = isMuted;
@@ -221,6 +226,39 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
   const currentScene = scenes[currentSceneIndex] || scenes[0];
   const prevScene = prevSceneIndex !== null ? scenes[prevSceneIndex] : null;
   const sceneDuration = durOf(currentSceneIndex);
+  sceneDurationRef.current = sceneDuration;
+  sceneElapsedRef.current = sceneElapsed;
+
+  // Ken Burns: та же кривая и пресеты, что в экспортёре. Анимация стоит на
+  // паузе, а её время выставляется из sceneElapsed — движение синхронно
+  // с аудио, паузой и перемоткой, и не зависит от таймеров вкладки.
+  useEffect(() => {
+    const img = imgRef.current;
+    kenBurnsRef.current?.cancel();
+    kenBurnsRef.current = null;
+    if (!img || typeof img.animate !== "function") return;
+    if (typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const anim = img.animate(kenBurnsKeyframes(kenBurnsPreset(currentSceneIndex)), {
+      duration: Math.max(1000, sceneDurationRef.current * 1000),
+      fill: "forwards",
+      easing: "linear",
+    });
+    anim.pause();
+    anim.currentTime = Math.min(sceneElapsedRef.current * 1000, Math.max(0, sceneDurationRef.current * 1000 - 1));
+    kenBurnsRef.current = anim;
+    return () => {
+      anim.cancel();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSceneIndex, currentScene?.imageUrl, measuredDurations[currentSceneIndex]]);
+
+  useEffect(() => {
+    const anim = kenBurnsRef.current;
+    if (!anim) return;
+    const total = Math.max(1000, sceneDuration * 1000);
+    anim.currentTime = Math.min(sceneElapsed * 1000, total - 1);
+  }, [sceneElapsed, sceneDuration]);
+
 
   const totalDuration = scenes.reduce((acc, _s, i) => acc + durOf(i), 0);
   const elapsedPriorScenes = scenes.slice(0, currentSceneIndex).reduce((acc, _s, i) => acc + durOf(i), 0);
@@ -730,9 +768,10 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
               )}
               <img
                 key={currentSceneIndex}
+                ref={imgRef}
                 src={currentScene.imageUrl}
                 alt={currentScene.title}
-                className="absolute inset-0 w-full h-full object-cover animate-ken-burns animate-xfade"
+                className="absolute inset-0 w-full h-full object-cover animate-xfade will-change-transform"
               />
               <div
                 className="absolute inset-x-0 bottom-0 pointer-events-none"

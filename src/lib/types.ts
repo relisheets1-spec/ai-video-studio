@@ -1,6 +1,7 @@
 import type { Orientation } from "./orientation";
+import type { VideoCost } from "./pricing";
 
-export type { Orientation };
+export type { Orientation, VideoCost };
 
 /**
  * Жизненный цикл инвайт-кода:
@@ -79,6 +80,8 @@ export interface VideoGeneration {
   actual_duration_seconds: number;
   scenes: Scene[];
   error_message?: string | null;
+  /** Фактическая стоимость (с сентября 2026); у старых видео отсутствует. */
+  cost?: VideoCost | null;
   created_at: string;
   updated_at: string;
 }

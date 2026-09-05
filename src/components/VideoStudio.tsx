@@ -15,6 +15,7 @@ import {
   Trash,
   CaretDown,
   CaretUp,
+  Receipt,
 } from "@phosphor-icons/react";
 import { Scene, StudioUser, VideoGeneration, VoiceOption } from "@/lib/types";
 import { aspectRatioCss, normalizeOrientation, type Orientation } from "@/lib/orientation";
@@ -25,10 +26,13 @@ import { type ContentLanguage } from "@/lib/content/languages";
 import { defaultVoiceFor } from "@/lib/content/voices";
 import { formatPlanLength, planFromMinutes, pluralFrames, MAX_MINUTES, MIN_MINUTES } from "@/lib/plan";
 import { authFetch } from "@/lib/client/session";
+import type { ImageFrameUsage, TtsFrameUsage, VideoCost } from "@/lib/pricing";
+import { formatCostLine, formatInt } from "@/lib/cost-format";
 import { iconFor } from "./content-icons";
 import { VideoPlayer } from "./VideoPlayer";
 import { VideoExporter } from "./VideoExporter";
 import { VoiceSelector } from "./VoiceSelector";
+import { CostModal } from "./CostModal";
 import {
   Alert,
   Badge,
@@ -100,8 +104,20 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
 
   const [pastVideos, setPastVideos] = useState<VideoGeneration[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [costFor, setCostFor] = useState<{ title: string; cost: VideoCost } | null>(null);
+  const [balance, setBalance] = useState<{ used: number; limit: number; remaining: number } | null>(null);
 
   const previewRef = useRef<HTMLElement | null>(null);
+
+  const fetchBalance = async () => {
+    try {
+      const res = await authFetch("/api/auth/balance");
+      const data = await res.json();
+      setBalance(res.ok && data.available ? { used: data.used, limit: data.limit, remaining: data.remaining } : null);
+    } catch {
+      setBalance(null);
+    }
+  };
 
   const syncBalance = async () => {
     try {
@@ -124,8 +140,9 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   useEffect(() => {
     fetchHistory();
     syncBalance();
+    fetchBalance();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user.id]);
+  }, [user.id, user.hasElevenLabsKey]);
 
   const fetchHistory = async () => {
     setLoadingHistory(true);
@@ -200,7 +217,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     );
 
     try {
-      // 1. Сценарий: план → монолог → редактор → визуальные промпты
+      // 1а. План + монолог (первый этап сценария)
       const scriptRes = await authFetch("/api/generate/script", {
         method: "POST",
         body: JSON.stringify({
@@ -215,10 +232,22 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       });
       const scriptData = await scriptRes.json();
       if (!scriptRes.ok) throw new Error(scriptData.error || "Ошибка генерации сценария");
-
       const videoId: string = scriptData.videoId;
-      const scenes: Scene[] = scriptData.scenes;
+      setProgressPercent(14);
+
+      // 1б. Редактура, ритм, визуальные промпты, нарезка на кадры
+      setProgressStep(`Шаг 1 из 4: редактура ритма и раскадровка (${scriptData.words} слов)...`);
+      const polishRes = await authFetch("/api/generate/script/polish", {
+        method: "POST",
+        body: JSON.stringify({ videoId }),
+      });
+      const polishData = await polishRes.json();
+      if (!polishRes.ok) throw new Error(polishData.error || "Ошибка доработки сценария");
+
+      const scenes: Scene[] = polishData.scenes;
       const totalScenes = scenes.length;
+      const ttsUsage: TtsFrameUsage[] = [];
+      const imageUsage: ImageFrameUsage[] = [];
       setProgressPercent(25);
 
       // 2. Озвучка кадр за кадром — последовательно и намеренно: каждый
@@ -248,6 +277,15 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
 
         if (audioData.requestId) recentRequestIds.push(audioData.requestId);
         if (audioData.keyRejected) keyRejected = true;
+        ttsUsage.push({
+          sceneId: scene.id,
+          requestId: audioData.requestId || null,
+          characters: Number(audioData.characters) || scene.narration.length,
+          model: audioData.model || null,
+          provider: audioData.provider === "openai" ? "openai" : "elevenlabs",
+          keyOwner: audioData.keyOwner || null,
+          audioSeconds: Number(audioData.estimatedDuration) || 0,
+        });
 
         scenesWithAudio.push({
           ...scene,
@@ -285,6 +323,13 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             const imgData = await imgRes.json();
             if (!imgRes.ok) throw new Error(imgData.error || `Ошибка генерации изображения кадра ${i + 1}`);
             finalScenes[i] = { ...scene, imageUrl: imgData.imageUrl };
+            imageUsage.push({
+              sceneId: scene.id,
+              model: imgData.model || "gpt-image-1-mini",
+              quality: imgData.quality || "medium",
+              size: imgData.size || (orientation === "portrait" ? "1024x1536" : "1536x1024"),
+              usage: imgData.usage || null,
+            });
             doneCount++;
             setProgressPercent(55 + Math.round((doneCount / totalScenes) * 40));
           } catch (err: any) {
@@ -306,16 +351,18 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             (acc, sc) => acc + (sc.actualDuration || sc.durationEstimate || 0),
             0
           ),
+          usage: { tts: ttsUsage, images: imageUsage },
         }),
       });
       const finData = await finalizeRes.json();
       if (!finalizeRes.ok) throw new Error(finData.error || "Ошибка сохранения видео");
 
       setProgressPercent(100);
-      setCurrentVideo({ id: videoId, title: scriptData.title || topic, scenes: finalScenes });
+      setCurrentVideo({ id: videoId, title: polishData.title || scriptData.title || topic, scenes: finalScenes });
       if (finData.user) onUserUpdate(finData.user);
 
       fetchHistory();
+      fetchBalance();
       setTopic("");
 
       // На телефоне плеер над формой — подводим к нему.
@@ -363,6 +410,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
           </h1>
         </div>
 
+        <div className="flex flex-col items-end gap-1 shrink-0">
         <button
           type="button"
           onClick={() => {
@@ -382,6 +430,12 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
           <span>{user.hasElevenLabsKey ? "Ключ ElevenLabs" : "Добавить ключ"}</span>
           {user.hasElevenLabsKey && <span className="w-1.5 h-1.5 rounded-full bg-accent" />}
         </button>
+        {balance && (
+          <span className="text-[12px] text-muted tabular" title="Остаток кредитов ElevenLabs в этом месяце">
+            {formatInt(balance.remaining)} из {formatInt(balance.limit)} кредитов
+          </span>
+        )}
+        </div>
       </div>
 
       {error && (
@@ -476,7 +530,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                   onChange={setTargetMinutes}
                   placeholder="Выберите длительность"
                   valueLabel={`${plan.minutes} мин · ${pluralFrames(plan.scenesCount)}`}
-                  ticks={[MIN_MINUTES, 4, 7, MAX_MINUTES]}
+                  ticks={[MIN_MINUTES, 5, 10, MAX_MINUTES]}
                 />
 
                 {targetMinutes !== null && (
@@ -679,6 +733,27 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                           {vid.scenes?.length || 0} сцен • {Math.round(vid.actual_duration_seconds || 0)} сек
                           {normalizeOrientation(vid.scenes?.[0]?.orientation) === "portrait" ? " • 9:16" : " • 16:9"}
                         </span>
+                        {vid.cost && (
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCostFor({ title: vid.topic, cost: vid.cost as VideoCost });
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                e.stopPropagation();
+                                setCostFor({ title: vid.topic, cost: vid.cost as VideoCost });
+                              }
+                            }}
+                            title="Подробная стоимость"
+                            className="mt-1 inline-flex items-center gap-1.5 text-[12px] text-accent tabular leading-snug hover:underline cursor-pointer"
+                          >
+                            <Receipt size={13} weight="fill" className="shrink-0" />
+                            <span className="whitespace-normal">{formatCostLine(vid.cost)}</span>
+                          </span>
+                        )}
                       </span>
                       <span
                         className={cn(
@@ -734,6 +809,13 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
           onClose={() => setShowExporter(false)}
         />
       )}
+
+      <CostModal
+        open={!!costFor}
+        onClose={() => setCostFor(null)}
+        title={costFor?.title || ""}
+        cost={costFor?.cost || null}
+      />
 
       <Modal
         open={showKeyModal}

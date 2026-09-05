@@ -3,27 +3,29 @@ import {
   WORDS_PER_SECOND,
   type ContentLanguage,
 } from "./content/languages";
+import { estimateFilmCost } from "./pricing";
 
 export const MIN_MINUTES = 1;
-export const MAX_MINUTES = 10;
+export const MAX_MINUTES = 15;
 
 /**
- * Верхняя граница кадров. Аудио- и image-роуты валидируют sceneId в диапазоне
- * 0..40, поэтому запас есть даже с учётом принудительных доразбиений.
+ * Бюджет кадров: 1 минута — 5 картинок, 15 минут — 30, между ними линейно.
+ * Больше 30 картинок на фильм не бывает никогда: это потолок и по деньгам,
+ * и по валидации sceneId в audio/image-роутах.
  */
+export const MIN_SCENES = 5;
 export const MAX_SCENES = 30;
-export const MIN_SCENES = 4;
-
-/** Ориентировочная стоимость одного кадра, USD (gpt-image-1-mini, medium). */
-const IMAGE_COST_USD = 0.012;
-/** Ориентировочная стоимость озвучки, USD за 1000 символов ElevenLabs. */
-const TTS_USD_PER_1K_CHARS = 0.18;
 
 export interface GenerationPlan {
   minutes: number;
   scenesCount: number;
   secondsPerScene: number;
+  /** Потолок объёма: длиннее заказанного ролик быть не должен. */
   totalWords: number;
+  /** Что просим у модели (чуть меньше потолка, чтобы не перебрать). */
+  askWords: number;
+  /** Нижняя граница допустимого недобора (≈ −2 минуты на 15). */
+  minWords: number;
   wordsPerScene: number;
   /** Жёсткий потолок символов на кадр — по нему режется сегментация. */
   maxCharsPerScene: number;
@@ -39,42 +41,40 @@ export function clampMinutes(value: unknown): number {
   return Math.min(MAX_MINUTES, Math.max(MIN_MINUTES, Math.round(n * 2) / 2));
 }
 
-/**
- * Хронометраж -> объём текста -> число кадров.
- *
- * Короткие ролики получают более короткие кадры (визуальное разнообразие),
- * длинные — более длинные (меньше картинок, дешевле и спокойнее по ритму).
- */
+export function scenesForMinutes(minutes: number): number {
+  return Math.min(MAX_SCENES, Math.max(MIN_SCENES, Math.round(5 + ((minutes - 1) * 25) / 14)));
+}
+
+/** Хронометраж -> число кадров -> объём текста. */
 export function planFromMinutes(
   rawMinutes: unknown,
   language: ContentLanguage = "ru"
 ): GenerationPlan {
   const minutes = clampMinutes(rawMinutes);
   const wps = WORDS_PER_SECOND[language];
+  const cpw = CHARS_PER_WORD[language];
 
-  // 11–17 с на кадр: при 14–21 с статичная картинка держалась слишком долго,
-  // и фильм читался как слайд-шоу, а не как смена планов.
-  const secondsPerScene = Math.min(17, Math.max(11, Math.round(11 + (minutes - 1) * 0.65)));
-  const scenesCount = Math.min(
-    MAX_SCENES,
-    Math.max(MIN_SCENES, Math.round((minutes * 60) / secondsPerScene))
-  );
+  const scenesCount = scenesForMinutes(minutes);
+  const secondsPerScene = Math.round(((minutes * 60) / scenesCount) * 10) / 10;
 
   const totalWords = Math.round(minutes * 60 * wps);
-  const wordsPerScene = Math.round(totalWords / scenesCount);
-  const estimatedChars = Math.round(totalWords * CHARS_PER_WORD[language]);
+  const askWords = Math.round(totalWords * 0.95);
+  const minWords = Math.round(totalWords * 0.87);
+  const wordsPerScene = Math.max(1, Math.round(askWords / scenesCount));
+  const estimatedChars = Math.round(askWords * cpw);
 
   return {
     minutes,
     scenesCount,
     secondsPerScene,
     totalWords,
+    askWords,
+    minWords,
     wordsPerScene,
-    maxCharsPerScene: Math.round(wordsPerScene * CHARS_PER_WORD[language] * 1.6),
-    tailWords: Math.max(20, Math.round(totalWords * 0.08)),
+    maxCharsPerScene: Math.round(wordsPerScene * cpw * 1.6),
+    tailWords: Math.max(20, Math.round(askWords * 0.08)),
     estimatedChars,
-    estimatedCostUsd:
-      scenesCount * IMAGE_COST_USD + (estimatedChars / 1000) * TTS_USD_PER_1K_CHARS,
+    estimatedCostUsd: estimateFilmCost({ scenesCount, estimatedChars, totalWords: askWords }).totals.creator,
   };
 }
 
