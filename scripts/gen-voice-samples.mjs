@@ -9,8 +9,11 @@
  *   node scripts/gen-voice-samples.mjs            # только недостающие
  *   node scripts/gen-voice-samples.mjs --all      # перегенерировать все
  *   node scripts/gen-voice-samples.mjs --lang=en  # только один язык
+ *   node scripts/gen-voice-samples.mjs --prune    # удалить сэмплы, которых нет в каталоге
  *
- * Требует ELEVENLABS_API_KEY в .env.local.
+ * Ключ: переменная окружения ELEVENLABS_API_KEY (в .env.local ключа больше нет —
+ * озвучка идёт с ключей пользователей). Модель — только та, что в каталоге
+ * (Eleven v3); запасных моделей нет ни здесь, ни в бою.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -21,17 +24,21 @@ const CATALOG = JSON.parse(
 
 const args = process.argv.slice(2);
 const forceAll = args.includes("--all");
+const prune = args.includes("--prune");
 const langArg = args.find((a) => a.startsWith("--lang="))?.slice("--lang=".length);
 
-const env = fs.readFileSync(".env.local", "utf8");
-const key = env
-  .split(/\r?\n/)
-  .find((l) => l.startsWith("ELEVENLABS_API_KEY="))
-  ?.slice("ELEVENLABS_API_KEY=".length)
-  .trim();
-
+let key = process.env.ELEVENLABS_API_KEY?.trim() || "";
+if (!key && fs.existsSync(".env.local")) {
+  key =
+    fs
+      .readFileSync(".env.local", "utf8")
+      .split(/\r?\n/)
+      .find((l) => l.startsWith("ELEVENLABS_API_KEY="))
+      ?.slice("ELEVENLABS_API_KEY=".length)
+      .trim() || "";
+}
 if (!key) {
-  console.error("ELEVENLABS_API_KEY нет в .env.local");
+  console.error("Нужен ELEVENLABS_API_KEY в окружении");
   process.exit(1);
 }
 
@@ -41,21 +48,32 @@ fs.mkdirSync(OUT_DIR, { recursive: true });
 async function synth(voiceId, text, model) {
   const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
     method: "POST",
-    headers: { "xi-api-key": key, "Content-Type": "application/json" },
+    headers: { "xi-api-key": key, "Content-Type": "application/json", Accept: "audio/mpeg" },
     body: JSON.stringify({
       text,
       model_id: model,
-      voice_settings: CATALOG.settings[model] || CATALOG.settings.eleven_multilingual_v2,
+      voice_settings: CATALOG.settings[model] || CATALOG.settings.eleven_v3,
     }),
   });
   if (!res.ok) {
     return { ok: false, status: res.status, body: (await res.text()).slice(0, 200) };
   }
-  return { ok: true, buf: Buffer.from(await res.arrayBuffer()) };
+  return { ok: true, buf: Buffer.from(await res.arrayBuffer()), requestId: res.headers.get("request-id") };
+}
+
+if (prune) {
+  const keep = new Set(CATALOG.voices.map((v) => v.previewFile));
+  for (const f of fs.readdirSync(OUT_DIR)) {
+    if (!keep.has(f)) {
+      fs.unlinkSync(path.join(OUT_DIR, f));
+      console.log(`RM  ${f}`);
+    }
+  }
 }
 
 let failed = 0;
 let skipped = 0;
+let chars = 0;
 
 for (const v of CATALOG.voices) {
   if (langArg && v.lang !== langArg) continue;
@@ -67,19 +85,8 @@ for (const v of CATALOG.voices) {
   }
 
   // Модель выбирается по языку — ровно как в /api/generate/audio.
-  const model = CATALOG.models[v.lang] || "eleven_multilingual_v2";
-  let r = await synth(v.id, v.sampleText, model);
-  let used = model;
-
-  // Единственный запасной вариант: если для языка выбран v3, а он аккаунту
-  // недоступен. Молча подменять модель в бою нельзя — там это давало
-  // слышимую смену тембра посреди ролика, — но для превью это допустимо.
-  if (!r.ok && model === "eleven_v3") {
-    console.warn(`  ${v.name}: ${model} -> HTTP ${r.status} ${r.body}`);
-    r = await synth(v.id, v.sampleText, "eleven_multilingual_v2");
-    used = "eleven_multilingual_v2";
-  }
-
+  const model = CATALOG.models[v.lang] || "eleven_v3";
+  const r = await synth(v.id, v.sampleText, model);
   if (!r.ok) {
     console.error(`FAIL ${v.name}: HTTP ${r.status} ${r.body}`);
     failed++;
@@ -87,10 +94,12 @@ for (const v of CATALOG.voices) {
   }
 
   fs.writeFileSync(out, r.buf);
+  chars += v.sampleText.length;
   console.log(
-    `OK  ${v.name.padEnd(12)} ${v.lang}  ${used.padEnd(24)} ${String(r.buf.length).padStart(7)} bytes -> ${v.previewFile}`
+    `OK  ${v.name.padEnd(12)} ${v.lang}  ${model.padEnd(12)} ${String(r.buf.length).padStart(7)} bytes  ${String(v.sampleText.length).padStart(4)} chars  req=${r.requestId} -> ${v.previewFile}`
   );
 }
 
 if (skipped) console.log(`(пропущено уже существующих: ${skipped}; --all чтобы перегенерировать)`);
+console.log(`Символов отправлено: ${chars}`);
 process.exit(failed ? 1 : 0);

@@ -1,22 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { openai } from "@/lib/openai";
 import { normalizeLanguage } from "@/lib/content/languages";
 import { logPipelineError } from "@/lib/pipeline-log";
 import { requireUser } from "@/lib/session";
 import { decryptSecret } from "@/lib/crypto";
 import { MAX_SCENES } from "@/lib/plan";
 import { synthesize, type SynthResult } from "@/lib/elevenlabs";
-import {
-  findVoice,
-  modelForLanguage,
-  resolveVoice,
-  settingsForModel,
-} from "@/lib/content/voices";
+import { modelForLanguage, resolveVoice, settingsForModel } from "@/lib/content/voices";
 
 /** Сегментация держит кадр в пределах ~700 символов; это страховочный потолок. */
 const MAX_NARRATION_CHARS = 1500;
 
+/** Человеческое описание ошибки ElevenLabs из тела ответа. */
+function describeElevenError(body: string): string {
+  try {
+    const parsed = JSON.parse(body);
+    const detail = parsed?.detail;
+    if (typeof detail === "string") return detail;
+    if (detail?.message) return String(detail.message);
+    if (detail?.status) return String(detail.status);
+  } catch {}
+  return body.slice(0, 160) || "без описания";
+}
+
+/**
+ * Озвучка кадра. Только ElevenLabs, только модель из каталога (Eleven v3):
+ * запасной озвучки OpenAI больше нет — если ElevenLabs не ответил, кадр не
+ * делается, и генерация останавливается с понятной ошибкой.
+ */
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
   if ("response" in auth) return auth.response;
@@ -24,8 +35,7 @@ export async function POST(req: NextRequest) {
 
   let loggedVideoId: string | null = null;
   try {
-    const { videoId, sceneId, narration, voice, language, previousText, nextText, previousRequestIds } =
-      await req.json();
+    const { videoId, sceneId, narration, voice, language } = await req.json();
 
     if (!videoId || sceneId === undefined || !narration) {
       return NextResponse.json({ error: "videoId, sceneId и narration обязательны" }, { status: 400 });
@@ -63,31 +73,20 @@ export async function POST(req: NextRequest) {
 
     let buffer: Buffer | null = null;
     let requestId: string | null = null;
-    let usedFallback = false;
     let keyRejected = false;
     let keyOwner: "user" | "env" | null = null;
+    let lastError: { status: number; body: string } | null = null;
 
+    // Eleven v3 не принимает previous_text / next_text / previous_request_ids
+    // («not yet supported with the 'eleven_v3' model», HTTP 400) — кадр
+    // озвучивается сам по себе, без кондиционирования соседями.
     const body: Record<string, unknown> = {
       text: cleanNarration,
       model_id: model,
       voice_settings: settingsForModel(model),
     };
-    if (typeof previousText === "string" && previousText.trim()) body.previous_text = previousText.slice(-250);
-    if (typeof nextText === "string" && nextText.trim()) body.next_text = nextText.slice(0, 250);
-    if (Array.isArray(previousRequestIds) && previousRequestIds.length > 0) {
-      body.previous_request_ids = previousRequestIds.filter(Boolean).slice(-3);
-    }
 
-    const tryKey = async (apiKey: string): Promise<SynthResult> => {
-      let result = await synthesize(apiKey, voiceId, body);
-      // Кондиционирование хрупкое: один повтор без него — и дальше как обычно.
-      if (!result.ok && result.status >= 400 && result.status < 500 && result.status !== 401 && body.previous_request_ids) {
-        console.warn("ElevenLabs rejected conditioning, retrying without it:", result.status);
-        const { previous_request_ids, ...withoutIds } = body;
-        result = await synthesize(apiKey, voiceId, withoutIds);
-      }
-      return result;
-    };
+    const tryKey = (apiKey: string): Promise<SynthResult> => synthesize(apiKey, voiceId, body);
 
     const candidates: Array<{ key: string; owner: "user" | "env" }> = [];
     if (userKey) candidates.push({ key: userKey, owner: "user" });
@@ -102,31 +101,25 @@ export async function POST(req: NextRequest) {
           keyOwner = candidate.owner;
           break;
         }
+        lastError = { status: result.status, body: result.body };
         console.warn("ElevenLabs TTS error:", result.status, result.body);
         if (candidate.owner === "user" && (result.status === 401 || result.status === 403)) keyRejected = true;
-      } catch (elevenErr) {
+      } catch (elevenErr: any) {
+        lastError = { status: 0, body: String(elevenErr?.message || elevenErr) };
         console.warn("ElevenLabs TTS network error:", elevenErr);
       }
     }
 
     if (!buffer) {
-      usedFallback = true;
-      try {
-        const catalogVoice = findVoice(voiceId);
-        const openAiRes = await openai.audio.speech.create({
-          model: "gpt-4o-mini-tts",
-          voice: catalogVoice?.gender === "female" ? "nova" : "onyx",
-          input: cleanNarration,
-          instructions:
-            lang === "en"
-              ? "Calm cinematic documentary narrator. Low register, measured pace."
-              : "Спокойный кинематографичный диктор. Низкий регистр, размеренный темп.",
-        } as any);
-        buffer = Buffer.from(await openAiRes.arrayBuffer());
-      } catch (openAiErr: any) {
-        console.error("OpenAI TTS Fallback Error:", openAiErr);
-        throw new Error("Не удалось сгенерировать аудио озвучки");
-      }
+      const reason = !candidates.length
+        ? "Нет ключа ElevenLabs — добавьте свой ключ в настройках."
+        : keyRejected && candidates.length === 1
+          ? "ElevenLabs отклонил ваш ключ — проверьте его в настройках."
+          : lastError
+            ? `ElevenLabs вернул ошибку${lastError.status ? ` ${lastError.status}` : ""}: ${describeElevenError(lastError.body)}`
+            : "ElevenLabs не ответил.";
+      await logPipelineError({ stage: "tts", videoId: loggedVideoId, message: `scene ${sceneId}: ${reason}` });
+      return NextResponse.json({ error: `Озвучка кадра ${sceneId} не удалась. ${reason}`, keyRejected }, { status: 502 });
     }
 
     const filePath = `audio/${videoId}/scene_${sceneId}.mp3`;
@@ -146,12 +139,10 @@ export async function POST(req: NextRequest) {
       audioUrl: publicUrlData.publicUrl,
       estimatedDuration: estimatedSeconds,
       requestId,
-      usedFallback,
       keyRejected,
       // Для учёта стоимости
-      provider: usedFallback ? "openai" : "elevenlabs",
-      model: usedFallback ? "gpt-4o-mini-tts" : model,
-      keyOwner: usedFallback ? null : keyOwner,
+      model,
+      keyOwner,
       characters: cleanNarration.length,
     });
   } catch (err: any) {

@@ -1,7 +1,7 @@
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
-import { buildCues } from "@/lib/subtitles";
+import { sentenceOffsets } from "@/lib/subtitles";
 import type { SubtitleLayout } from "@/lib/subtitles";
-import { buildCueBoxes, drawSceneFrame, type LoadedAsset } from "./render";
+import { drawSceneFrame, prepareSceneCues, type LoadedAsset } from "./render";
 
 export interface WebCodecsParams {
   assets: LoadedAsset[];
@@ -12,7 +12,6 @@ export interface WebCodecsParams {
   codec: string;
   sampleRate: number;
   layout: SubtitleLayout;
-  subtitleColor: string;
   cancelRef: { current: boolean };
   onProgress: (percent: number) => void;
   onStatus: (text: string) => void;
@@ -142,8 +141,9 @@ export async function encodeWithWebCodecs(p: WebCodecsParams): Promise<Blob | nu
     }
     globalAudioSamples += audioBuffer.length;
 
-    const cues = scene.narration ? buildCues(scene.narration, durationSec) : [];
-    const cueBoxes = buildCueBoxes(ctx, layout, cues, W, H);
+    // Сквозной номер первого предложения сцены — от него цвет реплик, как в плеере.
+    const colorBase = sentenceOffsets(assets.map((a) => a.scene.narration))[i] || 0;
+    const { cues, cueBoxes } = prepareSceneCues(ctx, layout, scene.narration, durationSec, colorBase, W, H);
     const totalFrames = Math.max(1, Math.round(durationSec * fps));
 
     for (let frame = 0; frame < totalFrames; frame++) {
@@ -161,7 +161,6 @@ export async function encodeWithWebCodecs(p: WebCodecsParams): Promise<Blob | nu
         durationSec,
         cues,
         cueBoxes,
-        subtitleColor: p.subtitleColor,
       });
 
       const timestampUs = Math.round(globalVideoFrames * (1_000_000 / fps));

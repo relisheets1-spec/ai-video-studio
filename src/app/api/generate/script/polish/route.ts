@@ -137,11 +137,12 @@ export async function POST(req: NextRequest) {
     }
 
     // --- Объём: ролик не должен быть длиннее заказа. Если после редактора
-    // текст длиннее потолка больше чем на 12%, режем кусками до цели. ---
+    // текст длиннее потолка больше чем на 4%, режем кусками до askWords
+    // (95% потолка): при пороге 12% пятнадцатиминутный ролик выходил на 16,7. ---
     const afterEditor = countWords(narration);
-    if (afterEditor > plan.totalWords * 1.12) {
+    if (afterEditor > plan.totalWords * 1.04) {
       const chunks = splitIntoChunks(narration, 700);
-      const ratio = plan.totalWords / afterEditor;
+      const ratio = plan.askWords / afterEditor;
       const trimmed: string[] = [];
       let accepted = 0;
       for (const chunk of chunks) {

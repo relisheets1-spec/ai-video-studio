@@ -18,6 +18,8 @@ import {
   Receipt,
   ImageSquare,
   X,
+  CaretLeft,
+  CaretRight,
 } from "@phosphor-icons/react";
 import { Scene, StudioUser, VideoGeneration, VoiceOption } from "@/lib/types";
 import { aspectRatioCss, normalizeOrientation, type Orientation } from "@/lib/orientation";
@@ -96,6 +98,62 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   const [keySaving, setKeySaving] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [keyWarning, setKeyWarning] = useState<string | null>(null);
+
+  // Слайдер жанров на ПК: колесо мыши листает ряд, ряд можно тащить мышью,
+  // стрелки в заголовке листают на две карточки. На телефоне — обычный свайп.
+  const genreScrollRef = useRef<HTMLDivElement | null>(null);
+  const genreDragRef = useRef<{ x: number; left: number; moved: boolean } | null>(null);
+  const genreSuppressClickUntilRef = useRef(0);
+  useEffect(() => {
+    const el = genreScrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+      const max = el.scrollWidth - el.clientWidth;
+      if (!delta || max <= 0) return;
+      const canScroll = delta > 0 ? el.scrollLeft < max - 1 : el.scrollLeft > 1;
+      if (!canScroll) return; // дошли до края — дальше крутится страница
+      e.preventDefault();
+      el.scrollLeft += delta;
+    };
+    // React вешает wheel как passive — preventDefault там не работает.
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+  const scrollGenres = (direction: -1 | 1) => {
+    genreScrollRef.current?.scrollBy({ left: direction * 328, behavior: "smooth" });
+  };
+  const onGenrePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== "mouse" || e.button !== 0) return;
+    const el = genreScrollRef.current;
+    if (!el) return;
+    genreDragRef.current = { x: e.clientX, left: el.scrollLeft, moved: false };
+    const onMove = (ev: PointerEvent) => {
+      const drag = genreDragRef.current;
+      if (!drag) return;
+      const dx = ev.clientX - drag.x;
+      if (!drag.moved && Math.abs(dx) < 5) return;
+      drag.moved = true;
+      el.scrollLeft = drag.left - dx;
+    };
+    const onUp = () => {
+      if (genreDragRef.current?.moved) genreSuppressClickUntilRef.current = Date.now() + 250;
+      genreDragRef.current = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  };
+  const onGenreClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
+    // Отпустили после перетаскивания — это не выбор жанра.
+    if (Date.now() < genreSuppressClickUntilRef.current) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [progressStep, setProgressStep] = useState("");
@@ -282,10 +340,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       const imageUsage: ImageFrameUsage[] = [];
       setProgressPercent(25);
 
-      // 2. Озвучка кадр за кадром — последовательно и намеренно: каждый
-      // запрос кондиционируется соседними фрагментами, иначе на стыках швы.
+      // 2. Озвучка кадр за кадром, последовательно: так прогресс честный, а
+      // ElevenLabs не получает пачку параллельных запросов с одного ключа.
+      // Кондиционирования соседними фрагментами нет — Eleven v3 его не принимает.
       const scenesWithAudio: Scene[] = [];
-      const recentRequestIds: string[] = [];
       let keyRejected = false;
       for (let i = 0; i < totalScenes; i++) {
         const scene = scenes[i];
@@ -299,22 +357,17 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             narration: scene.narration,
             voice: selectedVoice,
             language,
-            previousText: scenes[i - 1]?.narration,
-            nextText: scenes[i + 1]?.narration,
-            previousRequestIds: recentRequestIds.slice(-3),
           }),
         });
         const audioData = await audioRes.json();
         if (!audioRes.ok) throw new Error(audioData.error || `Ошибка генерации аудио кадра ${i + 1}`);
 
-        if (audioData.requestId) recentRequestIds.push(audioData.requestId);
         if (audioData.keyRejected) keyRejected = true;
         ttsUsage.push({
           sceneId: scene.id,
           requestId: audioData.requestId || null,
           characters: Number(audioData.characters) || scene.narration.length,
           model: audioData.model || null,
-          provider: audioData.provider === "openai" ? "openai" : "elevenlabs",
           keyOwner: audioData.keyOwner || null,
           audioSeconds: Number(audioData.estimatedDuration) || 0,
         });
@@ -327,7 +380,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
         setProgressPercent(25 + Math.round(((i + 1) / totalScenes) * 30));
       }
       if (keyRejected) {
-        setKeyWarning("ElevenLabs отклонил ваш ключ — озвучка сделана запасным голосом. Проверьте ключ в настройках.");
+        setKeyWarning("ElevenLabs отклонил ваш ключ — озвучка сделана ключом владельца сайта. Проверьте ключ в настройках.");
       }
 
       // 3. Картинки — пачками по три, они друг от друга не зависят.
@@ -608,11 +661,38 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
           <Tile
             title="Жанр истории"
             icon={<FilmStrip size={20} />}
-            action={<span className="text-[12px] text-faint">листайте →</span>}
+            action={
+              <div className="flex items-center gap-1.5">
+                <span className="text-[12px] text-faint [@media(hover:hover)]:hidden">листайте →</span>
+                <button
+                  type="button"
+                  onClick={() => scrollGenres(-1)}
+                  className="hidden [@media(hover:hover)]:flex w-7 h-7 rounded-full border border-hairline bg-surface hover:bg-surface-2 text-muted hover:text-ink items-center justify-center cursor-pointer transition-colors"
+                  title="Назад"
+                  aria-label="Прокрутить жанры назад"
+                >
+                  <CaretLeft size={14} weight="bold" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => scrollGenres(1)}
+                  className="hidden [@media(hover:hover)]:flex w-7 h-7 rounded-full border border-hairline bg-surface hover:bg-surface-2 text-muted hover:text-ink items-center justify-center cursor-pointer transition-colors"
+                  title="Вперёд"
+                  aria-label="Прокрутить жанры вперёд"
+                >
+                  <CaretRight size={14} weight="bold" />
+                </button>
+              </div>
+            }
           >
             {/* Два ряда горизонтальным слайдером; второй ряд сдвинут на полкарточки,
                 чтобы плитки шли «кирпичиком», а не столбиками. */}
-            <div className="overflow-x-auto no-scrollbar -mx-5 px-5 pb-1">
+            <div
+              ref={genreScrollRef}
+              onPointerDown={onGenrePointerDown}
+              onClickCapture={onGenreClickCapture}
+              className="overflow-x-auto no-scrollbar -mx-5 px-5 pb-1 [@media(hover:hover)]:cursor-grab [@media(hover:hover)]:active:cursor-grabbing select-none"
+            >
               <div className="flex flex-col gap-2 min-w-max">
                 {[GENRE_OPTIONS.filter((_, i) => i % 2 === 0), GENRE_OPTIONS.filter((_, i) => i % 2 === 1)].map(
                   (row, rowIdx) => (

@@ -63,7 +63,7 @@ export const CostModal: React.FC<CostModalProps> = ({ open, onClose, title, cost
           </table>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           {scenarios.map((s, i) => (
             <div
               key={s.id}
@@ -105,7 +105,6 @@ export const CostModal: React.FC<CostModalProps> = ({ open, onClose, title, cost
             </div>
           )}
           {t.keyOwner === "env" && <div>Озвучка шла с ключа владельца сайта, а не с вашего.</div>}
-          {t.fallbackFrames > 0 && <div>Кадров на запасном голосе OpenAI: {t.fallbackFrames}.</div>}
           <div className="text-faint">Цены проверены {PRICING_AS_OF}; рассчитано {new Date(cost.computedAt).toLocaleString("ru-RU")}.</div>
         </div>
       </div>

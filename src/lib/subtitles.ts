@@ -24,8 +24,9 @@ export const SUBTITLE_FONT_STACK =
 export const SUBTITLE_FONT_WEIGHT = 700;
 
 /**
- * Подложки больше нет: текст читается за счёт чёрной обводки. Цвет — один из
- * шести пресетов, выбирается пользователем и одинаково применяется в плеере и в MP4.
+ * Подложки больше нет: текст читается за счёт чёрной обводки. Цвет никто не
+ * выбирает — каждое предложение берёт следующий цвет палитры по сквозному
+ * номеру предложения в фильме, одинаково в плеере и в MP4.
  */
 export const SUBTITLE_COLORS = [
   { id: "white", label: "Белый", hex: "#FFFFFF" },
@@ -35,16 +36,16 @@ export const SUBTITLE_COLORS = [
   { id: "purple", label: "Фиолетовый", hex: "#C08BFF" },
   { id: "green", label: "Зелёный", hex: "#7CE07C" },
 ] as const;
-export type SubtitleColorId = (typeof SUBTITLE_COLORS)[number]["id"];
-export const DEFAULT_SUBTITLE_COLOR: SubtitleColorId = "white";
 
-export function normalizeSubtitleColor(value: unknown): SubtitleColorId {
-  return SUBTITLE_COLORS.some((c) => c.id === value) ? (value as SubtitleColorId) : DEFAULT_SUBTITLE_COLOR;
+/** Цвет реплики по её сквозному номеру предложения. */
+export function cueColorHex(colorIndex: number): string {
+  const n = SUBTITLE_COLORS.length;
+  const i = Number.isFinite(colorIndex) ? Math.round(colorIndex) : 0;
+  return SUBTITLE_COLORS[((i % n) + n) % n].hex;
 }
 
-export function subtitleHex(id: SubtitleColorId): string {
-  return SUBTITLE_COLORS.find((c) => c.id === id)?.hex ?? "#FFFFFF";
-}
+/** Не больше двух строк на реплику — и в превью, и в MP4; длинное предложение делится на две реплики. */
+export const SUBTITLE_MAX_LINES = 2;
 
 export const SUBTITLE_OUTLINE = "#000000";
 export const SUBTITLE_FG = "#FFFFFF";
@@ -54,6 +55,8 @@ export interface Cue {
   text: string;
   startSec: number;
   endSec: number;
+  /** Сквозной номер предложения в фильме — от него берётся цвет. Части одного предложения делят цвет. */
+  colorIndex: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +122,7 @@ export function splitNarrationIntoSentences(text: string): string[] {
  * поведение не меняется — просто материализуется в массив один раз на сцену,
  * а не пересчитывается на каждом кадре кодирования.
  */
-export function buildCues(narration: string, durationSec: number): Cue[] {
+export function buildCues(narration: string, durationSec: number, colorBase = 0): Cue[] {
   const sentences = splitNarrationIntoSentences(narration);
   if (sentences.length === 0) return [];
 
@@ -133,11 +136,28 @@ export function buildCues(narration: string, durationSec: number): Cue[] {
     const start = (accumulated / total) * dur;
     accumulated += weights[i];
     const end = (accumulated / total) * dur;
-    cues.push({ text: sentences[i], startSec: start, endSec: end });
+    cues.push({ text: sentences[i], startSec: start, endSec: end, colorIndex: colorBase + i });
   }
   // Последняя реплика держится до конца сцены, чтобы не мигала на хвосте.
   cues[cues.length - 1].endSec = dur;
   return cues;
+}
+
+/**
+ * Сквозная нумерация предложений: offsets[i] — сколько предложений было до
+ * сцены i плюс номер сцены. Прибавка номера сцены нужна, потому что кадры
+ * на 30–35 секунд почти всегда содержат ровно шесть предложений — столько же,
+ * сколько цветов в палитре, — и без неё каждый кадр начинался бы с белого.
+ * Нумерация одна и та же в превью и в MP4.
+ */
+export function sentenceOffsets(narrations: Array<string | undefined | null>): number[] {
+  const offsets: number[] = [];
+  let acc = 0;
+  narrations.forEach((n, i) => {
+    offsets.push(acc + i);
+    acc += n ? splitNarrationIntoSentences(n).length : 0;
+  });
+  return offsets;
 }
 
 /** Индекс активной реплики в момент t, или -1. */
@@ -213,7 +233,9 @@ export function computeSubtitleLayout(
     padX,
     padY: Math.round(font * 0.34),
     radius: Math.round(font * 0.3),
-    bottom: Math.round(H * (compact ? 0.05 : 0.085)),
+    // Ниже прежних 8,5%: с двумя строками максимум текст сидит у нижнего края,
+    // а не поднимается к центру кадра.
+    bottom: Math.round(H * (compact ? 0.05 : 0.07)),
     maxCardW,
     maxTextW: Math.max(1, maxCardW - padX * 2),
     shadowBlur: font * 0.16,
@@ -253,7 +275,7 @@ export function wrapLines(
 }
 
 // ---------------------------------------------------------------------------
-// Подгонка реплик под ограниченное число строк (только превью на телефоне)
+// Подгонка реплик под ограниченное число строк (SUBTITLE_MAX_LINES везде)
 // ---------------------------------------------------------------------------
 
 const CLAUSE_BONUS = /[,;:—–-]$/;
@@ -304,8 +326,8 @@ export function fitCuesToLines(
     const b = words.slice(cut + 1).join(" ");
     const span = cue.endSec - cue.startSec;
     const mid = cue.startSec + span * (a.length / Math.max(1, a.length + b.length));
-    push({ text: a, startSec: cue.startSec, endSec: mid }, depth + 1);
-    push({ text: b, startSec: mid, endSec: cue.endSec }, depth + 1);
+    push({ text: a, startSec: cue.startSec, endSec: mid, colorIndex: cue.colorIndex }, depth + 1);
+    push({ text: b, startSec: mid, endSec: cue.endSec, colorIndex: cue.colorIndex }, depth + 1);
   };
 
   for (const cue of cues) push(cue, 0);

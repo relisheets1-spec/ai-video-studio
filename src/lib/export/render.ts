@@ -1,9 +1,12 @@
 import type { Scene } from "@/lib/types";
 import {
+  buildCues,
+  cueColorHex,
   estimateSceneSeconds,
+  fitCuesToLines,
   wrapLines,
   cueIndexAt,
-  SUBTITLE_FG,
+  SUBTITLE_MAX_LINES,
   SUBTITLE_OUTLINE,
   SUBTITLE_SHADOW,
   type Cue,
@@ -101,6 +104,27 @@ export function buildCueBoxes(
   });
 }
 
+/**
+ * Реплики сцены для экспорта: нарезка на предложения, подгонка под две строки
+ * и разметка — ровно то же, что делает плеер, поэтому MP4 совпадает с превью.
+ * colorBase — сквозной номер первого предложения сцены (sentenceOffsets).
+ */
+export function prepareSceneCues(
+  ctx: CanvasRenderingContext2D,
+  layout: SubtitleLayout,
+  narration: string | undefined | null,
+  durationSec: number,
+  colorBase: number,
+  W: number,
+  H: number
+): { cues: Cue[]; cueBoxes: CueBox[] } {
+  ctx.font = layout.fontCss;
+  const measure = (str: string) => ctx.measureText(str).width;
+  const base = narration ? buildCues(narration, durationSec, colorBase) : [];
+  const cues = fitCuesToLines(base, SUBTITLE_MAX_LINES, layout.maxTextW, measure);
+  return { cues, cueBoxes: buildCueBoxes(ctx, layout, cues, W, H) };
+}
+
 /** Ken Burns: состояние картинки в момент progress ∈ [0, 1] сцены (пресет по индексу). */
 export function motionAt(sceneIndex: number, progress: number): KenBurnsState {
   return kenBurnsAt(kenBurnsPreset(sceneIndex), progress);
@@ -137,8 +161,6 @@ export interface FrameParams {
   durationSec: number;
   cues: Cue[];
   cueBoxes: CueBox[];
-  /** Цвет текста субтитров (hex); обводка всегда чёрная. */
-  subtitleColor?: string;
 }
 
 export function drawSceneFrame(ctx: CanvasRenderingContext2D, p: FrameParams): void {
@@ -172,6 +194,7 @@ export function drawSceneFrame(ctx: CanvasRenderingContext2D, p: FrameParams): v
   if (!box || box.lines.length === 0) return;
 
   // Подложки нет: цветной текст с чёрной обводкой, как на YouTube.
+  // Цвет — по сквозному номеру предложения, тот же, что в плеере.
   ctx.save();
   ctx.font = layout.fontCss;
   ctx.textAlign = "center";
@@ -180,7 +203,7 @@ export function drawSceneFrame(ctx: CanvasRenderingContext2D, p: FrameParams): v
   ctx.miterLimit = 2;
   ctx.lineWidth = layout.strokeW * 2;
   ctx.strokeStyle = SUBTITLE_OUTLINE;
-  const fill = p.subtitleColor || SUBTITLE_FG;
+  const fill = cueColorHex(p.cues[activeCue].colorIndex);
 
   for (let lIdx = 0; lIdx < box.lines.length; lIdx++) {
     const baselineY = box.cardY + layout.padY + layout.lineHeight * (lIdx + 0.5);

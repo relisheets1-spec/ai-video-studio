@@ -49,10 +49,11 @@ export function resolveVoice(id: unknown, language: ContentLanguage): string {
   return defaultVoiceFor(language);
 }
 
+/** Единственная модель — Eleven v3: только она читает казахский; v2 и запасная озвучка убраны. */
 export function modelForLanguage(language: ContentLanguage): string {
-  return MODEL_BY_LANGUAGE[language] || "eleven_multilingual_v2";
+  return MODEL_BY_LANGUAGE[language] || "eleven_v3";
 }
 
 export function settingsForModel(model: string): Record<string, number | boolean> {
-  return SETTINGS_BY_MODEL[model] || SETTINGS_BY_MODEL["eleven_multilingual_v2"];
+  return SETTINGS_BY_MODEL[model] || SETTINGS_BY_MODEL["eleven_v3"];
 }

@@ -13,7 +13,9 @@ export async function synthesize(
   voiceId: string,
   payload: Record<string, unknown>
 ): Promise<SynthResult> {
-  const res = await fetch(`${BASE}/text-to-speech/${voiceId}`, {
+  // 96 кбит/с вместо 128 по умолчанию: для речи разницы на слух нет, файл на четверть легче
+  // (хранилище Supabase — узкое место: 15-минутный фильм занимал 76 МБ).
+  const res = await fetch(`${BASE}/text-to-speech/${voiceId}?output_format=mp3_44100_96`, {
     method: "POST",
     headers: {
       "xi-api-key": apiKey,

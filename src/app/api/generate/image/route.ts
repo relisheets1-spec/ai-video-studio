@@ -10,6 +10,13 @@ import { isReferenceAnalysis } from "@/lib/reference";
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const IMAGE_MODEL = "gpt-image-1-mini";
 const IMAGE_QUALITY = "medium";
+/**
+ * JPEG вместо PNG: кадр 1536×1024 весил ~2 МБ, 15-минутный фильм — 60 МБ картинок,
+ * а хранилище Supabase — узкое место. JPEG 85 даёт ~0,3–0,4 МБ без видимой потери.
+ * Цена картинки от формата не зависит.
+ */
+const IMAGE_OUTPUT_FORMAT = "jpeg";
+const IMAGE_OUTPUT_COMPRESSION = 85;
 
 export const maxDuration = 120;
 
@@ -78,6 +85,8 @@ export async function POST(req: NextRequest) {
       form.append("quality", IMAGE_QUALITY);
       form.append("size", size);
       form.append("n", "1");
+      form.append("output_format", IMAGE_OUTPUT_FORMAT);
+      form.append("output_compression", String(IMAGE_OUTPUT_COMPRESSION));
       form.append("image", await loadReference(video.reference_url), "reference.png");
       openAiRes = await fetch("https://api.openai.com/v1/images/edits", {
         method: "POST",
@@ -97,6 +106,8 @@ export async function POST(req: NextRequest) {
           quality: IMAGE_QUALITY,
           size,
           n: 1,
+          output_format: IMAGE_OUTPUT_FORMAT,
+          output_compression: IMAGE_OUTPUT_COMPRESSION,
         }),
       });
     }
@@ -110,10 +121,10 @@ export async function POST(req: NextRequest) {
     if (!b64Json) throw new Error("Отсутствуют base64 данные изображения");
 
     const imgBuffer = Buffer.from(b64Json, "base64");
-    const filePath = `images/${videoId}/scene_${sceneId}.png`;
+    const filePath = `images/${videoId}/scene_${sceneId}.jpg`;
     const { error: uploadError } = await supabaseAdmin.storage
       .from("video-assets")
-      .upload(filePath, imgBuffer, { contentType: "image/png", upsert: true });
+      .upload(filePath, imgBuffer, { contentType: "image/jpeg", upsert: true });
     if (uploadError) {
       console.error("Storage upload error:", uploadError);
       return NextResponse.json({ error: uploadError.message }, { status: 500 });

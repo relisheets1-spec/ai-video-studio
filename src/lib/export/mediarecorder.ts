@@ -1,7 +1,7 @@
 import fixWebmDuration from "fix-webm-duration";
-import { buildCues } from "@/lib/subtitles";
+import { sentenceOffsets } from "@/lib/subtitles";
 import type { SubtitleLayout } from "@/lib/subtitles";
-import { buildCueBoxes, drawSceneFrame, type LoadedAsset } from "./render";
+import { drawSceneFrame, prepareSceneCues, type LoadedAsset } from "./render";
 
 export interface RecorderParams {
   assets: LoadedAsset[];
@@ -11,7 +11,6 @@ export interface RecorderParams {
   bitrate: number;
   mime: string;
   layout: SubtitleLayout;
-  subtitleColor: string;
   /** Холст должен быть смонтирован и виден: Safari не отдаёт кадры с отсоединённого. */
   canvas: HTMLCanvasElement;
   audioCtx: AudioContext;
@@ -54,10 +53,10 @@ export async function recordRealtime(p: RecorderParams): Promise<{ blob: Blob; e
   });
 
   // Подготовка первого кадра до старта записи, иначе первые миллисекунды чёрные.
-  const prepared = assets.map((asset) => {
-    const cues = asset.scene.narration ? buildCues(asset.scene.narration, asset.durationSec) : [];
-    return { cues, cueBoxes: buildCueBoxes(ctx, layout, cues, W, H) };
-  });
+  const colorOffsets = sentenceOffsets(assets.map((a) => a.scene.narration));
+  const prepared = assets.map((asset, idx) =>
+    prepareSceneCues(ctx, layout, asset.scene.narration, asset.durationSec, colorOffsets[idx], W, H)
+  );
   drawSceneFrame(ctx, {
     W,
     H,
@@ -69,7 +68,6 @@ export async function recordRealtime(p: RecorderParams): Promise<{ blob: Blob; e
     durationSec: assets[0].durationSec,
     cues: prepared[0].cues,
     cueBoxes: prepared[0].cueBoxes,
-    subtitleColor: p.subtitleColor,
   });
 
   recorder.start(1000);

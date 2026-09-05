@@ -6,8 +6,6 @@ import {
   Pause,
   SkipForward,
   SkipBack,
-  SpeakerHigh,
-  SpeakerSimpleX,
   ArrowsOut,
   ArrowsIn,
   DownloadSimple,
@@ -26,19 +24,18 @@ import { kenBurnsKeyframes, kenBurnsPreset } from "@/lib/kenburns";
 import {
   buildCues,
   computeSubtitleLayout,
+  cueColorHex,
   cueIndexAt,
   estimateSceneSeconds,
   fitCuesToLines,
+  sentenceOffsets,
   wrapLines,
-  subtitleHex,
+  SUBTITLE_MAX_LINES,
   SUBTITLE_OUTLINE,
   SUBTITLE_SHADOW,
   SUBTITLE_FONT_STACK,
   SUBTITLE_FONT_WEIGHT,
-  type SubtitleColorId,
 } from "@/lib/subtitles";
-import { getSubtitleColor, setSubtitleColor, SUBTITLE_STYLE_EVENT } from "@/lib/client/subtitle-style";
-import { SubtitleColorPicker } from "./SubtitleColorPicker";
 
 interface VideoPlayerProps {
   title: string;
@@ -51,16 +48,19 @@ interface VideoPlayerProps {
 const XFADE_MS = 450;
 /** Высота деки под кадром в компактном режиме (для расчёта кадра в фуллскрине). */
 const COMPACT_DECK_PX = 92;
+/** Верхний градиент оверлей-деки (pt-8): под ним субтитры видны, поднимать их выше него не нужно. */
+const OVERLAY_DECK_FADE_PX = 32;
+/** Высота контента оверлей-деки, если её ещё не измерили. */
+const OVERLAY_DECK_FALLBACK_PX = 88;
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orientation, onExportClick }) => {
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [prevSceneIndex, setPrevSceneIndex] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
   const [showSubtitles, setShowSubtitles] = useState(true);
-  const [subtitleColor, setSubtitleColorState] = useState<SubtitleColorId>(() => getSubtitleColor());
-  const [showColorPicker, setShowColorPicker] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  // Высота оверлей-деки: на неё поднимаются субтитры, пока дека видна.
+  const [deckHeight, setDeckHeight] = useState(0);
   const [isBuffering, setIsBuffering] = useState(false);
   const [sceneElapsed, setSceneElapsed] = useState(0);
 
@@ -90,6 +90,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
   const xfadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const measureCanvasRef = useRef<CanvasRenderingContext2D | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
+  const deckRef = useRef<HTMLDivElement | null>(null);
   const carouselRef = useRef<HTMLDivElement | null>(null);
   const audioCacheRef = useRef<Map<number, HTMLAudioElement>>(new Map());
   const animFrameRef = useRef<number | null>(null);
@@ -104,8 +105,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
   const sceneDurationRef = useRef(0);
   const sceneElapsedRef = useRef(0);
   const lastSceneIndexRef = useRef(0);
-  const isMutedRef = useRef(false);
-  isMutedRef.current = isMuted;
 
   const audioSignature = scenes.map((s) => s.audioUrl || "").join("|");
 
@@ -128,13 +127,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
       }
     });
   }, [scenes]);
-
-  // Цвет субтитров общий с экспортом: меняется здесь — меняется и там.
-  useEffect(() => {
-    const onStyle = () => setSubtitleColorState(getSubtitleColor());
-    window.addEventListener(SUBTITLE_STYLE_EVENT, onStyle);
-    return () => window.removeEventListener(SUBTITLE_STYLE_EVENT, onStyle);
-  }, []);
 
   // Кроссфейд: при смене кадра предыдущий остаётся под новым на XFADE_MS.
   useEffect(() => {
@@ -193,7 +185,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
         const audio = new Audio();
         audio.preload = "auto";
         audio.src = scene.audioUrl;
-        audio.muted = isMutedRef.current;
 
         audio.onwaiting = () => {
           if (currentSceneIndexRef.current === index) setIsBuffering(true);
@@ -229,12 +220,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [audioSignature, handleAdvanceScene]);
-
-  useEffect(() => {
-    audioCacheRef.current.forEach((audio) => {
-      audio.muted = isMuted;
-    });
-  }, [isMuted]);
 
   const currentScene = scenes[currentSceneIndex] || scenes[0];
   const prevScene = prevSceneIndex !== null ? scenes[prevSceneIndex] : null;
@@ -534,6 +519,23 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
     };
   }, [isPlaying, compact, revealControls]);
 
+  // Высота оверлей-деки — субтитры поднимаются ровно на неё, а не на «кегль × 2,4»,
+  // из-за чего на телефоне их закрывала полоса прокрутки, а на большом экране
+  // они уезжали к центру кадра.
+  useEffect(() => {
+    const el = deckRef.current;
+    if (!el || compact) {
+      setDeckHeight(0);
+      return;
+    }
+    const apply = () => setDeckHeight(el.offsetHeight);
+    apply();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [compact, frameBox.w, frameBox.h, isFullscreen]);
+
   const scrollCarousel = (direction: "left" | "right") => {
     if (!carouselRef.current) return;
     carouselRef.current.scrollBy({ left: direction === "left" ? -280 : 280, behavior: "smooth" });
@@ -580,12 +582,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
     [subtitleLayout.fontCss, subtitleLayout.font]
   );
 
+  // Сквозная нумерация предложений по всему фильму — от неё цвет реплики;
+  // та же нумерация в экспортёре, поэтому MP4 раскрашен так же.
+  const colorOffsets = useMemo(() => sentenceOffsets(scenes.map((s) => s.narration)), [scenes]);
+
   const cues = useMemo(() => {
-    const base = currentScene?.narration ? buildCues(currentScene.narration, sceneDuration) : [];
-    return compact ? fitCuesToLines(base, 2, subtitleLayout.maxTextW, measureSubtitle) : base;
-  }, [currentScene?.narration, sceneDuration, compact, subtitleLayout.maxTextW, measureSubtitle]);
+    const base = currentScene?.narration
+      ? buildCues(currentScene.narration, sceneDuration, colorOffsets[currentSceneIndex] || 0)
+      : [];
+    return fitCuesToLines(base, SUBTITLE_MAX_LINES, subtitleLayout.maxTextW, measureSubtitle);
+  }, [currentScene?.narration, sceneDuration, colorOffsets, currentSceneIndex, subtitleLayout.maxTextW, measureSubtitle]);
   const activeCueIndex = cueIndexAt(cues, sceneElapsed);
   const activeSentence = activeCueIndex >= 0 ? cues[activeCueIndex].text : "";
+  const activeColor = activeCueIndex >= 0 ? cueColorHex(cues[activeCueIndex].colorIndex) : "#FFFFFF";
 
   const subtitleLines = useMemo(
     () => (activeSentence ? wrapLines(activeSentence, subtitleLayout.maxTextW, measureSubtitle) : []),
@@ -614,6 +623,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
 
   const renderDeck = () => (
     <div
+      ref={deckRef}
       className={
         compact
           ? "relative w-full bg-stage px-3 pt-1 pb-2 flex flex-col gap-1.5"
@@ -634,7 +644,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
         title="Перемотка видео (нажмите или перетащите)"
       >
         <div className="w-full h-2 group-hover/timeline:h-3 bg-white/20 rounded-full relative overflow-hidden transition-all duration-150">
-          <div className="h-full bg-accent rounded-full transition-all" style={{ width: `${progressPercent}%` }} />
+          {/* Без transition: заливка анимировалась 150 мс и отставала от бегунка. */}
+          <div className="h-full bg-accent rounded-full" style={{ width: `${progressPercent}%` }} />
           {totalDuration > 0 &&
             sceneBoundaries.map((b, i) => (
               <div
@@ -692,57 +703,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
 
           <button
             type="button"
-            onClick={() => setIsMuted(!isMuted)}
-            className={`p-2 ${deckBtn} ml-0.5 sm:ml-1`}
-            title={isMuted ? "Включить звук" : "Выключить звук"}
-          >
-            {isMuted ? <SpeakerSimpleX size={18} weight="bold" className="text-rose-400" /> : <SpeakerHigh size={18} weight="bold" />}
-          </button>
-
-          <button
-            type="button"
             onClick={() => setShowSubtitles(!showSubtitles)}
-            className={`p-2 rounded-xl transition-all cursor-pointer ${
+            className={`p-2 rounded-xl transition-all cursor-pointer ml-0.5 sm:ml-1 ${
               showSubtitles ? "bg-accent text-accent-ink font-black shadow-md" : "bg-white/5 hover:bg-white/15 text-zinc-400"
             }`}
             title="Субтитры"
           >
             <ClosedCaptioning size={18} weight="bold" />
           </button>
-
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowColorPicker((v) => !v)}
-              className="p-2 rounded-xl bg-white/5 hover:bg-white/15 transition-all cursor-pointer flex items-center justify-center"
-              title="Цвет субтитров"
-              aria-label="Цвет субтитров"
-            >
-              <span
-                className="block w-[18px] h-[18px] rounded-full border-2 border-black/70"
-                style={{ backgroundColor: subtitleHex(subtitleColor) }}
-              />
-            </button>
-            {showColorPicker && (
-              <div
-                className={`absolute z-40 p-2.5 rounded-xl bg-black/90 border border-white/15 shadow-2xl left-1/2 -translate-x-1/2 ${
-                  compact ? "top-full mt-2" : "bottom-full mb-2"
-                }`}
-                onPointerDown={(e) => e.stopPropagation()}
-              >
-                <SubtitleColorPicker
-                  size="sm"
-                  value={subtitleColor}
-                  onChange={(id) => {
-                    setSubtitleColorState(id);
-                    setSubtitleColor(id);
-                    setShowColorPicker(false);
-                    if (!showSubtitles) setShowSubtitles(true);
-                  }}
-                />
-              </div>
-            )}
-          </div>
 
           {!compact && (
             <span className="text-xs font-mono font-bold text-zinc-300 ml-2 hidden sm:inline">
@@ -882,13 +850,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
           </div>
 
           {/* Субтитры: кегль и отступ пропорциональны кадру — те же формулы,
-              что при выжигании в MP4. В оверлей-режиме карточка приподнимается,
-              пока видна дека. */}
+              что при выжигании в MP4. В оверлей-режиме, пока видна дека, текст
+              поднимается ровно над её контентом (градиент не в счёт). */}
           {showSubtitles && subtitleLines.length > 0 && (
             <div
               className="absolute left-0 right-0 flex justify-center z-20 pointer-events-none transition-all duration-200"
               style={{
-                bottom: subtitleLayout.bottom + (!compact && controlsVisible ? subtitleLayout.font * 2.4 : 0),
+                bottom:
+                  !compact && controlsVisible
+                    ? Math.max(
+                        subtitleLayout.bottom,
+                        (deckHeight ? deckHeight - OVERLAY_DECK_FADE_PX : OVERLAY_DECK_FALLBACK_PX) + 6
+                      )
+                    : subtitleLayout.bottom,
               }}
             >
               <div
@@ -908,7 +882,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
                       fontWeight: SUBTITLE_FONT_WEIGHT,
                       fontSize: subtitleLayout.font,
                       lineHeight: `${subtitleLayout.lineHeight}px`,
-                      color: subtitleHex(subtitleColor),
+                      color: activeColor,
                       // Чёрная обводка вместо подложки; paint-order рисует её ПОД заливкой.
                       WebkitTextStroke: `${subtitleLayout.strokeW * 2}px ${SUBTITLE_OUTLINE}`,
                       paintOrder: "stroke fill",

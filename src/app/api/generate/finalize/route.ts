@@ -18,7 +18,6 @@ function parseTtsUsage(raw: unknown): TtsFrameUsage[] {
     requestId: str(f?.requestId),
     characters: Math.max(0, Math.round(num(f?.characters))),
     model: str(f?.model, 60),
-    provider: f?.provider === "openai" ? "openai" : "elevenlabs",
     keyOwner: f?.keyOwner === "user" || f?.keyOwner === "env" ? f.keyOwner : null,
     audioSeconds: Math.max(0, num(f?.audioSeconds)),
   }));
@@ -31,11 +30,13 @@ function parseImageUsage(raw: unknown): ImageFrameUsage[] {
     model: str(f?.model, 60) || "gpt-image-1-mini",
     quality: str(f?.quality, 20) || "medium",
     size: str(f?.size, 20) || "1536x1024",
+    withReference: !!f?.withReference,
     usage: f?.usage
       ? {
           inputTokens: Math.max(0, num(f.usage.inputTokens)),
           outputTokens: Math.max(0, num(f.usage.outputTokens)),
           totalTokens: Math.max(0, num(f.usage.totalTokens)),
+          imageInputTokens: Math.max(0, num(f.usage.imageInputTokens)),
         }
       : null,
   }));
@@ -98,7 +99,7 @@ export async function POST(req: NextRequest) {
 
       const byOwner: Record<"user" | "env", string[]> = { user: [], env: [] };
       for (const f of ttsFrames) {
-        if (f.provider === "elevenlabs" && f.requestId && f.keyOwner) byOwner[f.keyOwner].push(f.requestId);
+        if (f.requestId && f.keyOwner) byOwner[f.keyOwner].push(f.requestId);
       }
       if (userKey && byOwner.user.length) {
         const found = await fetchHistoryCredits(userKey, { sinceUnix, requestIds: byOwner.user });

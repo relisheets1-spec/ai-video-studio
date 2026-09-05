@@ -20,10 +20,17 @@ export const PRICING_SOURCES = {
 // OpenAI
 // ---------------------------------------------------------------------------
 
-/** USD за 1M токенов. */
+/** USD за 1M токенов (стандартная обработка, короткий контекст). */
 export const CHAT_PRICES: Record<string, { inputPerM: number; outputPerM: number }> = {
   "gpt-4o": { inputPerM: 2.5, outputPerM: 10 },
   "gpt-4o-2024-11-20": { inputPerM: 2.5, outputPerM: 10 },
+  "gpt-4.1": { inputPerM: 2, outputPerM: 8 },
+  "gpt-5-mini": { inputPerM: 0.25, outputPerM: 2 },
+  "gpt-5": { inputPerM: 1.25, outputPerM: 10 },
+  "gpt-5.1": { inputPerM: 1.25, outputPerM: 10 },
+  "gpt-5.2": { inputPerM: 1.75, outputPerM: 14 },
+  "gpt-5.4": { inputPerM: 2.5, outputPerM: 15 },
+  "gpt-5.5": { inputPerM: 5, outputPerM: 30 },
 };
 
 export const IMAGE_PRICES = {
@@ -39,24 +46,25 @@ export const IMAGE_PRICES = {
   },
 } as const;
 
-/** Запасная озвучка OpenAI: ответ бинарный, usage не приходит — оценка. */
-export const OPENAI_TTS = {
-  "gpt-4o-mini-tts": { textInPerM: 0.6, audioOutPerM: 12, approxUsdPerMinute: 0.015 },
-} as const;
-
 // ---------------------------------------------------------------------------
-// ElevenLabs
+// ElevenLabs — только Eleven v3 (v2 и запасная озвучка OpenAI убраны)
 // ---------------------------------------------------------------------------
 
 /** Кредитов за символ по моделям (token_cost_factor из /v1/models). */
 export const ELEVEN_CREDITS_PER_CHAR: Record<string, number> = {
   eleven_v3: 1,
-  eleven_multilingual_v2: 1,
-  eleven_flash_v2_5: 0.5,
-  eleven_turbo_v2_5: 0.5,
+  eleven_v3_conversational: 1,
 };
 
-/** Pay As You Go для API: v3 и Multilingual v2, USD за 1 000 символов. Кредиты живут 12 месяцев. */
+/**
+ * Наблюдаемое списание на аккаунте Creator: история ElevenLabs показывает
+ * ~0,55 кредита за символ (7 157 кредитов за 13 012 символов; 4 171 за 7 582).
+ * Используется ТОЛЬКО для прикидки под слайдером до генерации; фактическая
+ * стоимость всегда берётся из истории по request_id.
+ */
+export const ELEVEN_ESTIMATE_CREDITS_PER_CHAR = 0.55;
+
+/** Pay As You Go для API: Eleven v3, USD за 1 000 кредитов. Кредиты живут 12 месяцев. */
 export const ELEVEN_PAYG_USD_PER_1K = 0.1;
 
 export const ELEVEN_SCENARIOS = {
@@ -71,11 +79,6 @@ export const ELEVEN_SCENARIOS = {
     label: "Starter $6/мес + Pay As You Go",
     monthlyUsd: 6,
     includedCredits: 0,
-    paygUsdPer1k: ELEVEN_PAYG_USD_PER_1K,
-  },
-  payg: {
-    id: "payg",
-    label: "Только Pay As You Go",
     paygUsdPer1k: ELEVEN_PAYG_USD_PER_1K,
   },
 } as const;
@@ -113,12 +116,6 @@ export function usdForCreditsPayg(credits: number): number {
   return round4((credits / 1000) * ELEVEN_PAYG_USD_PER_1K);
 }
 
-export function usdForOpenAiTts(characters: number, audioSeconds: number): number {
-  const p = OPENAI_TTS["gpt-4o-mini-tts"];
-  const textTokens = characters / 3;
-  return round4((textTokens / 1e6) * p.textInPerM + (audioSeconds / 60) * p.approxUsdPerMinute);
-}
-
 /** Грубая оценка текста до запуска: 5 проходов gpt-4o на объём ролика. */
 export function estimateLlmUsd(totalWords: number): number {
   return round4(0.03 + totalWords * 0.00012);
@@ -128,15 +125,15 @@ export interface FilmEstimate {
   imagesUsd: number;
   llmUsd: number;
   credits: number;
-  ttsUsd: { creator: number; payg: number };
-  totals: { creator: number; starterPayg: number; payg: number };
+  ttsUsd: { creator: number; starterPayg: number };
+  totals: { creator: number; starterPayg: number };
 }
 
 export function estimateFilmCost(input: { scenesCount: number; estimatedChars: number; totalWords: number }): FilmEstimate {
   const imagesUsd = round4(input.scenesCount * usdForImage("gpt-image-1-mini", "medium", "1536x1024"));
   const llmUsd = estimateLlmUsd(input.totalWords);
-  const credits = input.estimatedChars;
-  const ttsUsd = { creator: usdForCreditsCreator(credits), payg: usdForCreditsPayg(credits) };
+  const credits = Math.round(input.estimatedChars * ELEVEN_ESTIMATE_CREDITS_PER_CHAR);
+  const ttsUsd = { creator: usdForCreditsCreator(credits), starterPayg: usdForCreditsPayg(credits) };
   return {
     imagesUsd,
     llmUsd,
@@ -144,8 +141,7 @@ export function estimateFilmCost(input: { scenesCount: number; estimatedChars: n
     ttsUsd,
     totals: {
       creator: round4(imagesUsd + llmUsd + ttsUsd.creator),
-      starterPayg: round4(imagesUsd + llmUsd + ttsUsd.payg),
-      payg: round4(imagesUsd + llmUsd + ttsUsd.payg),
+      starterPayg: round4(imagesUsd + llmUsd + ttsUsd.starterPayg),
     },
   };
 }
@@ -168,7 +164,6 @@ export interface TtsFrameUsage {
   requestId: string | null;
   characters: number;
   model: string | null;
-  provider: "elevenlabs" | "openai";
   keyOwner: "user" | "env" | null;
   audioSeconds: number;
 }
@@ -184,7 +179,7 @@ export interface ImageFrameUsage {
 }
 
 export interface VideoCost {
-  version: 1;
+  version: 2;
   pricingAsOf: string;
   startedAt: string | null;
   computedAt: string;
@@ -206,7 +201,6 @@ export interface VideoCost {
     referenceUsd: number;
   };
   tts: {
-    provider: "elevenlabs" | "openai" | "mixed" | "none";
     model: string | null;
     frames: number;
     characters: number;
@@ -219,12 +213,9 @@ export interface VideoCost {
     keyOwner: "user" | "env" | "mixed" | null;
     historyMatched: number;
     historyMissing: number;
-    fallbackFrames: number;
-    fallbackCharacters: number;
-    fallbackUsd: number;
-    usd: { creator: number; starterPayg: number; payg: number };
+    usd: { creator: number; starterPayg: number };
   };
-  totals: { creator: number; starterPayg: number; payg: number };
+  totals: { creator: number; starterPayg: number };
   /** = totals.creator; продублировано для generated-колонки total_usd. */
   totalUsd: number;
 }
@@ -289,14 +280,12 @@ export function computeVideoCost(input: CostInput): VideoCost {
     referenceUsd,
   };
 
-  // Озвучка
-  const eleven = input.tts.filter((f) => f.provider === "elevenlabs");
-  const fallback = input.tts.filter((f) => f.provider === "openai");
+  // Озвучка: точные кредиты по истории ElevenLabs, иначе — по символам.
   let credits = 0;
   let characters = 0;
   let matched = 0;
   let missing = 0;
-  for (const f of eleven) {
+  for (const f of input.tts) {
     characters += f.characters;
     const exact = f.requestId ? input.historyCredits.get(f.requestId) : undefined;
     if (typeof exact === "number") {
@@ -307,11 +296,8 @@ export function computeVideoCost(input: CostInput): VideoCost {
       missing++;
     }
   }
-  const fallbackCharacters = fallback.reduce((a, f) => a + f.characters, 0);
-  const fallbackSeconds = fallback.reduce((a, f) => a + (f.audioSeconds || 0), 0);
-  const fallbackUsd = fallback.length ? usdForOpenAiTts(fallbackCharacters, fallbackSeconds) : 0;
 
-  const owners = new Set(eleven.map((f) => f.keyOwner).filter(Boolean));
+  const owners = new Set(input.tts.map((f) => f.keyOwner).filter(Boolean));
   const keyOwner: VideoCost["tts"]["keyOwner"] =
     owners.size === 0 ? null : owners.size > 1 ? "mixed" : (Array.from(owners)[0] as "user" | "env");
 
@@ -323,17 +309,14 @@ export function computeVideoCost(input: CostInput): VideoCost {
   const ttsUsd = {
     creator: usdForCreditsCreator(credits),
     starterPayg: usdForCreditsPayg(credits),
-    payg: usdForCreditsPayg(credits),
   };
 
   const tts: VideoCost["tts"] = {
-    provider:
-      eleven.length && fallback.length ? "mixed" : eleven.length ? "elevenlabs" : fallback.length ? "openai" : "none",
-    model: eleven[0]?.model || fallback[0]?.model || null,
+    model: input.tts[0]?.model || null,
     frames: input.tts.length,
     characters,
     credits,
-    creditsSource: eleven.length === 0 ? "none" : missing === 0 ? "history" : "characters",
+    creditsSource: input.tts.length === 0 ? "none" : missing === 0 ? "history" : "characters",
     creditsBefore: input.creditsBefore,
     creditsAfter: input.creditsAfter,
     creditsSpent,
@@ -341,21 +324,17 @@ export function computeVideoCost(input: CostInput): VideoCost {
     keyOwner,
     historyMatched: matched,
     historyMissing: missing,
-    fallbackFrames: fallback.length,
-    fallbackCharacters,
-    fallbackUsd,
     usd: ttsUsd,
   };
 
-  const base = llm.usd + images.usd + fallbackUsd;
+  const base = llm.usd + images.usd;
   const totals = {
     creator: round4(base + ttsUsd.creator),
     starterPayg: round4(base + ttsUsd.starterPayg),
-    payg: round4(base + ttsUsd.payg),
   };
 
   return {
-    version: 1,
+    version: 2,
     pricingAsOf: PRICING_AS_OF,
     startedAt: input.startedAt,
     computedAt: new Date().toISOString(),

@@ -1,10 +1,4 @@
-import {
-  CHAT_PRICES,
-  ELEVEN_PAYG_USD_PER_1K,
-  ELEVEN_SCENARIOS,
-  OPENAI_TTS,
-  type VideoCost,
-} from "./pricing";
+import { CHAT_PRICES, ELEVEN_PAYG_USD_PER_1K, ELEVEN_SCENARIOS, type VideoCost } from "./pricing";
 
 /** Форматирование стоимости для архива и модалки. Без React и без сервера. */
 
@@ -35,8 +29,6 @@ export function formatCostLine(cost: VideoCost): string {
   ];
   if (cost.tts.credits > 0) {
     parts.push(`озвучка ${formatInt(cost.tts.credits)} кр. ${formatUsd(cost.tts.usd.creator)}`);
-  } else if (cost.tts.fallbackFrames > 0) {
-    parts.push(`озвучка OpenAI ${formatUsd(cost.tts.fallbackUsd)}`);
   }
   parts.push(`итого ${formatUsd(cost.totals.creator)}`);
   return parts.join(" · ");
@@ -85,22 +77,11 @@ export function costRows(cost: VideoCost): CostRow[] {
     const s = ELEVEN_SCENARIOS.creator;
     rows.push({
       item: "Озвучка ElevenLabs",
-      model: cost.tts.model || "elevenlabs",
+      model: cost.tts.model || "eleven_v3",
       quantity: `${formatInt(cost.tts.characters)} символов = ${formatInt(cost.tts.credits)} кредитов${cost.tts.creditsSource === "history" ? "" : " (по символам)"}`,
       price: `$${s.monthlyUsd} / ${formatInt(s.monthlyCredits)} кр. в мес.`,
       total: formatUsd(cost.tts.usd.creator, 4),
       note: cost.tts.keyOwner === "env" ? "ключ владельца сайта" : undefined,
-    });
-  }
-
-  if (cost.tts.fallbackFrames > 0) {
-    const p = OPENAI_TTS["gpt-4o-mini-tts"];
-    rows.push({
-      item: "Запасная озвучка OpenAI",
-      model: "gpt-4o-mini-tts",
-      quantity: `${cost.tts.fallbackFrames} кадр., ${formatInt(cost.tts.fallbackCharacters)} символов`,
-      price: `≈ ${formatUsd(p.approxUsdPerMinute, 3)} / мин (оценка)`,
-      total: formatUsd(cost.tts.fallbackUsd, 4),
     });
   }
 
@@ -115,7 +96,7 @@ export interface ScenarioTotal {
   hint: string;
 }
 
-/** Три итога по сценариям ElevenLabs. */
+/** Два итога: текущий тариф Creator и Starter с докупкой Pay As You Go. */
 export function scenarioTotals(cost: VideoCost): ScenarioTotal[] {
   const c = ELEVEN_SCENARIOS.creator;
   const perCredit = c.monthlyUsd / c.monthlyCredits;
@@ -132,14 +113,7 @@ export function scenarioTotals(cost: VideoCost): ScenarioTotal[] {
       label: ELEVEN_SCENARIOS.starterPayg.label,
       ttsUsd: cost.tts.usd.starterPayg,
       totalUsd: cost.totals.starterPayg,
-      hint: `подписка $6 (0 кредитов) + докупка Pay As You Go ${formatUsd(ELEVEN_PAYG_USD_PER_1K)} за 1 000, кредиты живут 12 мес.`,
-    },
-    {
-      id: "payg",
-      label: ELEVEN_SCENARIOS.payg.label,
-      ttsUsd: cost.tts.usd.payg,
-      totalUsd: cost.totals.payg,
-      hint: `без подписки, ${formatUsd(ELEVEN_PAYG_USD_PER_1K)} за 1 000 символов (v3 / Multilingual v2)`,
+      hint: `подписка $6 (0 кредитов) + докупка Pay As You Go ${formatUsd(ELEVEN_PAYG_USD_PER_1K)} за 1 000 кредитов Eleven v3, кредиты живут 12 мес.`,
     },
   ];
 }
