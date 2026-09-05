@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Play,
   Clock,
@@ -11,28 +11,21 @@ import {
   Key,
   ArrowCounterClockwise,
   Lightning,
-  MagnifyingGlass,
-  Heart,
-  Smiley,
-  Planet,
-  Ghost,
-  Camera,
-  Archive,
-  Palette,
-  BookOpen,
-  Sparkle,
-  PaintBrush,
   TextAa,
   Trash,
+  CaretDown,
+  CaretUp,
 } from "@phosphor-icons/react";
-import { Scene, VideoGeneration, VoiceOption } from "@/lib/types";
+import { Scene, StudioUser, VideoGeneration, VoiceOption } from "@/lib/types";
 import { aspectRatioCss, normalizeOrientation, type Orientation } from "@/lib/orientation";
-import { GENRE_IDS, GENRES, type GenreId } from "@/lib/content/genres";
-import { STYLE_IDS, STYLES, type StyleId } from "@/lib/content/styles";
+import { GENRE_IDS, GENRES } from "@/lib/content/genres";
+import { STYLE_IDS, STYLES } from "@/lib/content/styles";
 import { INSPIRATION } from "@/lib/content/inspiration";
 import { type ContentLanguage } from "@/lib/content/languages";
 import { defaultVoiceFor } from "@/lib/content/voices";
 import { formatPlanLength, planFromMinutes, pluralFrames, MAX_MINUTES, MIN_MINUTES } from "@/lib/plan";
+import { authFetch } from "@/lib/client/session";
+import { iconFor } from "./content-icons";
 import { VideoPlayer } from "./VideoPlayer";
 import { VideoExporter } from "./VideoExporter";
 import { VoiceSelector } from "./VoiceSelector";
@@ -48,74 +41,55 @@ import {
   SelectCard,
   Textarea,
   Tile,
+  Input,
   cn,
 } from "@/components/ui";
 
 interface VideoStudioProps {
-  user: {
-    id: string;
-    userName: string;
-    secretCode: string;
-    remaining: number;
-    generationsLimit: number;
-    generationsUsed: number;
-  };
-  onUserUpdate: (updated: any) => void;
+  user: StudioUser;
+  onUserUpdate: (updated: StudioUser) => void;
 }
-
-/**
- * Каталоги жанров, стилей и тем переехали в src/lib/content — их же читают
- * серверные роуты. Здесь остаётся только сопоставление ключа иконке: тянуть
- * React-компоненты в модуль, который импортирует route handler, не нужно.
- */
-const GENRE_ICONS: Record<GenreId, React.ElementType> = {
-  thriller: Lightning,
-  detective: MagnifyingGlass,
-  drama: Heart,
-  comedy: Smiley,
-  scifi_adventure: Planet,
-  horror: Ghost,
-  narrative: BookOpen,
-};
-
-const STYLE_ICONS: Record<StyleId, React.ElementType> = {
-  cinematic: Camera,
-  documentary: Archive,
-  cyberpunk: Lightning,
-  concept_art: Palette,
-  noir: MagnifyingGlass,
-  anime: Sparkle,
-  watercolor: PaintBrush,
-  retro_film: FilmStrip,
-};
 
 const GENRE_OPTIONS = GENRE_IDS.map((id) => ({
   id,
   label: GENRES[id].label,
-  icon: GENRE_ICONS[id],
+  icon: iconFor(GENRES[id].icon),
 }));
 
 const STYLE_OPTIONS = STYLE_IDS.map((id) => ({
   id,
   label: STYLES[id].label,
-  icon: STYLE_ICONS[id],
+  icon: iconFor(STYLES[id].icon),
 }));
+
+/** Сколько стилей показывать до кнопки «Ещё». */
+const STYLES_COLLAPSED = 6;
+/** Картинки не зависят друг от друга — генерируем пачками; озвучка остаётся последовательной. */
+const IMAGE_CONCURRENCY = 3;
+
+const TOPIC_PLACEHOLDER: Record<ContentLanguage, string> = {
+  ru: "Опишите сюжет или тему... Например: Смотритель маяка на Каспии зажигает свет каждую ночь, хотя корабли давно ходят по GPS. История одной осени, когда к нему впервые за много лет приехал гость.",
+  kz: "Сюжетті сипаттаңыз... Мысалы: Каспийдегі шамшырақ күзетшісі кемелер GPS-пен жүрсе де, шамды әр түн жағады. Оған көп жылдан кейін алғаш рет қонақ келген бір күздің оқиғасы.",
+  en: "Describe the story... For example: A lighthouse keeper on the Caspian still lights the lamp every night although ships navigate by GPS. The story of one autumn when a visitor finally came.",
+};
 
 export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) => {
   const [language, setLanguage] = useState<ContentLanguage>("ru");
   const [topic, setTopic] = useState("");
   const [selectedGenre, setSelectedGenre] = useState(GENRE_OPTIONS[0].id);
   const [selectedStyle, setSelectedStyle] = useState(STYLE_OPTIONS[0].id);
+  const [showAllStyles, setShowAllStyles] = useState(false);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>(defaultVoiceFor("ru"));
-  // ТЗ: значения по умолчанию нет — пользователь обязан выбрать хронометраж
-  // сам, до этого кнопка запуска заблокирована.
+  // По ТЗ значения по умолчанию нет — пользователь обязан выбрать хронометраж сам.
   const [targetMinutes, setTargetMinutes] = useState<number | null>(null);
-  // Ориентация кадра. По умолчанию 16:9 — так были сгенерированы все прошлые видео.
   const [orientation, setOrientation] = useState<Orientation>("landscape");
 
-  // Personal ElevenLabs key
-  const [userKey, setUserKey] = useState("");
+  // Ключ ElevenLabs живёт в аккаунте (введён при регистрации); здесь только обновление.
   const [showKeyModal, setShowKeyModal] = useState(false);
+  const [keyDraft, setKeyDraft] = useState("");
+  const [keySaving, setKeySaving] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
+  const [keyWarning, setKeyWarning] = useState<string | null>(null);
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [progressStep, setProgressStep] = useState("");
@@ -127,18 +101,19 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   const [pastVideos, setPastVideos] = useState<VideoGeneration[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  const previewRef = useRef<HTMLElement | null>(null);
+
   const syncBalance = async () => {
-    if (!user?.secretCode && !user?.id) return;
     try {
-      const params = new URLSearchParams();
-      if (user.id) params.set("userId", user.id);
-      if (user.secretCode) params.set("secretCode", user.secretCode);
-      const res = await fetch(`/api/auth?${params.toString()}`);
+      const res = await authFetch("/api/auth/me");
       const data = await res.json();
       if (res.ok && data.user) {
-        if (data.user.remaining !== user.remaining || data.user.generationsLimit !== user.generationsLimit) {
+        if (
+          data.user.remaining !== user.remaining ||
+          data.user.generationsLimit !== user.generationsLimit ||
+          data.user.hasElevenLabsKey !== user.hasElevenLabsKey
+        ) {
           onUserUpdate(data.user);
-          localStorage.setItem("ai_video_user", JSON.stringify(data.user));
         }
       }
     } catch (e) {
@@ -147,37 +122,22 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   };
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const savedKey = localStorage.getItem("elevenlabs_user_key");
-      if (savedKey) setUserKey(savedKey);
-    }
     fetchHistory();
     syncBalance();
-
-    if (typeof window !== "undefined") {
-      window.addEventListener("focus", syncBalance);
-      return () => window.removeEventListener("focus", syncBalance);
-    }
-  }, [user.secretCode, user.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.id]);
 
   const fetchHistory = async () => {
     setLoadingHistory(true);
     try {
-      const params = new URLSearchParams();
-      if (user.id) params.set("userId", user.id);
-      if (user.secretCode) params.set("secretCode", user.secretCode);
-      const res = await fetch(`/api/videos?${params.toString()}`);
+      const res = await authFetch("/api/videos");
       const data = await res.json();
       if (res.ok && data.videos) {
         setPastVideos(data.videos);
         if (!currentVideo && data.videos.length > 0) {
           const latest = data.videos[0];
           if (latest.scenes && latest.scenes.length > 0) {
-            setCurrentVideo({
-              id: latest.id,
-              title: latest.topic,
-              scenes: latest.scenes,
-            });
+            setCurrentVideo({ id: latest.id, title: latest.topic, scenes: latest.scenes });
           }
         }
       }
@@ -190,15 +150,26 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
 
   const inspirationThemes = INSPIRATION[language];
 
-  const handleSaveKey = (e: React.FormEvent) => {
+  const handleSaveKey = async (e: React.FormEvent, clear = false) => {
     e.preventDefault();
-    const clean = userKey.trim();
-    if (clean) {
-      localStorage.setItem("elevenlabs_user_key", clean);
-    } else {
-      localStorage.removeItem("elevenlabs_user_key");
+    setKeySaving(true);
+    setKeyError(null);
+    try {
+      const res = await authFetch("/api/auth/key", {
+        method: "POST",
+        body: JSON.stringify({ elevenLabsKey: clear ? "" : keyDraft.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Не удалось сохранить ключ");
+      onUserUpdate({ ...user, hasElevenLabsKey: !!data.hasElevenLabsKey });
+      setKeyDraft("");
+      setKeyWarning(null);
+      setShowKeyModal(false);
+    } catch (err: any) {
+      setKeyError(err.message);
+    } finally {
+      setKeySaving(false);
     }
-    setShowKeyModal(false);
   };
 
   const handleLanguageChange = (newLang: ContentLanguage) => {
@@ -213,7 +184,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       setError("Выберите хронометраж перед запуском генерации");
       return;
     }
-
     if (user.remaining <= 0) {
       setError("Лимит генераций исчерпан. Обратитесь к администратору.");
       return;
@@ -221,6 +191,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
 
     setIsGenerating(true);
     setError(null);
+    setKeyWarning(null);
     setProgressPercent(5);
     const currentGenreObj = GENRE_OPTIONS.find((g) => g.id === selectedGenre);
 
@@ -229,10 +200,9 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     );
 
     try {
-      // 1. Script generation
-      const scriptRes = await fetch("/api/generate/script", {
+      // 1. Сценарий: план → монолог → редактор → визуальные промпты
+      const scriptRes = await authFetch("/api/generate/script", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           topic: topic.trim(),
           genre: selectedGenre,
@@ -241,35 +211,27 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
           language,
           targetMinutes,
           orientation,
-          userId: user.id,
-          secretCode: user.secretCode,
         }),
       });
-
       const scriptData = await scriptRes.json();
       if (!scriptRes.ok) throw new Error(scriptData.error || "Ошибка генерации сценария");
 
-      const videoId = scriptData.videoId;
-      let scenes: Scene[] = scriptData.scenes;
+      const videoId: string = scriptData.videoId;
+      const scenes: Scene[] = scriptData.scenes;
       const totalScenes = scenes.length;
-
       setProgressPercent(25);
 
-      // 2. Озвучка кадр за кадром.
-      // Последовательно и намеренно: каждый запрос кондиционируется соседними
-      // фрагментами и id предыдущих запросов, иначе 30 независимо
-      // синтезированных файлов звучат как 30 разных дублей и на стыках слышны швы.
+      // 2. Озвучка кадр за кадром — последовательно и намеренно: каждый
+      // запрос кондиционируется соседними фрагментами, иначе на стыках швы.
       const scenesWithAudio: Scene[] = [];
       const recentRequestIds: string[] = [];
+      let keyRejected = false;
       for (let i = 0; i < totalScenes; i++) {
         const scene = scenes[i];
-        setProgressStep(
-          `Шаг 2 из 4: ElevenLabs синтезирует озвучку диктора (кадр ${i + 1}/${totalScenes})...`
-        );
+        setProgressStep(`Шаг 2 из 4: ElevenLabs синтезирует озвучку диктора (кадр ${i + 1}/${totalScenes})...`);
 
-        const audioRes = await fetch("/api/generate/audio", {
+        const audioRes = await authFetch("/api/generate/audio", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             videoId,
             sceneId: scene.id,
@@ -279,66 +241,66 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             previousText: scenes[i - 1]?.narration,
             nextText: scenes[i + 1]?.narration,
             previousRequestIds: recentRequestIds.slice(-3),
-            elevenLabsApiKey: userKey || undefined,
           }),
         });
-
         const audioData = await audioRes.json();
         if (!audioRes.ok) throw new Error(audioData.error || `Ошибка генерации аудио кадра ${i + 1}`);
 
         if (audioData.requestId) recentRequestIds.push(audioData.requestId);
+        if (audioData.keyRejected) keyRejected = true;
 
         scenesWithAudio.push({
           ...scene,
           audioUrl: audioData.audioUrl,
           durationEstimate: audioData.estimatedDuration || scene.durationEstimate,
         });
-
-        const audioProgress = 25 + Math.round(((i + 1) / totalScenes) * 30);
-        setProgressPercent(audioProgress);
+        setProgressPercent(25 + Math.round(((i + 1) / totalScenes) * 30));
+      }
+      if (keyRejected) {
+        setKeyWarning("ElevenLabs отклонил ваш ключ — озвучка сделана запасным голосом. Проверьте ключ в настройках.");
       }
 
-      // 3. Image generation
-      const finalScenes: Scene[] = [];
-      for (let i = 0; i < totalScenes; i++) {
-        const scene = scenesWithAudio[i];
-        setProgressStep(
-          `Шаг 3 из 4: AI визуализирует кадр ${i + 1}/${totalScenes}: "${scene.title}"...`
-        );
+      // 3. Картинки — пачками по три, они друг от друга не зависят.
+      const finalScenes: Scene[] = new Array(totalScenes);
+      let nextIndex = 0;
+      let doneCount = 0;
+      let failure: Error | null = null;
+      const worker = async () => {
+        while (!failure) {
+          const i = nextIndex++;
+          if (i >= totalScenes) return;
+          const scene = scenesWithAudio[i];
+          setProgressStep(`Шаг 3 из 4: AI визуализирует кадры (${doneCount + 1}/${totalScenes}): "${scene.title}"...`);
+          try {
+            const imgRes = await authFetch("/api/generate/image", {
+              method: "POST",
+              body: JSON.stringify({
+                videoId,
+                sceneId: scene.id,
+                visualPrompt: scene.visualPrompt,
+                style: selectedStyle,
+                orientation,
+              }),
+            });
+            const imgData = await imgRes.json();
+            if (!imgRes.ok) throw new Error(imgData.error || `Ошибка генерации изображения кадра ${i + 1}`);
+            finalScenes[i] = { ...scene, imageUrl: imgData.imageUrl };
+            doneCount++;
+            setProgressPercent(55 + Math.round((doneCount / totalScenes) * 40));
+          } catch (err: any) {
+            failure = failure || err;
+          }
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(IMAGE_CONCURRENCY, totalScenes) }, worker));
+      if (failure) throw failure;
 
-        const imgRes = await fetch("/api/generate/image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            videoId,
-            sceneId: scene.id,
-            visualPrompt: scene.visualPrompt,
-            style: selectedStyle,
-            orientation,
-          }),
-        });
-
-        const imgData = await imgRes.json();
-        if (!imgRes.ok) throw new Error(imgData.error || `Ошибка генерации изображения кадра ${i + 1}`);
-
-        finalScenes.push({
-          ...scene,
-          imageUrl: imgData.imageUrl,
-        });
-
-        const imgProgress = 55 + Math.round(((i + 1) / totalScenes) * 40);
-        setProgressPercent(imgProgress);
-      }
-
-      // 4. Finalize
+      // 4. Финализация
       setProgressStep("Шаг 4 из 4: Сохранение фильма и обновление баланса...");
-      const finalizeRes = await fetch("/api/generate/finalize", {
+      const finalizeRes = await authFetch("/api/generate/finalize", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           videoId,
-          userId: user.id,
-          secretCode: user.secretCode,
           scenes: finalScenes,
           totalDuration: finalScenes.reduce(
             (acc, sc) => acc + (sc.actualDuration || sc.durationEstimate || 0),
@@ -346,25 +308,22 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
           ),
         }),
       });
-
       const finData = await finalizeRes.json();
       if (!finalizeRes.ok) throw new Error(finData.error || "Ошибка сохранения видео");
 
       setProgressPercent(100);
-
-      setCurrentVideo({
-        id: videoId,
-        title: scriptData.title || topic,
-        scenes: finalScenes,
-      });
-
-      if (finData.user) {
-        onUserUpdate(finData.user);
-        localStorage.setItem("ai_video_user", JSON.stringify(finData.user));
-      }
+      setCurrentVideo({ id: videoId, title: scriptData.title || topic, scenes: finalScenes });
+      if (finData.user) onUserUpdate(finData.user);
 
       fetchHistory();
       setTopic("");
+
+      // На телефоне плеер над формой — подводим к нему.
+      if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
+        requestAnimationFrame(() =>
+          previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+        );
+      }
     } catch (err: any) {
       console.error(err);
       setError(err.message || "Произошла ошибка при генерации видео");
@@ -374,7 +333,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     }
   };
 
-
   const currentOrientation = currentVideo
     ? normalizeOrientation(currentVideo.scenes[0]?.orientation)
     : orientation;
@@ -382,8 +340,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   const activeGenre = GENRE_OPTIONS.find((g) => g.id === selectedGenre);
   const activeStyle = STYLE_OPTIONS.find((st) => st.id === selectedStyle);
   const wordCount = topic.split(" ").filter(Boolean).length;
-  // Единый расчёт «что именно будет сгенерировано»: кадры, длина и стоимость
-  // считаются одной функцией и на клиенте, и на сервере.
   const plan = planFromMinutes(targetMinutes ?? MIN_MINUTES, language);
   const plannedFrames = targetMinutes === null ? "—" : plan.scenesCount;
   const plannedLength = targetMinutes === null ? "—" : formatPlanLength(plan);
@@ -395,36 +351,47 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       ? Math.floor(sec / 60) + ":" + String(Math.round(sec % 60)).padStart(2, "0")
       : Math.round(sec) + " сек";
 
+  const visibleStyles = showAllStyles ? STYLE_OPTIONS : STYLE_OPTIONS.slice(0, STYLES_COLLAPSED);
+  const selectedStyleHidden = !showAllStyles && !visibleStyles.some((st) => st.id === selectedStyle);
+
   return (
-    <div className="w-full max-w-shell mx-auto px-5 sm:px-8 pt-8 pb-32">
-      <div className="flex flex-wrap items-start justify-between gap-4 mb-7">
+    <div className="w-full max-w-shell mx-auto px-5 sm:px-8 pt-6 sm:pt-8 pb-32">
+      <div className="flex flex-wrap items-start justify-between gap-4 mb-6 sm:mb-7">
         <div className="min-w-0">
-          <h1 className="text-[28px] sm:text-[32px] font-bold tracking-tight text-ink leading-none">
+          <h1 className="text-[26px] sm:text-[32px] font-bold tracking-tight text-ink leading-none">
             Создание видеоистории
           </h1>
         </div>
 
         <button
           type="button"
-          onClick={() => setShowKeyModal(true)}
-          title="Ввести персональный API-ключ ElevenLabs"
+          onClick={() => {
+            setKeyError(null);
+            setShowKeyModal(true);
+          }}
+          title="Ключ ElevenLabs вашего аккаунта"
           className={cn(
             "inline-flex items-center gap-2 h-10 px-4 rounded-full border shrink-0",
             "text-[13px] font-medium transition-colors cursor-pointer",
-            userKey
+            user.hasElevenLabsKey
               ? "bg-contrast text-contrast-ink border-transparent"
               : "bg-surface-2 text-muted border-hairline hover:text-ink hover:border-hairline-strong"
           )}
         >
-          <Key size={16} className={userKey ? "text-accent" : "text-faint"} />
-          <span>{userKey ? "Ключ ElevenLabs" : "Добавить ключ"}</span>
-          {userKey && <span className="w-1.5 h-1.5 rounded-full bg-accent" />}
+          <Key size={16} className={user.hasElevenLabsKey ? "text-accent" : "text-faint"} />
+          <span>{user.hasElevenLabsKey ? "Ключ ElevenLabs" : "Добавить ключ"}</span>
+          {user.hasElevenLabsKey && <span className="w-1.5 h-1.5 rounded-full bg-accent" />}
         </button>
       </div>
 
       {error && (
         <Alert tone="danger" className="mb-5">
           {error}
+        </Alert>
+      )}
+      {keyWarning && (
+        <Alert tone="warn" className="mb-5">
+          {keyWarning}
         </Alert>
       )}
 
@@ -447,11 +414,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             <Textarea
               rows={4}
               required
-              placeholder={
-                language === "kz"
-                  ? "Сюжетті сипаттаңыз... Мысалы: Алматыдағы түнгі тонау оқиғасы немесе IT-стартаптың өрлеуі мен күйреуі туралы драма."
-                  : "Введите сюжет или тему для видео... Например: Ночное ограбление в Алматы. Дерзкая группа взломщиков проникает в банк, но непредвиденный сбой меняет все планы."
-              }
+              placeholder={TOPIC_PLACEHOLDER[language]}
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
               disabled={isGenerating}
@@ -475,19 +438,17 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             </div>
           </Tile>
 
-          <Tile
-            title="Жанр истории"
-            icon={<FilmStrip size={20} />}
-          >
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+          <Tile title="Жанр истории" icon={<FilmStrip size={20} />}>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-2.5">
               {GENRE_OPTIONS.map((g) => {
                 const Icon = g.icon;
                 return (
                   <SelectCard
                     key={g.id}
+                    size="sm"
                     selected={selectedGenre === g.id}
                     onClick={() => setSelectedGenre(g.id)}
-                    icon={<Icon size={20} />}
+                    icon={<Icon size={18} />}
                     title={g.label}
                   />
                 );
@@ -518,39 +479,56 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                   ticks={[MIN_MINUTES, 4, 7, MAX_MINUTES]}
                 />
 
-                {/* Стоимость показываем честно: прежние подписи ($0.05 / $0.37)
-                    учитывали только картинки и занижали цену примерно вчетверо,
-                    потому что озвучка в них не входила вовсе. */}
                 {targetMinutes !== null && (
-                  <div className="rounded-control bg-surface-2 border border-hairline px-3.5 py-3 text-[13px] text-muted leading-snug">
-                    <span className="text-ink font-medium">{formatPlanLength(plan)}</span>
-                    {" · "}
-                    {pluralFrames(plan.scenesCount)}
-                    {" · "}
-                    <span className="tabular">~{plan.estimatedChars.toLocaleString("ru-RU")}</span> символов ElevenLabs
-                    {" · "}
-                    <span className="tabular">≈ ${plan.estimatedCostUsd.toFixed(2)}</span>
+                  <div className="rounded-control bg-surface-2 border border-hairline px-3.5 py-3 text-[13px] text-muted leading-snug grid grid-cols-2 gap-x-3 gap-y-1 sm:flex sm:flex-wrap sm:items-center sm:gap-x-2">
+                    <span className="whitespace-nowrap text-ink font-medium">{formatPlanLength(plan)}</span>
+                    <span className="hidden sm:inline text-faint">·</span>
+                    <span className="whitespace-nowrap">{pluralFrames(plan.scenesCount)}</span>
+                    <span className="hidden sm:inline text-faint">·</span>
+                    <span className="whitespace-nowrap tabular">
+                      ~{plan.estimatedChars.toLocaleString("ru-RU")} символов
+                    </span>
+                    <span className="hidden sm:inline text-faint">·</span>
+                    <span className="whitespace-nowrap tabular">≈ ${plan.estimatedCostUsd.toFixed(2)}</span>
                   </div>
                 )}
               </div>
             </Tile>
 
-            <Tile title="Визуальный стиль" icon={<Sliders size={20} />}>
-              <div className="grid grid-cols-1 gap-2.5">
-                {STYLE_OPTIONS.map((st) => {
+            <Tile
+              title="Визуальный стиль"
+              icon={<Sliders size={20} />}
+              action={
+                selectedStyleHidden && activeStyle ? (
+                  <Badge tone="outline">{activeStyle.label}</Badge>
+                ) : null
+              }
+            >
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {visibleStyles.map((st) => {
                   const Icon = st.icon;
                   return (
                     <SelectCard
                       key={st.id}
-                      layout="horizontal"
+                      size="sm"
                       selected={selectedStyle === st.id}
                       onClick={() => setSelectedStyle(st.id)}
-                      icon={<Icon size={20} />}
+                      icon={<Icon size={18} />}
                       title={st.label}
                     />
                   );
                 })}
               </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mt-2.5 w-full"
+                icon={showAllStyles ? <CaretUp size={14} /> : <CaretDown size={14} />}
+                onClick={() => setShowAllStyles((v) => !v)}
+              >
+                {showAllStyles ? "Свернуть" : `Ещё ${STYLE_OPTIONS.length - STYLES_COLLAPSED} стилей`}
+              </Button>
             </Tile>
           </div>
 
@@ -570,29 +548,37 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 onClick={() => setOrientation("portrait")}
                 icon={<DeviceMobile size={20} />}
                 title="Вертикальный 9:16"
-                meta="Reels и Shorts · 1080×1920"
+                meta="Reels · Shorts · TikTok · 1080×1920"
               />
             </div>
           </Tile>
         </form>
 
         {/* ================= ПРАВО: монитор и архив ================= */}
-        <div className="lg:col-span-5 flex flex-col gap-5 min-w-0 lg:sticky lg:top-24">
-          {/* Экран всегда тёмный — в обеих темах, как у любого плеера. */}
-          <section className="rounded-tile bg-stage text-stage-ink border border-white/[0.08] shadow-soft p-4 sm:p-5">
-            <div className="flex items-center justify-between gap-3 mb-4">
+        {/* На телефоне обёртка растворяется (contents): плеер встаёт первым,
+            над формой, а плитки и архив — после неё. На десктопе это липкая колонка. */}
+        <div className="contents lg:flex lg:col-span-5 lg:flex-col lg:gap-5 lg:min-w-0 lg:sticky lg:top-24">
+          {/* Экран всегда тёмный — в обеих темах, как у любого плеера. На телефоне
+              кадр во всю ширину экрана: секция выходит за отступы страницы. */}
+          <section
+            ref={previewRef}
+            className={cn(
+              "order-first lg:order-none min-w-0 scroll-mt-20",
+              "bg-stage text-stage-ink border-white/[0.08] shadow-soft",
+              "-mx-5 sm:mx-0 rounded-none sm:rounded-tile border-y sm:border px-0 sm:px-5 pt-3.5 sm:pt-5 pb-3 sm:pb-5"
+            )}
+          >
+            <div className="flex items-center justify-between gap-3 mb-3 sm:mb-4 px-4 sm:px-0">
               <div className="flex items-center gap-2.5 min-w-0">
                 <span className="grid place-items-center w-9 h-9 rounded-control bg-white/[0.06] text-accent shrink-0">
                   <FilmStrip size={20} weight="fill" />
                 </span>
-                <span className="text-[15px] font-semibold truncate">
-                  Предпросмотр фильма
-                </span>
+                <span className="text-[15px] font-semibold truncate">Предпросмотр фильма</span>
               </div>
 
               {currentVideo && (
                 <Button size="sm" onClick={() => setShowExporter(true)}>
-                  Экспорт MP4
+                  Экспорт
                 </Button>
               )}
             </div>
@@ -605,41 +591,51 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 onExportClick={() => setShowExporter(true)}
               />
             ) : (
-              <div
-                className="rounded-control bg-black/40 border border-white/[0.08] flex flex-col items-center justify-center gap-3 p-6 text-center select-none mx-auto"
-                style={{
-                  aspectRatio: aspectRatioCss(orientation),
-                  ...(orientation === "portrait"
-                    ? { width: "min(100%, calc(min(70vh, 620px) * 9 / 16))", height: "auto" }
-                    : { width: "100%", height: "auto" }),
-                  maxWidth: "100%",
-                }}
-              >
-                <span className="grid place-items-center w-12 h-12 rounded-control bg-white/[0.05] text-white/40">
-                  <FilmStrip size={24} />
-                </span>
-                <div>
+              <>
+                {/* Телефон: короткая полоска вместо пустого кадра на пол-экрана */}
+                <div className="sm:hidden mx-4 h-24 rounded-control bg-black/40 border border-white/[0.08] flex items-center justify-center gap-3 px-4 select-none">
+                  <span className="grid place-items-center w-9 h-9 rounded-control bg-white/[0.05] text-white/40 shrink-0">
+                    <FilmStrip size={20} />
+                  </span>
+                  <span className="text-[13px] text-white/60 leading-snug">
+                    {isGenerating ? progressStep || "Генерация..." : "Здесь появится готовое видео"}
+                  </span>
+                </div>
+                <div
+                  className="hidden sm:flex rounded-control bg-black/40 border border-white/[0.08] flex-col items-center justify-center gap-3 p-6 text-center select-none mx-auto"
+                  style={{
+                    aspectRatio: aspectRatioCss(orientation),
+                    ...(orientation === "portrait"
+                      ? { width: "min(100%, calc(min(70vh, 620px) * 9 / 16))", height: "auto" }
+                      : { width: "100%", height: "auto" }),
+                    maxWidth: "100%",
+                  }}
+                >
+                  <span className="grid place-items-center w-12 h-12 rounded-control bg-white/[0.05] text-white/40">
+                    <FilmStrip size={24} />
+                  </span>
                   <div className="text-[13.5px] text-white/60">
-                    Здесь появится готовое видео
+                    {isGenerating ? progressStep || "Генерация..." : "Здесь появится готовое видео"}
                   </div>
                 </div>
-              </div>
+              </>
             )}
           </section>
 
-          {/* Показатели под монитором: заполняют правую колонку и дают
-              быстрый ответ на «что именно сейчас будет сгенерировано». */}
-          {/* На телефоне три колонки давали ~61px под контент — цифры обрезались.
-              «Осталось» самая важная плитка, поэтому в мобильном ряду она идёт
-              первой во всю ширину. */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-4">
+          {/* Показатели под монитором. На телефоне — три низкие плитки в ряд. */}
+          <div className="grid grid-cols-3 gap-2 sm:gap-4">
             <StatTile
               label="Кадров"
               value={currentVideo ? currentVideo.scenes.length : plannedFrames}
               icon={<FilmStrip size={20} />}
             />
             <StatTile
-              label="Длительность"
+              label={
+                <>
+                  <span className="sm:hidden">Время</span>
+                  <span className="hidden sm:inline">Длительность</span>
+                </>
+              }
               value={currentVideo ? formatSeconds(currentDuration) : plannedLength}
               icon={<Clock size={20} />}
             />
@@ -648,7 +644,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
               value={user.remaining}
               icon={<Lightning size={20} />}
               tone={user.remaining > 0 ? "contrast" : "surface"}
-              className="col-span-2 sm:col-span-1"
             />
           </div>
 
@@ -658,7 +653,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
               icon={<ArrowCounterClockwise size={20} />}
               action={
                 <span className="text-[12px] text-faint tabular">
-                  {pastVideos.length} видео
+                  {loadingHistory ? "…" : `${pastVideos.length} видео`}
                 </span>
               }
             >
@@ -669,13 +664,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                     <button
                       key={vid.id}
                       type="button"
-                      onClick={() => {
-                        setCurrentVideo({
-                          id: vid.id,
-                          title: vid.topic,
-                          scenes: vid.scenes,
-                        });
-                      }}
+                      onClick={() => setCurrentVideo({ id: vid.id, title: vid.topic, scenes: vid.scenes })}
                       className={cn(
                         "flex items-center justify-between gap-3 p-3 rounded-control border",
                         "text-left cursor-pointer transition-colors",
@@ -685,19 +674,16 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                       )}
                     >
                       <span className="min-w-0 flex-1">
-                        <span className="block text-[13.5px] font-medium text-ink truncate">
-                          {vid.topic}
-                        </span>
+                        <span className="block text-[13.5px] font-medium text-ink truncate">{vid.topic}</span>
                         <span className="block text-[12px] text-muted mt-0.5 tabular">
                           {vid.scenes?.length || 0} сцен • {Math.round(vid.actual_duration_seconds || 0)} сек
+                          {normalizeOrientation(vid.scenes?.[0]?.orientation) === "portrait" ? " • 9:16" : " • 16:9"}
                         </span>
                       </span>
                       <span
                         className={cn(
                           "grid place-items-center w-8 h-8 rounded-control shrink-0",
-                          isCurrent
-                            ? "bg-accent text-accent-ink"
-                            : "bg-surface-3 text-muted"
+                          isCurrent ? "bg-accent text-accent-ink" : "bg-surface-3 text-muted"
                         )}
                       >
                         <Play size={14} weight="fill" />
@@ -711,13 +697,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
         </div>
       </div>
 
-      {/* ============ Липкая нижняя панель: сводка + запуск ============
-          Кнопка вынесена из формы, поэтому привязана к ней через form="studio-form".
-          Так CTA и прогресс всегда на экране и не выталкивают вёрстку. */}
+      {/* ============ Липкая нижняя панель: сводка + запуск ============ */}
       <div className="fixed bottom-0 inset-x-0 z-30 border-t border-hairline bg-bg/90 backdrop-blur-xl">
-        {/* Высота деки одинакова в обоих состояниях: иначе при переходе
-            «форма → генерация → результат» контент сползал относительно
-            фиксированного отступа снизу. */}
         <div className="max-w-shell mx-auto px-5 sm:px-8 py-3.5 min-h-[76px] sm:min-h-[72px] flex flex-col justify-center">
           {isGenerating ? (
             <Progress value={progressPercent} label={progressStep} />
@@ -749,7 +730,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
         <VideoExporter
           title={currentVideo.title}
           scenes={currentVideo.scenes}
-          orientation={currentOrientation}
+          defaultOrientation={currentOrientation}
           onClose={() => setShowExporter(false)}
         />
       )}
@@ -757,51 +738,45 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       <Modal
         open={showKeyModal}
         onClose={() => setShowKeyModal(false)}
-        title="Персональный ключ ElevenLabs"
-
+        title="Мой ключ ElevenLabs"
+        hint={
+          user.hasElevenLabsKey
+            ? "Ключ сохранён в аккаунте в зашифрованном виде. Здесь его можно заменить или удалить."
+            : "Без ключа озвучка идёт запасным голосом OpenAI. Введите ключ ElevenLabs, чтобы использовать выбранные голоса."
+        }
         icon={
           <IconTile size="md">
             <Key size={20} weight="fill" />
           </IconTile>
         }
       >
-        <form id="key-form" onSubmit={handleSaveKey} className="flex flex-col gap-4">
-          <label className="flex flex-col gap-2">
-            <span className="text-[13px] font-medium text-ink">
-              Ключ сохранится только в вашем браузере
-            </span>
-            <input
-              type="text"
-              placeholder="sk_..."
-              value={userKey}
-              onChange={(e) => setUserKey(e.target.value)}
-              className="w-full h-11 px-3.5 rounded-control bg-surface-2 border border-hairline text-ink placeholder:text-faint text-[13px] font-mono transition-colors hover:border-hairline-strong focus:outline-none focus:border-accent focus:bg-surface"
-            />
-          </label>
+        <form id="key-form" onSubmit={(e) => handleSaveKey(e)} className="flex flex-col gap-4">
+          {keyError && <Alert tone="danger">{keyError}</Alert>}
+          <Input
+            type="text"
+            placeholder="sk_..."
+            value={keyDraft}
+            onChange={(e) => setKeyDraft(e.target.value)}
+            className="font-mono text-[13px]"
+            autoComplete="off"
+          />
 
-          <div className="flex gap-2.5 pt-1">
-            <Button type="submit" block>
+          <div className="flex flex-wrap gap-2.5 pt-1">
+            <Button type="submit" loading={keySaving} disabled={!keyDraft.trim()} className="flex-1">
               Сохранить ключ
             </Button>
-            {userKey && (
+            {user.hasElevenLabsKey && (
               <Button
                 type="button"
                 variant="danger"
                 icon={<Trash size={16} />}
-                onClick={() => {
-                  setUserKey("");
-                  localStorage.removeItem("elevenlabs_user_key");
-                  setShowKeyModal(false);
-                }}
+                disabled={keySaving}
+                onClick={(e) => handleSaveKey(e as unknown as React.FormEvent, true)}
               >
                 Удалить
               </Button>
             )}
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setShowKeyModal(false)}
-            >
+            <Button type="button" variant="secondary" onClick={() => setShowKeyModal(false)}>
               Отмена
             </Button>
           </div>

@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { supabaseAdmin } from "./supabase";
 import { normalizeOrientation, type Orientation } from "./orientation";
 import { normalizeGenre, type GenreId } from "./content/genres";
 import { normalizeLanguage, type ContentLanguage } from "./content/languages";
@@ -75,6 +76,50 @@ export function checkOpenAiRateLimit(ip: string): { allowed: boolean; error?: st
   return { allowed: true };
 }
 
+// ---------------------------------------------------------------------------
+// Лимиты попыток входа/регистрации — в БД (login_attempts), поэтому
+// переживают холодные старты на Vercel в отличие от in-memory счётчика выше.
+// ---------------------------------------------------------------------------
+
+export type AttemptKind = "login" | "register" | "admin";
+
+const ATTEMPT_LIMITS: Record<AttemptKind, { max: number; windowMs: number; label: string }> = {
+  login: { max: 10, windowMs: 24 * 60 * 60 * 1000, label: "10 неверных попыток за сутки" },
+  register: { max: 5, windowMs: 60 * 60 * 1000, label: "5 неудачных регистраций за час" },
+  admin: { max: 10, windowMs: 24 * 60 * 60 * 1000, label: "10 неверных попыток за сутки" },
+};
+
+export async function checkAttempts(
+  ip: string,
+  kind: AttemptKind
+): Promise<{ blocked: boolean; attemptsLeft: number; max: number; label: string }> {
+  const limit = ATTEMPT_LIMITS[kind];
+  const since = new Date(Date.now() - limit.windowMs).toISOString();
+  const { count } = await supabaseAdmin
+    .from("login_attempts")
+    .select("id", { count: "exact", head: true })
+    .eq("ip", ip)
+    .eq("kind", kind)
+    .eq("success", false)
+    .gte("created_at", since);
+  const failed = count || 0;
+  return {
+    blocked: failed >= limit.max,
+    attemptsLeft: Math.max(0, limit.max - failed),
+    max: limit.max,
+    label: limit.label,
+  };
+}
+
+export async function recordAttempt(
+  ip: string,
+  kind: AttemptKind,
+  success: boolean,
+  email?: string | null
+): Promise<void> {
+  await supabaseAdmin.from("login_attempts").insert({ ip, kind, success, email: email || null });
+}
+
 /**
  * Validates prompt and generation settings
  */
@@ -89,10 +134,9 @@ export function sanitizeScriptInput(data: any): {
     targetMinutes: number;
     language: ContentLanguage;
     orientation: Orientation;
-    secretCode?: string;
   };
 } {
-  const { topic, genre, style, voice, targetMinutes, language, orientation, secretCode } = data || {};
+  const { topic, genre, style, voice, targetMinutes, language, orientation } = data || {};
 
   if (!topic || typeof topic !== "string") {
     return { valid: false, error: "Укажите тему сюжета" };
@@ -116,7 +160,6 @@ export function sanitizeScriptInput(data: any): {
       : "cinematic";
   const chosenLang = normalizeLanguage(language);
   const chosenOrientation = normalizeOrientation(orientation);
-  const cleanSecretCode = typeof secretCode === "string" ? secretCode.trim() : undefined;
 
   // Хронометраж обязателен: по ТЗ значения по умолчанию нет, пользователь
   // выбирает его сам. Правило дублируется на сервере, а не только в UI.
@@ -136,7 +179,6 @@ export function sanitizeScriptInput(data: any): {
       targetMinutes: chosenMinutes,
       language: chosenLang,
       orientation: chosenOrientation,
-      secretCode: cleanSecretCode,
     },
   };
 }

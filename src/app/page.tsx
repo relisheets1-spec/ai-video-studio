@@ -1,68 +1,81 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Navbar } from "@/components/Navbar";
 import { VideoStudio } from "@/components/VideoStudio";
-import { AuthGate } from "@/components/AuthGate";
+import { AuthGate, type AuthNotice } from "@/components/AuthGate";
 import { Spinner } from "@/components/ui";
+import type { StudioUser } from "@/lib/types";
+import {
+  authFetch,
+  clearStudioSession,
+  getStudioToken,
+  purgeLegacyStorage,
+  setStoredUser,
+  SESSION_LOST_EVENT,
+  type SessionLostDetail,
+} from "@/lib/client/session";
+
+function noticeFor(detail: SessionLostDetail | undefined): AuthNotice {
+  const status = detail?.status;
+  if (status === "pending") return { tone: "warn", text: detail?.error || "Заявка ожидает одобрения администратора." };
+  if (status === "frozen") return { tone: "warn", text: detail?.error || "Аккаунт временно заморожен." };
+  if (status === "rejected" || status === "blocked") {
+    return { tone: "danger", text: detail?.error || "Доступ закрыт администратором." };
+  }
+  return { tone: "info", text: detail?.error || "Сессия истекла — войдите заново." };
+}
 
 export default function HomePage() {
-  const [user, setUser] = useState<any | null>(null);
+  const [user, setUser] = useState<StudioUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState<AuthNotice | null>(null);
 
-  const syncUserFromDb = async (secretCode?: string, userId?: string) => {
+  // Сессия подтверждается сервером: токен в localStorage сам по себе ничего не значит.
+  const refreshSession = useCallback(async () => {
+    if (!getStudioToken()) {
+      setUser(null);
+      return;
+    }
     try {
-      const params = new URLSearchParams();
-      if (userId) params.set("userId", userId);
-      if (secretCode) params.set("secretCode", secretCode);
-      const res = await fetch(`/api/auth?${params.toString()}`);
-      const data = await res.json();
-      if (res.ok && data.user) {
-        setUser(data.user);
-        localStorage.setItem("ai_video_user", JSON.stringify(data.user));
-      }
-    } catch (e) {
-      console.error("Balance sync error:", e);
-    }
-  };
-
-  useEffect(() => {
-    const token = localStorage.getItem("ai_video_auth_token");
-    const storedUser = localStorage.getItem("ai_video_user");
-
-    if (token && storedUser) {
-      try {
-        const parsed = JSON.parse(storedUser);
-        setUser(parsed);
-        if (parsed.secretCode || parsed.id) {
-          syncUserFromDb(parsed.secretCode, parsed.id);
+      const res = await authFetch("/api/auth/me");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.user) {
+          setUser(data.user);
+          setStoredUser(data.user);
         }
-      } catch {
-        localStorage.removeItem("ai_video_auth_token");
-        localStorage.removeItem("ai_video_user");
       }
+      // 401/403 обрабатывает authFetch: чистит сессию и шлёт событие.
+    } catch (e) {
+      console.error("Session refresh error:", e);
     }
-    setLoading(false);
-
-    const onFocus = () => {
-      const u = localStorage.getItem("ai_video_user");
-      if (u) {
-        try {
-          const parsed = JSON.parse(u);
-          if (parsed.secretCode || parsed.id) syncUserFromDb(parsed.secretCode, parsed.id);
-        } catch {}
-      }
-    };
-
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
   }, []);
 
+  useEffect(() => {
+    purgeLegacyStorage();
+    refreshSession().finally(() => setLoading(false));
+
+    const onLost = (e: Event) => {
+      setUser(null);
+      setNotice(noticeFor((e as CustomEvent<SessionLostDetail>).detail));
+    };
+    const onFocus = () => {
+      if (getStudioToken()) refreshSession();
+    };
+
+    window.addEventListener(SESSION_LOST_EVENT, onLost);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener(SESSION_LOST_EVENT, onLost);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [refreshSession]);
+
   const handleLogout = () => {
-    localStorage.removeItem("ai_video_auth_token");
-    localStorage.removeItem("ai_video_user");
-    localStorage.removeItem("ai_video_admin_token");
+    clearStudioSession();
     setUser(null);
+    setNotice(null);
   };
 
   if (loading) {
@@ -80,13 +93,24 @@ export default function HomePage() {
       <main className="flex-1 flex flex-col w-full">
         <div className="w-full">
           {!user ? (
-            <AuthGate onSuccess={(u) => setUser(u)} />
+            <AuthGate
+              notice={notice}
+              onSuccess={(u) => {
+                setNotice(null);
+                setUser(u);
+              }}
+            />
           ) : (
-            <VideoStudio user={user} onUserUpdate={(updated) => setUser(updated)} />
+            <VideoStudio
+              user={user}
+              onUserUpdate={(updated) => {
+                setUser(updated);
+                setStoredUser(updated);
+              }}
+            />
           )}
         </div>
       </main>
     </div>
   );
 }
-

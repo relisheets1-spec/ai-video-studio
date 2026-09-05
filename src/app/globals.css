@@ -164,7 +164,12 @@
 
 @media (prefers-reduced-motion: reduce) {
   .animate-ken-burns { animation: none !important; }
+  .animate-xfade { animation: none !important; }
 }
+
+/* Карусель кадров на телефоне: без скроллбара, с прилипанием к карточкам */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
 
 /* ============================================================
    СКРОЛЛБАР — цвет из токена, поэтому виден в обеих темах

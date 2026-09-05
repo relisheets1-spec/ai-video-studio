@@ -6,16 +6,42 @@ import { planFromMinutes } from "@/lib/plan";
 import { resolveStyleFragment } from "@/lib/content/styles";
 import {
   buildBlueprintPrompt,
+  buildEditorPrompt,
   buildNarrationPrompt,
   buildRepairPrompt,
   buildVisualsPrompt,
+  type Blueprint,
 } from "@/lib/script/prompts";
-import { segmentNarration, countWords } from "@/lib/script/segment";
+import { assignBeats, countMarkers, countWords, segmentNarration } from "@/lib/script/segment";
 import { logPipelineError } from "@/lib/pipeline-log";
+import { requireUser } from "@/lib/session";
 
 const MODEL = "gpt-4o-2024-11-20";
 
+const trimPunct = (v: unknown) =>
+  typeof v === "string" ? v.trim().replace(/[.\s]+$/g, "") : "";
+
+/** Суффикс мира запекается в каждый промпт кадра: картинки делают одну и ту же эпоху и палитру. */
+function worldSuffix(world: Blueprint["world"] | undefined): string {
+  const w = world || {};
+  const setting = [trimPunct(w.setting), trimPunct(w.era)].filter(Boolean).join(", ");
+  const palette = trimPunct(w.palette);
+  const parts: string[] = [];
+  if (setting) parts.push(`Setting: ${setting}`);
+  if (palette) parts.push(`Palette: ${palette}`);
+  return parts.length ? ". " + parts.join(". ") + "." : "";
+}
+
+/** Латиница присутствует, кириллицы нет — значит, модель действительно ответила по-английски. */
+function looksEnglish(v: unknown): boolean {
+  return typeof v === "string" && /[A-Za-z]/.test(v) && !/[Ѐ-ӿ]/.test(v);
+}
+
 export async function POST(req: NextRequest) {
+  const auth = await requireUser(req);
+  if ("response" in auth) return auth.response;
+  const { user } = auth;
+
   // Нужен в catch, чтобы упавшая генерация не осталась висеть в статусе
   // generating_script навсегда.
   let createdVideoId: string | null = null;
@@ -23,108 +49,37 @@ export async function POST(req: NextRequest) {
   try {
     const ip = getClientIp(req);
 
-    // 1. Rate Limiting
     const rateLimit = checkOpenAiRateLimit(ip);
     if (!rateLimit.allowed) {
       return NextResponse.json({ error: rateLimit.error }, { status: 429 });
     }
 
     const body = await req.json();
-
-    // 2. Input validation
     const validation = sanitizeScriptInput(body);
     if (!validation.valid || !validation.sanitized) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    const { topic, genre, style, voice, targetMinutes, language, orientation, secretCode } = validation.sanitized;
+    const { topic, genre, style, voice, targetMinutes, language, orientation } = validation.sanitized;
 
-    // 3. User Resolution & Balance Verification
-    let userId: string | null = null;
-
-    if (secretCode) {
-      let { data: user } = await supabaseAdmin
-        .from("access_codes")
-        .select("id, status, generations_limit, generations_used")
-        .eq("secret_code", secretCode)
-        .maybeSingle();
-
-      if (!user && secretCode === "1599") {
-        const { data: adminUser } = await supabaseAdmin
-          .from("access_codes")
-          .select("id, status, generations_limit, generations_used")
-          .ilike("user_name", "%Администратор%")
-          .maybeSingle();
-        if (adminUser) user = adminUser;
-      }
-
-      if (user) {
-        if (user.status !== "approved") {
-          return NextResponse.json(
-            { error: "Доступ не одобрен администратором" },
-            { status: 403 }
-          );
-        }
-
-        const remaining = Math.max(0, (user.generations_limit || 0) - (user.generations_used || 0));
-        if (remaining <= 0) {
-          return NextResponse.json(
-            { error: "Лимит генераций исчерпан. Обратитесь к администратору для пополнения баланса." },
-            { status: 403 }
-          );
-        }
-
-        userId = user.id;
-      }
+    const remaining = Math.max(0, (user.generations_limit || 0) - (user.generations_used || 0));
+    if (remaining <= 0) {
+      return NextResponse.json(
+        { error: "Лимит генераций исчерпан. Обратитесь к администратору для пополнения баланса." },
+        { status: 403 }
+      );
     }
 
-    if (!userId) {
-      const { data: existingUser } = await supabaseAdmin
-        .from("access_codes")
-        .select("id")
-        .eq("secret_code", "EXPERIMENT-MODE")
-        .maybeSingle();
-
-      if (existingUser) {
-        userId = existingUser.id;
-      } else {
-        const { data: createdUser } = await supabaseAdmin
-          .from("access_codes")
-          .insert({
-            user_name: "Экспериментатор",
-            secret_code: "EXPERIMENT-MODE",
-            status: "approved",
-            generations_limit: 9999,
-            generations_used: 0,
-          })
-          .select("id")
-          .single();
-        userId = createdUser?.id || "00000000-0000-0000-0000-000000000000";
-      }
-    }
-
-    // ------------------------------------------------------------------
-    // Генерация в три прохода.
-    //
-    // Раньше был один вызов, который сразу просил массив сцен — и каждый
-    // элемент JSON модель писала как замкнутый абзац. Отсюда «1 кадр = 1 сухое
-    // предложение». Плюс промпт прямо требовал коротких рубленых фраз.
-    //
-    // Теперь: план -> ОДИН непрерывный монолог -> визуальные промпты.
-    // Нарезка на кадры — детерминированная функция здесь, а не решение модели,
-    // поэтому число кадров всегда точное, а мысль спокойно перетекает через
-    // границу кадра.
-    // ------------------------------------------------------------------
     const plan = planFromMinutes(targetMinutes, language);
     const styleFragment = resolveStyleFragment(style);
 
-    // Create DB entry for this video
     const { data: videoRecord, error: insertError } = await supabaseAdmin
       .from("video_generations")
       .insert({
-        user_id: userId,
+        user_id: user.id,
         topic,
-        style: styleFragment,
+        // Храним id стиля; resolveStyleFragment понимает и id, и старые сырые фрагменты.
+        style,
         voice,
         status: "generating_script",
         target_duration_minutes: Math.round(plan.minutes),
@@ -138,7 +93,7 @@ export async function POST(req: NextRequest) {
     }
     createdVideoId = videoRecord.id;
 
-    // --- Проход 1: план истории ---
+    // --- Проход 1: план истории (мир, герои, биты с локациями) ---
     const blueprintPrompt = buildBlueprintPrompt({ genre, language, plan, topic });
     const blueprintRes = await openai.chat.completions.create({
       model: MODEL,
@@ -150,12 +105,14 @@ export async function POST(req: NextRequest) {
       ],
     });
 
-    let blueprint: any = {};
+    let blueprint: Blueprint = {};
     try {
       blueprint = JSON.parse(blueprintRes.choices[0].message.content || "{}");
     } catch {
-      blueprint = { title: topic, logline: topic, throughline: "", characters: [], ending: "" };
+      blueprint = { title: topic, logline: topic, throughline: "", characters: [], beats: [], ending: "" };
     }
+    if (!Array.isArray(blueprint.beats)) blueprint.beats = [];
+    if (!Array.isArray(blueprint.characters)) blueprint.characters = [];
 
     // --- Проход 2: непрерывный монолог ---
     const narrationPrompt = buildNarrationPrompt({ genre, language, plan, blueprint });
@@ -190,9 +147,39 @@ export async function POST(req: NextRequest) {
       if (countWords(repairedText) > written) narration = repairedText;
     }
 
+    // --- Проход 3: редактор. Снимает повторные представления героев и
+    // служебные связки — то, что делает историю «рубленой» даже при
+    // сплошном тексте. Результат принимается только если объём и маркеры
+    // сохранены; иначе остаёмся с исходным текстом.
+    const afterRepair = countWords(narration);
+    if (afterRepair >= plan.totalWords * 0.9 && afterRepair <= plan.totalWords * 1.2) {
+      const editor = buildEditorPrompt({ language });
+      try {
+        const editedRes = await openai.chat.completions.create({
+          model: MODEL,
+          temperature: 0.3,
+          messages: [
+            { role: "system", content: editor.system },
+            { role: "user", content: editor.userPrefix + narration },
+          ],
+        });
+        const edited = editedRes.choices[0].message.content || "";
+        const editedWords = countWords(edited);
+        const markersKept = countMarkers(edited) === countMarkers(narration);
+        if (editedWords >= afterRepair * 0.93 && editedWords <= afterRepair * 1.05 && markersKept) {
+          console.log(`Editor pass: ${afterRepair} -> ${editedWords} words, markers kept`);
+          narration = edited;
+        } else {
+          console.warn(
+            `Editor pass rejected: ${afterRepair} -> ${editedWords} words, markers ${countMarkers(narration)} -> ${countMarkers(edited)}`
+          );
+        }
+      } catch (editErr) {
+        console.warn("Editor pass failed, keeping original narration:", editErr);
+      }
+    }
+
     // --- Нарезка на кадры ---
-    // Число кадров пересчитываем от ФАКТИЧЕСКОГО объёма: если модель написала
-    // меньше, получим меньше кадров той же длины, а не растянутые кадры.
     const actualWords = countWords(narration);
     if (actualWords > plan.totalWords * 1.25) {
       console.warn(
@@ -201,8 +188,7 @@ export async function POST(req: NextRequest) {
       );
     }
     // Число кадров считаем от ФАКТИЧЕСКОГО объёма: если модель написала
-    // больше или меньше, получим соответствующее число кадров той же длины,
-    // а не растянутые или спрессованные кадры.
+    // больше или меньше, получим соответствующее число кадров той же длины.
     const scenesFinal = Math.max(
       4,
       Math.min(
@@ -220,12 +206,15 @@ export async function POST(req: NextRequest) {
       throw new Error("Модель вернула пустой текст повествования");
     }
 
-    // --- Проход 3: визуальные промпты к готовым фрагментам ---
+    const fragmentBeats = assignBeats(fragments, blueprint.beats);
+
+    // --- Проход 4: визуальные промпты к готовым фрагментам ---
     const visualsPrompt = buildVisualsPrompt({
       fragments,
       blueprint,
       styleFragment,
       orientation,
+      fragmentBeats,
     });
     const visualsRes = await openai.chat.completions.create({
       model: MODEL,
@@ -238,22 +227,61 @@ export async function POST(req: NextRequest) {
     });
 
     let visuals: any[] = [];
+    let visualsWorld: Blueprint["world"] | undefined;
     try {
-      visuals = JSON.parse(visualsRes.choices[0].message.content || "{}")?.scenes || [];
+      const parsed = JSON.parse(visualsRes.choices[0].message.content || "{}");
+      visuals = parsed?.scenes || [];
+      // Английская версия мира от визуального прохода надёжнее плана: план
+      // нередко пишет setting/palette на языке истории вопреки инструкции.
+      const w = parsed?.world;
+      if (w && (looksEnglish(w.setting) || looksEnglish(w.palette))) {
+        visualsWorld = {
+          setting: looksEnglish(w.setting) ? w.setting : undefined,
+          era: looksEnglish(w.era) ? w.era : undefined,
+          palette: looksEnglish(w.palette) ? w.palette : undefined,
+        };
+      }
     } catch {
       visuals = [];
     }
+    if (!Array.isArray(visuals)) visuals = [];
 
+    // Сопоставляем по id, а не по позиции: если модель пропустила один
+    // элемент, позиционная привязка сдвинула бы ВСЕ последующие картинки.
+    const byId = new Map<number, any>();
+    for (const v of visuals) {
+      const id = Number(v?.id);
+      if (Number.isInteger(id) && id > 0 && !byId.has(id)) byId.set(id, v);
+    }
+    const visualFor = (i: number): any => {
+      const exact = byId.get(i + 1);
+      if (exact) return exact;
+      const positional = visuals[i];
+      return positional && positional.id == null ? positional : null;
+    };
+
+    const suffix = worldSuffix(visualsWorld ?? blueprint.world);
     const wps = plan.totalWords / Math.max(1, plan.minutes * 60);
+    let prevPrompt = "";
+
     const scenesOut = fragments.map((text, i) => {
-      const visual = visuals[i] || {};
+      const visual = visualFor(i) || {};
+      const beat = blueprint.beats?.[fragmentBeats[i]];
+      let prompt = typeof visual.visualPrompt === "string" ? visual.visualPrompt.trim() : "";
+      if (prompt.length < 20) {
+        // Пропущенный кадр продолжает предыдущий, а не сваливается в общий
+        // логлайн: одинаковый fallback давал серию одинаковых стоковых картинок.
+        prompt = prevPrompt
+          ? `${prevPrompt}, a different camera angle and distance, the next moment`
+          : `${blueprint.logline || topic}. ${beat?.location || blueprint.world?.setting || ""}, ${beat?.timeOfDay || "day"}`;
+      }
+      prevPrompt = prompt;
+
       return {
         id: i + 1,
-        title: visual.title || `Кадр ${i + 1}`,
+        title: typeof visual.title === "string" && visual.title.trim() ? visual.title.trim() : `Кадр ${i + 1}`,
         narration: text,
-        visualPrompt:
-          visual.visualPrompt ||
-          `${blueprint?.logline || topic}. ${styleFragment}, cinematic lighting.`,
+        visualPrompt: (prompt + suffix).slice(0, 800),
         durationEstimate: Math.max(4, Math.round(countWords(text) / Math.max(0.5, wps))),
         orientation,
       };
@@ -266,7 +294,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       videoId: videoRecord.id,
-      title: blueprint?.title || topic,
+      title: blueprint.title || topic,
       scenes: scenesOut,
       plan: {
         requestedMinutes: plan.minutes,

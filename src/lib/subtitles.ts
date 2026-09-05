@@ -169,15 +169,18 @@ export interface SubtitleLayout {
 export function computeSubtitleLayout(
   frameW: number,
   frameH: number,
-  opts?: { minFontPx?: number }
+  opts?: { minFontPx?: number; compact?: boolean }
 ): SubtitleLayout {
   const W = Math.max(1, frameW);
   const H = Math.max(1, frameH);
   const S = Math.min(W, H);
+  // compact — маленький кадр в превью на телефоне: карточка шире, ниже и
+  // короче шторка. Экспортёр этот флаг не передаёт, поэтому MP4 не меняется.
+  const compact = !!opts?.compact;
 
   const font = Math.max(opts?.minFontPx ?? 1, Math.round(S * 0.045));
   const padX = Math.round(font * 0.7);
-  const maxCardW = Math.round(W * (W >= H ? 0.72 : 0.88));
+  const maxCardW = Math.round(W * (compact ? 0.94 : W >= H ? 0.72 : 0.88));
 
   return {
     font,
@@ -185,12 +188,12 @@ export function computeSubtitleLayout(
     padX,
     padY: Math.round(font * 0.34),
     radius: Math.round(font * 0.3),
-    bottom: Math.round(H * 0.085),
+    bottom: Math.round(H * (compact ? 0.05 : 0.085)),
     maxCardW,
     maxTextW: Math.max(1, maxCardW - padX * 2),
     shadowBlur: font * 0.16,
     shadowOffsetY: font * 0.03,
-    scrimH: Math.round(H * 0.34),
+    scrimH: Math.round(H * (compact ? 0.22 : 0.34)),
     fontCss: `${SUBTITLE_FONT_WEIGHT} ${font}px ${SUBTITLE_FONT_STACK}`,
   };
 }
@@ -221,4 +224,64 @@ export function wrapLines(
   }
   lines.push(line);
   return lines;
+}
+
+// ---------------------------------------------------------------------------
+// Подгонка реплик под ограниченное число строк (только превью на телефоне)
+// ---------------------------------------------------------------------------
+
+const CLAUSE_BONUS = /[,;:—–-]$/;
+
+/** Лучшее место разреза по словам: ближе к середине, предпочтительно после запятой/тире. */
+function bestSplit(words: string[]): number {
+  const total = words.join(" ").length;
+  let best = -1;
+  let bestScore = Infinity;
+  let acc = 0;
+  for (let i = 0; i < words.length - 1; i++) {
+    acc += words[i].length + 1;
+    const distance = Math.abs(acc - total / 2) / total;
+    const score = distance - (CLAUSE_BONUS.test(words[i]) ? 0.12 : 0);
+    if (score < bestScore) {
+      bestScore = score;
+      best = i;
+    }
+  }
+  return best;
+}
+
+/**
+ * Делит реплики, которые не влезают в maxLines строк, на под-реплики с
+ * пропорциональным по длине временем. Объединение интервалов равно
+ * исходному, поэтому cueIndexAt работает без изменений.
+ */
+export function fitCuesToLines(
+  cues: Cue[],
+  maxLines: number,
+  maxTextW: number,
+  measure: (s: string) => number
+): Cue[] {
+  const out: Cue[] = [];
+
+  const push = (cue: Cue, depth: number) => {
+    const words = cue.text.split(/\s+/).filter(Boolean);
+    if (words.length < 2 || depth >= 3 || wrapLines(cue.text, maxTextW, measure).length <= maxLines) {
+      out.push(cue);
+      return;
+    }
+    const cut = bestSplit(words);
+    if (cut < 0) {
+      out.push(cue);
+      return;
+    }
+    const a = words.slice(0, cut + 1).join(" ");
+    const b = words.slice(cut + 1).join(" ");
+    const span = cue.endSec - cue.startSec;
+    const mid = cue.startSec + span * (a.length / Math.max(1, a.length + b.length));
+    push({ text: a, startSec: cue.startSec, endSec: mid }, depth + 1);
+    push({ text: b, startSec: mid, endSec: cue.endSec }, depth + 1);
+  };
+
+  for (const cue of cues) push(cue, 0);
+  return out;
 }

@@ -9,6 +9,10 @@ export function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
+export function countMarkers(text: string): number {
+  return (text.match(/\|\|\|/g) || []).length;
+}
+
 /** Убирает markdown, эмодзи и служебный мусор, который модель иногда добавляет. */
 export function normalizeNarration(raw: string): string {
   return raw
@@ -28,11 +32,12 @@ export function normalizeNarration(raw: string): string {
  * Ключевое отличие от прежней схемы: текст УЖЕ написан как одно целое, поэтому
  * мысль, перетекающая через границу кадра, — структурное свойство, а не то,
  * на что мы надеемся. Маркеры модели используются как подсказка, но итоговое
- * число фрагментов задаём мы, а не она (раньше модель регулярно возвращала
- * 23 сцены вместо 25).
+ * число фрагментов задаём мы, а не она.
  *
  * Границы всегда проходят между предложениями: каждый фрагмент озвучивается
  * отдельным запросом к TTS, и разрез посреди фразы дал бы рваное аудио.
+ * В кадре по возможности минимум два предложения — одно предложение на кадр
+ * и было тем самым «телеграфом», от которого уходим.
  */
 export function segmentNarration(
   raw: string,
@@ -41,7 +46,7 @@ export function segmentNarration(
   const normalized = normalizeNarration(raw);
   if (!normalized) return [];
 
-  const targetScenes = Math.max(1, Math.min(HARD_MAX_SCENES, opts.targetScenes));
+  const requested = Math.max(1, Math.min(HARD_MAX_SCENES, opts.targetScenes));
 
   // 1. Позиции маркеров модели в терминах номеров предложений.
   const blocks = normalized.split(new RegExp("\\s*\\" + SCENE_MARKER.split("").join("\\") + "\\s*", "g"));
@@ -55,8 +60,12 @@ export function segmentNarration(
   markerAfterSentence.delete(sentences.length - 1);
 
   if (sentences.length === 0) return [];
-  if (sentences.length <= targetScenes) {
-    return sentences.map((s) => s.trim()).filter(Boolean);
+
+  // Кадров не больше, чем пар предложений: лучше меньше кадров, чем
+  // кадр из одной сухой фразы.
+  const targetScenes = Math.max(1, Math.min(requested, Math.floor(sentences.length / 2)));
+  if (targetScenes <= 1) {
+    return [sentences.join(" ").trim()];
   }
 
   // 2. Жадная сбалансированная упаковка с оглядкой на маркеры модели.
@@ -137,4 +146,38 @@ export function segmentNarration(
   }
 
   return merged.map((g) => g.join(" ").trim()).filter(Boolean);
+}
+
+/**
+ * Какому биту плана принадлежит каждый фрагмент. Доли битов нормализуются
+ * к единице (если их нет — делим поровну), фрагмент относится к биту,
+ * в чей диапазон попадает середина фрагмента по словам. Детерминированно —
+ * по этому индексу визуальные промпты держат одну локацию внутри бита.
+ */
+export function assignBeats(fragments: string[], beats: Array<{ share?: number }> | undefined): number[] {
+  const n = beats?.length || 0;
+  if (n === 0) return fragments.map(() => 0);
+
+  let shares = (beats || []).map((b) => (Number.isFinite(Number(b?.share)) && Number(b?.share) > 0 ? Number(b.share) : 0));
+  const total = shares.reduce((a, b) => a + b, 0);
+  shares = total > 0 ? shares.map((s) => s / total) : shares.map(() => 1 / n);
+
+  const bounds: number[] = [];
+  let acc = 0;
+  for (const s of shares) {
+    acc += s;
+    bounds.push(acc);
+  }
+  bounds[bounds.length - 1] = 1;
+
+  const wordCounts = fragments.map(countWords);
+  const totalWords = wordCounts.reduce((a, b) => a + b, 0) || 1;
+
+  let seen = 0;
+  return fragments.map((_, i) => {
+    const mid = (seen + wordCounts[i] / 2) / totalWords;
+    seen += wordCounts[i];
+    const idx = bounds.findIndex((b) => mid < b);
+    return idx === -1 ? n - 1 : idx;
+  });
 }

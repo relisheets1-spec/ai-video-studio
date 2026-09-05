@@ -1,24 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { verifyAdminToken, UNAUTHORIZED } from "@/lib/admin-auth";
+import { requireAdmin } from "@/lib/admin-auth";
 import { parseStage } from "@/lib/pipeline-log";
 
 /**
  * Лог отказов генерации по этапам.
  *
  * Источник — сами записи video_generations: status="failed" плюс
- * error_message с префиксом этапа. Отдельной таблицы pipeline_errors пока нет
- * (SQL готов в supabase/migrations/0001, но DDL к базе из репозитория
- * недоступен), поэтому фильтруем по префиксу.
+ * error_message с префиксом этапа.
  *
  * Заодно отдаём «зависшие» записи: генерации, которые остались в промежуточном
  * статусе дольше двух часов, — их до этой правки было не отличить от идущих
  * прямо сейчас.
  */
 export async function GET(req: NextRequest) {
-  if (!verifyAdminToken(req)) {
-    return NextResponse.json(UNAUTHORIZED, { status: 401 });
-  }
+  const auth = await requireAdmin(req);
+  if ("response" in auth) return auth.response;
 
   try {
     const { searchParams } = new URL(req.url);

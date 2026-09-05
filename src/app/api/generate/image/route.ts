@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { imageApiSize, normalizeOrientation, promptAspectHint } from "@/lib/orientation";
+import { resolveStyleFragment } from "@/lib/content/styles";
 import { logPipelineError } from "@/lib/pipeline-log";
+import { requireUser } from "@/lib/session";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 export async function POST(req: NextRequest) {
+  const auth = await requireUser(req);
+  if ("response" in auth) return auth.response;
+  const { user } = auth;
+
   let loggedVideoId: string | null = null;
   try {
-    const { videoId, sceneId, visualPrompt, style = "cinematic photorealistic", orientation } = await req.json();
+    const { videoId, sceneId, visualPrompt, style, orientation } = await req.json();
     const frameOrientation = normalizeOrientation(orientation);
     loggedVideoId = typeof videoId === "string" ? videoId : null;
 
@@ -20,15 +26,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Недопустимый номер сцены" }, { status: 400 });
     }
 
-    // Verify that videoId belongs to a recent valid generation session (prevents API abuse)
     const { data: video, error: videoErr } = await supabaseAdmin
       .from("video_generations")
-      .select("id, created_at")
+      .select("id, user_id, created_at")
       .eq("id", videoId)
       .single();
 
-    if (videoErr || !video) {
-      return NextResponse.json({ error: "Доступ запрещен: неизвестный идентификатор видео" }, { status: 403 });
+    if (videoErr || !video || video.user_id !== user.id) {
+      return NextResponse.json({ error: "Доступ запрещен: чужое или неизвестное видео" }, { status: 403 });
     }
 
     const sessionAge = Date.now() - new Date(video.created_at).getTime();
@@ -36,7 +41,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Сессия генерации видео истекла (более 2 часов)" }, { status: 403 });
     }
 
-    const cleanPrompt = `${String(visualPrompt).slice(0, 500)}. Style: ${String(style).slice(0, 80)}, ${promptAspectHint(frameOrientation)}, cinematic lighting, masterpiece.`;
+    // Стиль приходит id-шником (или готовым фрагментом из архива) — раньше в
+    // промпт попадало буквально «Style: retro_film». Хвост «cinematic lighting,
+    // masterpiece» убран: он спорил с акварелью, тушью и плакатом.
+    const cleanPrompt = `${String(visualPrompt).slice(0, 900)}. Style: ${resolveStyleFragment(style)}, ${promptAspectHint(frameOrientation)}.`;
 
     // gpt-image-1-mini: 1536x1024 (гориз.) или 1024x1536 (верт.) — это 3:2 / 2:3,
     // а не 16:9 / 9:16, поэтому на холсте экспорта обязателен cover-fit.
@@ -70,7 +78,6 @@ export async function POST(req: NextRequest) {
     const imgBuffer = Buffer.from(b64Json, "base64");
     const filePath = `images/${videoId}/scene_${sceneId}.png`;
 
-    // Upload to Supabase Storage
     const { error: uploadError } = await supabaseAdmin.storage
       .from("video-assets")
       .upload(filePath, imgBuffer, {

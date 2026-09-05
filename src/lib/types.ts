@@ -2,15 +2,53 @@ import type { Orientation } from "./orientation";
 
 export type { Orientation };
 
+/**
+ * Жизненный цикл инвайт-кода:
+ *   invited  — код создан админом, никем не занят;
+ *   pending  — пользователь зарегистрировался (почта + ключ), ждёт одобрения;
+ *   approved — доступ открыт;
+ *   rejected / blocked — доступ закрыт админом.
+ */
+export type AccessStatus = "invited" | "pending" | "approved" | "rejected" | "blocked";
+
+/** Строка access_codes в том виде, в каком её видит админка. Ключ ElevenLabs наружу не отдаётся. */
 export interface AccessCode {
   id: string;
   user_name: string;
   secret_code: string;
-  status: "pending" | "approved" | "rejected" | "blocked";
+  email: string | null;
+  status: AccessStatus;
   generations_limit: number;
   generations_used: number;
   created_at: string;
   approved_at?: string | null;
+  claimed_at?: string | null;
+  frozen_until?: string | null;
+  has_elevenlabs_key?: boolean;
+}
+
+/** Полная серверная строка — только внутри API-роутов. */
+export interface AccessCodeRow extends Omit<AccessCode, "has_elevenlabs_key"> {
+  elevenlabs_key_enc?: string | null;
+}
+
+/** Профиль, который получает клиент студии. */
+export interface StudioUser {
+  id: string;
+  email: string;
+  userName: string;
+  status: AccessStatus;
+  remaining: number;
+  generationsLimit: number;
+  generationsUsed: number;
+  hasElevenLabsKey: boolean;
+}
+
+export interface AdminInfo {
+  email: string;
+  isPrimary: boolean;
+  appointedBy?: string | null;
+  createdAt?: string | null;
 }
 
 export interface Scene {
@@ -23,10 +61,8 @@ export interface Scene {
   durationEstimate?: number; // Serverside guess, used only until audio metadata loads
   actualDuration?: number; // Measured length of the decoded MP3
   /**
-   * Ориентация кадра. Хранится ВНУТРИ scenes jsonb, а не отдельной колонкой:
-   * в репозитории нет миграций, схема заведена руками, и вставка с
-   * несуществующей колонкой уронила бы каждую генерацию.
-   * Старые видео поля не имеют — читаются как "landscape", что для них верно.
+   * Ориентация кадра. Хранится ВНУТРИ scenes jsonb: так исторически сложилось,
+   * и старые видео поля не имеют — читаются как "landscape", что для них верно.
    */
   orientation?: Orientation;
 }

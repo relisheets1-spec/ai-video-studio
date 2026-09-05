@@ -1,37 +1,55 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
+import { checkAttempts, getClientIp, recordAttempt } from "@/lib/security";
+import {
+  ensurePrimarySeeded,
+  getAdmin,
+  getAdminEpoch,
+  normalizeEmail,
+  passwordIsDefault,
+  verifyAdminPassword,
+} from "@/lib/admins";
 import { signAdminToken } from "@/lib/admin-auth";
 
+/** Вход администратора: почта из списка админов + пароль администратора. */
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { password } = body;
-
-    if (!password || typeof password !== "string") {
-      return NextResponse.json({ error: "Введите пароль администратора" }, { status: 400 });
+    const ip = getClientIp(req);
+    const attempts = await checkAttempts(ip, "admin");
+    if (attempts.blocked) {
+      return NextResponse.json(
+        { error: `Превышен лимит (${attempts.label}). Доступ с этого IP временно закрыт.` },
+        { status: 429 }
+      );
     }
 
-    // Fetch master password from database table `system_settings`
-    const { data: setting } = await supabaseAdmin
-      .from("system_settings")
-      .select("value")
-      .eq("key", "master_password")
-      .single();
+    const body = await req.json().catch(() => ({}));
+    const email = normalizeEmail(body?.email);
+    const password = typeof body?.password === "string" ? body.password : "";
 
-    const masterPassword = setting?.value || "1599";
-
-    if (password.trim() !== masterPassword) {
-      return NextResponse.json({ error: "Неверный пароль администратора" }, { status: 401 });
+    if (!email || !password) {
+      return NextResponse.json({ error: "Введите почту и пароль администратора" }, { status: 400 });
     }
 
-    // Подписанный токен со сроком жизни. Прежний вариант был просто строкой
-    // с Date.now() и случайным хвостом — сервер его никак не сверял.
-    const adminToken = signAdminToken();
+    await ensurePrimarySeeded();
+    const admin = await getAdmin(email);
+    const ok = admin ? await verifyAdminPassword(password) : false;
+
+    if (!admin || !ok) {
+      await recordAttempt(ip, "admin", false, email);
+      return NextResponse.json(
+        { error: `Неверная почта или пароль. Осталось попыток: ${Math.max(0, attempts.attemptsLeft - 1)}.` },
+        { status: 401 }
+      );
+    }
+
+    await recordAttempt(ip, "admin", true, email);
+    const epoch = await getAdminEpoch();
 
     return NextResponse.json({
       success: true,
-      adminToken,
-      message: "Успешная авторизация администратора",
+      adminToken: signAdminToken(admin.email, epoch),
+      admin,
+      passwordIsDefault: await passwordIsDefault(),
     });
   } catch (err: any) {
     console.error("Admin Login Error:", err);

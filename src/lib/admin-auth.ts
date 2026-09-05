@@ -1,66 +1,74 @@
-import crypto from "node:crypto";
-import type { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { signToken, verifyToken } from "./crypto";
+import { getAdmin, getAdminEpoch } from "./admins";
+import type { AdminInfo } from "./types";
 
 /**
- * Раньше проверка администратора выглядела так:
- *
- *   if (token && token.startsWith("ai_video_admin_session_")) return true;
- *
- * Токен не подписывался, не хранился и не сверялся, поэтому любой запрос с
- * этим заголовком получал полный доступ на чтение и запись ко всем записям
- * пользователей, включая удаление. Теперь токен подписан HMAC на
- * ADMIN_SECRET_KEY и имеет срок жизни.
+ * Сессия администратора: подписанный токен с почтой, сроком и эпохой.
+ * На каждом запросе почта сверяется со списком админов (удалённый админ
+ * отваливается сразу), а эпоха — с текущей (смена пароля гасит все сессии).
  */
 
-const PREFIX = "ai_video_admin_session_";
+const PREFIX = "av2.";
 const TTL_MS = 12 * 60 * 60 * 1000;
 
-function secret(): string {
-  const key = process.env.ADMIN_SECRET_KEY;
-  if (!key) {
-    // Пустой секрет означал бы, что подпись подделывается тривиально.
-    throw new Error("ADMIN_SECRET_KEY не задан — вход в админ-панель отключён");
-  }
-  return key;
+export interface AdminSessionPayload {
+  email: string;
+  iat: number;
+  exp: number;
+  epoch: number;
 }
 
-function sign(payload: string): string {
-  return crypto.createHmac("sha256", secret()).update(payload).digest("hex");
+export function signAdminToken(email: string, epoch: number): string {
+  const now = Date.now();
+  return signToken(PREFIX, "admin-session", { email, iat: now, exp: now + TTL_MS, epoch });
 }
 
-export function signAdminToken(): string {
-  const payload = String(Date.now() + TTL_MS);
-  return `${PREFIX}${payload}.${sign(payload)}`;
+export function verifyAdminToken(token: string | null | undefined): AdminSessionPayload | null {
+  const payload = verifyToken<AdminSessionPayload>(token, PREFIX, "admin-session");
+  return payload && typeof payload.email === "string" && payload.email ? payload : null;
 }
 
-export function verifyAdminToken(req: NextRequest): boolean {
-  const header =
-    req.headers.get("x-admin-token") ||
-    req.headers.get("authorization")?.replace("Bearer ", "") ||
-    "";
-
-  if (!header.startsWith(PREFIX)) return false;
-
-  const [payload, signature] = header.slice(PREFIX.length).split(".");
-  if (!payload || !signature) return false;
-
-  let expected: string;
-  try {
-    expected = sign(payload);
-  } catch {
-    return false;
-  }
-
-  const a = Buffer.from(signature, "hex");
-  const b = Buffer.from(expected, "hex");
-  // Сравнение с постоянным временем: обычное === утекает длину совпадения.
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return false;
-
-  const expiresAt = Number(payload);
-  return Number.isFinite(expiresAt) && Date.now() < expiresAt;
+export function adminTokenFrom(req: NextRequest): string | null {
+  const direct = req.headers.get("x-admin-token");
+  if (direct) return direct.trim() || null;
+  const header = req.headers.get("authorization") || "";
+  return header.startsWith("Bearer ") ? header.slice(7).trim() || null : null;
 }
 
 /** Единый ответ на неавторизованный запрос. */
 export const UNAUTHORIZED = {
   error: "Доступ запрещен: требуется авторизация администратора",
 } as const;
+
+export async function requireAdmin(
+  req: NextRequest,
+  opts?: { primaryOnly?: boolean }
+): Promise<{ admin: AdminInfo; payload: AdminSessionPayload } | { response: NextResponse }> {
+  const payload = verifyAdminToken(adminTokenFrom(req));
+  if (!payload) return { response: NextResponse.json(UNAUTHORIZED, { status: 401 }) };
+
+  const admin = await getAdmin(payload.email);
+  if (!admin) return { response: NextResponse.json(UNAUTHORIZED, { status: 401 }) };
+
+  const epoch = await getAdminEpoch();
+  if (payload.epoch !== epoch) {
+    return {
+      response: NextResponse.json(
+        { error: "Сессия администратора устарела, войдите заново" },
+        { status: 401 }
+      ),
+    };
+  }
+
+  if (opts?.primaryOnly && !admin.isPrimary) {
+    return {
+      response: NextResponse.json(
+        { error: "Это действие доступно только основному администратору" },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { admin, payload };
+}

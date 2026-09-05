@@ -2,19 +2,22 @@
 
 import React from "react";
 import Link from "next/link";
-import { FilmStrip, ShieldCheck, SignOut, ArrowLeft } from "@phosphor-icons/react";
+import { FilmStrip, SignOut } from "@phosphor-icons/react";
 import { Badge, IconTile, ThemeToggle, cn } from "@/components/ui";
 
 interface NavbarProps {
   user?: {
     userName: string;
+    email?: string;
     remaining: number;
     generationsLimit: number;
     status: string;
   } | null;
   onLogout?: () => void;
-  /** admin — шапка админ-панели: бейдж, ссылка назад в студию и свои действия. */
+  /** admin — шапка админ-панели: бейдж и свои действия. Ссылок между студией и панелью нет намеренно. */
   variant?: "studio" | "admin";
+  /** Подпись справа (почта администратора). */
+  identity?: string | null;
   /** Кнопки, специфичные для страницы (обновить, создать код…). */
   actions?: React.ReactNode;
 }
@@ -23,6 +26,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   user,
   onLogout,
   variant = "studio",
+  identity,
   actions,
 }) => {
   const isAdmin = variant === "admin";
@@ -30,7 +34,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <header className="sticky top-0 z-40 w-full border-b border-hairline bg-bg/85 backdrop-blur-xl">
       <div className="max-w-shell mx-auto px-5 sm:px-8 h-16 flex items-center justify-between gap-4">
-        <Link href="/" className="flex items-center gap-3 min-w-0 group">
+        <Link href={isAdmin ? "/admin" : "/"} className="flex items-center gap-3 min-w-0 group">
           <IconTile size="md" className="transition-transform group-hover:scale-105">
             <FilmStrip size={20} weight="fill" />
           </IconTile>
@@ -40,13 +44,13 @@ export const Navbar: React.FC<NavbarProps> = ({
             </span>
           </div>
           {isAdmin && (
-            <Badge tone="outline" className="ml-1 hidden sm:inline-flex">
+            <Badge tone="outline" className="ml-1">
               Админ
             </Badge>
           )}
         </Link>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 min-w-0">
           {actions}
 
           {!isAdmin && user && user.status === "approved" && (
@@ -62,31 +66,19 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="font-semibold text-ink tabular">{user.remaining}</span>
                 <span className="text-muted">видео</span>
               </span>
-              <span className="hidden lg:inline text-[13px] font-medium text-muted px-1 max-w-[160px] truncate">
-                {user.userName}
+              <span className="hidden lg:inline text-[13px] font-medium text-muted px-1 max-w-[220px] truncate">
+                {user.email || user.userName}
               </span>
             </>
           )}
 
-          <ThemeToggle />
-
-          {isAdmin ? (
-            <Link
-              href="/"
-              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border border-hairline bg-surface-2 text-[13px] font-medium text-muted hover:text-ink hover:border-hairline-strong transition-colors"
-            >
-              <ArrowLeft size={16} />
-              <span className="hidden sm:inline">В студию</span>
-            </Link>
-          ) : (
-            <Link
-              href="/admin"
-              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border border-hairline bg-surface-2 text-[13px] font-medium text-muted hover:text-ink hover:border-hairline-strong transition-colors"
-            >
-              <ShieldCheck size={16} />
-              <span className="hidden sm:inline">Панель</span>
-            </Link>
+          {isAdmin && identity && (
+            <span className="hidden sm:inline text-[13px] font-medium text-muted px-1 max-w-[240px] truncate">
+              {identity}
+            </span>
           )}
+
+          <ThemeToggle />
 
           {onLogout && (
             <button

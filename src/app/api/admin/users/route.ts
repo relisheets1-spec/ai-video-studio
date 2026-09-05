@@ -1,126 +1,123 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { verifyAdminToken, UNAUTHORIZED } from "@/lib/admin-auth";
-import { clearFreeze, listFreezes, setFreeze } from "@/lib/freeze";
+import { requireAdmin } from "@/lib/admin-auth";
+import { clearFreeze, setFreeze } from "@/lib/freeze";
+import type { AccessCode, AccessCodeRow } from "@/lib/types";
 
+const ADMIN_COLUMNS =
+  "id, user_name, secret_code, email, status, generations_limit, generations_used, " +
+  "created_at, approved_at, claimed_at, frozen_until, elevenlabs_key_enc";
+
+/** Наружу уходит только факт наличия ключа, сам ключ — никогда. */
+function toAdminView(row: any): AccessCode {
+  const { elevenlabs_key_enc, ...rest } = row;
+  return { ...rest, has_elevenlabs_key: !!elevenlabs_key_enc };
+}
 
 export async function GET(req: NextRequest) {
-  if (!verifyAdminToken(req)) {
-    return NextResponse.json(UNAUTHORIZED, { status: 401 });
-  }
+  const auth = await requireAdmin(req);
+  if ("response" in auth) return auth.response;
 
   try {
-    const { data: users, error } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from("access_codes")
-      .select("*")
+      .select(ADMIN_COLUMNS)
       .order("created_at", { ascending: false });
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    // Активные заморозки отдаём вместе со списком — одним запросом.
-    const freezes = await listFreezes();
-    return NextResponse.json({ users: users || [], freezes });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ users: (data || []).map(toAdminView) });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
 
+async function updateUser(userId: string, patch: Record<string, unknown>) {
+  const { data, error } = await supabaseAdmin
+    .from("access_codes")
+    .update(patch)
+    .eq("id", userId)
+    .select(ADMIN_COLUMNS)
+    .single();
+  if (error) return { error: NextResponse.json({ error: error.message }, { status: 500 }) };
+  return { user: toAdminView(data) };
+}
+
 export async function POST(req: NextRequest) {
-  if (!verifyAdminToken(req)) {
-    return NextResponse.json(UNAUTHORIZED, { status: 401 });
-  }
+  const auth = await requireAdmin(req);
+  if ("response" in auth) return auth.response;
 
   try {
     const { action, userId, amount, hours } = await req.json();
 
-    if (!userId && action !== "set_default_limit") {
+    if (!userId || typeof userId !== "string") {
       return NextResponse.json({ error: "userId обязателен" }, { status: 400 });
     }
 
+    const { data: currentRow } = await supabaseAdmin
+      .from("access_codes")
+      .select(ADMIN_COLUMNS)
+      .eq("id", userId)
+      .maybeSingle();
+    const current = currentRow as unknown as AccessCodeRow | null;
+    if (!current) {
+      return NextResponse.json({ error: "Пользователь не найден" }, { status: 404 });
+    }
+
     if (action === "set_balance") {
+      // Остаток = лимит − использовано, поэтому лимит = использовано + остаток.
       const exactBalance = Math.max(0, Math.floor(Number(amount) || 0));
-
-      const { data: user, error: fetchErr } = await supabaseAdmin
-        .from("access_codes")
-        .select("generations_used, generations_limit")
-        .eq("id", userId)
-        .single();
-
-      if (fetchErr || !user) {
-        return NextResponse.json({ error: "Пользователь не найден" }, { status: 404 });
-      }
-
-      // Remaining = newLimit - generations_used
-      // Therefore: newLimit = generations_used + exactBalance
-      const newLimit = (user.generations_used || 0) + exactBalance;
-
-      const { data, error } = await supabaseAdmin
-        .from("access_codes")
-        .update({ generations_limit: newLimit })
-        .eq("id", userId)
-        .select()
-        .single();
-
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json({ success: true, user: data });
+      const result = await updateUser(userId, {
+        generations_limit: (current.generations_used || 0) + exactBalance,
+      });
+      if ("error" in result) return result.error;
+      return NextResponse.json({ success: true, user: result.user });
     }
 
     if (action === "add_generations") {
       const addCount = Number(amount) || 10;
-      const { data: user, error: fetchErr } = await supabaseAdmin
-        .from("access_codes")
-        .select("generations_limit")
-        .eq("id", userId)
-        .single();
-
-      if (fetchErr || !user) {
-        return NextResponse.json({ error: "Пользователь не найден" }, { status: 404 });
-      }
-
-      const newLimit = (user?.generations_limit || 10) + addCount;
-
-      const { data, error } = await supabaseAdmin
-        .from("access_codes")
-        .update({ generations_limit: newLimit })
-        .eq("id", userId)
-        .select()
-        .single();
-
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json({ success: true, user: data });
+      const result = await updateUser(userId, {
+        generations_limit: (current.generations_limit || 0) + addCount,
+      });
+      if ("error" in result) return result.error;
+      return NextResponse.json({ success: true, user: result.user });
     }
 
     if (action === "approve") {
-      const { data, error } = await supabaseAdmin
-        .from("access_codes")
-        .update({
-          status: "approved",
-          approved_at: new Date().toISOString(),
-        })
-        .eq("id", userId)
-        .select()
-        .single();
-
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json({ success: true, user: data });
+      if (current.status === "invited" || !current.email) {
+        return NextResponse.json(
+          { error: "Код ещё никем не занят — одобрять нечего" },
+          { status: 409 }
+        );
+      }
+      const result = await updateUser(userId, {
+        status: "approved",
+        approved_at: new Date().toISOString(),
+      });
+      if ("error" in result) return result.error;
+      return NextResponse.json({ success: true, user: result.user });
     }
 
     if (action === "reject") {
-      const { data, error } = await supabaseAdmin
-        .from("access_codes")
-        .update({ status: "rejected" })
-        .eq("id", userId)
-        .select()
-        .single();
+      const result = await updateUser(userId, { status: "rejected" });
+      if ("error" in result) return result.error;
+      return NextResponse.json({ success: true, user: result.user });
+    }
 
-      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-      return NextResponse.json({ success: true, user: data });
+    if (action === "reset_invite") {
+      // Освобождает код: почта, ключ и заявка стираются, код можно выдать заново.
+      const result = await updateUser(userId, {
+        status: "invited",
+        email: null,
+        elevenlabs_key_enc: null,
+        claimed_at: null,
+        approved_at: null,
+        frozen_until: null,
+      });
+      if ("error" in result) return result.error;
+      return NextResponse.json({ success: true, user: result.user });
     }
 
     if (action === "freeze") {
-      // hours === "forever" -> бессрочно; иначе число часов.
       const span = hours === "forever" ? "forever" : Math.max(1, Number(hours) || 24);
       await setFreeze(userId, span as number | "forever");
       return NextResponse.json({ success: true, frozen: true });
@@ -131,21 +128,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true, frozen: false });
     }
 
-    if (action === "set_default_limit") {
-      // Лимит по умолчанию для новых инвайт-кодов.
-      const value = String(Math.max(0, Math.floor(Number(amount) || 10)));
-      await supabaseAdmin
-        .from("system_settings")
-        .upsert({ key: "default_generations_limit", value }, { onConflict: "key" });
-      return NextResponse.json({ success: true, value });
-    }
-
     if (action === "delete") {
-      const { error } = await supabaseAdmin
-        .from("access_codes")
-        .delete()
-        .eq("id", userId);
-
+      const { error } = await supabaseAdmin.from("access_codes").delete().eq("id", userId);
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ success: true });
     }

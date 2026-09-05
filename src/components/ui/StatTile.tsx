@@ -4,7 +4,7 @@ import React from "react";
 import { cn } from "./cn";
 
 export interface StatTileProps {
-  label: string;
+  label: React.ReactNode;
   value: React.ReactNode;
   /** Подпись под значением. */
   caption?: React.ReactNode;
@@ -33,7 +33,9 @@ export const StatTile: React.FC<StatTileProps> = ({
 }) => (
   <div
     className={cn(
-      "rounded-tile border shadow-soft p-3.5 sm:p-5 flex flex-col justify-between min-h-[92px] sm:min-h-[124px] min-w-0",
+      // На телефоне плитка низкая и горизонтальная: три штуки в ряд на 375px
+      // иначе не помещались, а «Осталось» приходилось выносить на всю ширину.
+      "rounded-tile border shadow-soft p-3 sm:p-5 flex flex-col justify-between min-h-[64px] sm:min-h-[124px] min-w-0",
       tones[tone],
       className
     )}
@@ -41,25 +43,25 @@ export const StatTile: React.FC<StatTileProps> = ({
     <div className="flex items-start justify-between gap-3">
       <span
         className={cn(
-          "text-[11px] font-semibold uppercase tracking-[0.08em] leading-tight",
+          "text-[10px] sm:text-[11px] font-semibold uppercase tracking-[0.04em] sm:tracking-[0.08em] leading-tight",
           tone === "surface" ? "text-faint" : "opacity-60"
         )}
       >
         {label}
       </span>
       {icon && (
-        <span className={cn("shrink-0", tone === "surface" ? "text-faint" : "opacity-60")}>
+        <span className={cn("shrink-0 hidden sm:inline-flex", tone === "surface" ? "text-faint" : "opacity-60")}>
           {icon}
         </span>
       )}
     </div>
-    <div className="mt-2.5 sm:mt-4 min-w-0">
+    <div className="mt-1.5 sm:mt-4 min-w-0">
       {/* Значение ТЕКУЧЕЕ, а не фиксированное: раньше был text-[32px] + truncate,
           поэтому на узком экране «~25 сек» не влезало и обрезалось многоточием.
           clamp сжимает цифры вместо того, чтобы их прятать. */}
       <div
         className={cn(
-          "text-[clamp(18px,5.2vw,32px)] leading-none font-bold tracking-tight tabular",
+          "text-[clamp(16px,4.6vw,32px)] leading-none font-bold tracking-tight tabular",
           valueClassName
         )}
       >

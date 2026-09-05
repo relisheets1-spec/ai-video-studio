@@ -1,75 +1,36 @@
 import { supabaseAdmin } from "./supabase";
 
 /**
- * Временная заморозка аккаунта.
- *
- * Статус "blocked" в access_codes уже проверялся при входе, но ни одно
- * действие админки его не выставляло, и срока у блокировки не было вовсе.
- *
- * Срок хранится в system_settings (key/value), а не отдельной колонкой:
- * DDL к этой базе из репозитория недоступен — direct-хост Supabase больше не
- * резолвится, а management API закрыт. Готовый ALTER TABLE лежит в
- * supabase/migrations/0001; после его применения этот модуль можно перевести
- * на колонку access_codes.frozen_until без изменений в вызывающем коде.
+ * Временная заморозка аккаунта — колонка access_codes.frozen_until.
+ * Проверяется при входе и в requireUser на каждом запросе к API.
+ * «Бессрочно» хранится как далёкая дата, а не как infinity: PostgREST
+ * отдаёт infinity строкой, которую new Date() не разбирает.
  */
 
-const KEY_PREFIX = "freeze:";
+export const FREEZE_FOREVER = "9999-12-31T00:00:00.000Z";
 
-export function freezeKey(userId: string): string {
-  return `${KEY_PREFIX}${userId}`;
-}
-
-/** Возвращает момент окончания заморозки или null. Просроченные чистит сама. */
-export async function getFreezeUntil(userId: string): Promise<Date | null> {
-  const { data } = await supabaseAdmin
-    .from("system_settings")
-    .select("value")
-    .eq("key", freezeKey(userId))
-    .maybeSingle();
-
-  if (!data?.value) return null;
-
-  // "forever" — бессрочная заморозка без даты снятия.
-  if (data.value === "forever") return new Date(8640000000000000);
-
-  const until = new Date(data.value);
+/** Момент окончания заморозки, если она действует прямо сейчас, иначе null. */
+export function isFrozen(frozenUntil: string | null | undefined): Date | null {
+  if (!frozenUntil) return null;
+  const until = new Date(frozenUntil);
   if (Number.isNaN(until.getTime())) return null;
-  if (until.getTime() <= Date.now()) {
-    await clearFreeze(userId);
-    return null;
-  }
-  return until;
+  return until.getTime() > Date.now() ? until : null;
 }
 
 export async function setFreeze(userId: string, hours: number | "forever"): Promise<void> {
   const value =
-    hours === "forever" ? "forever" : new Date(Date.now() + hours * 3600_000).toISOString();
-
-  await supabaseAdmin
-    .from("system_settings")
-    .upsert({ key: freezeKey(userId), value }, { onConflict: "key" });
+    hours === "forever" ? FREEZE_FOREVER : new Date(Date.now() + hours * 3600_000).toISOString();
+  await supabaseAdmin.from("access_codes").update({ frozen_until: value }).eq("id", userId);
 }
 
 export async function clearFreeze(userId: string): Promise<void> {
-  await supabaseAdmin.from("system_settings").delete().eq("key", freezeKey(userId));
+  await supabaseAdmin.from("access_codes").update({ frozen_until: null }).eq("id", userId);
 }
 
-/** Все активные заморозки одним запросом — для списка пользователей в админке. */
-export async function listFreezes(): Promise<Record<string, string>> {
-  const { data } = await supabaseAdmin
-    .from("system_settings")
-    .select("key, value")
-    .like("key", `${KEY_PREFIX}%`);
-
-  const out: Record<string, string> = {};
-  for (const row of data || []) {
-    out[String(row.key).slice(KEY_PREFIX.length)] = String(row.value);
-  }
-  return out;
-}
-
-export function formatFreezeUntil(value: string): string {
-  if (value === "forever") return "бессрочно";
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? value : d.toLocaleString("ru-RU");
+export function formatFreezeUntil(value: string | Date | null | undefined): string {
+  if (!value) return "";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  if (d.getUTCFullYear() >= 9999) return "бессрочно";
+  return d.toLocaleString("ru-RU");
 }

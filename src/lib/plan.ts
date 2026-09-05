@@ -52,7 +52,9 @@ export function planFromMinutes(
   const minutes = clampMinutes(rawMinutes);
   const wps = WORDS_PER_SECOND[language];
 
-  const secondsPerScene = Math.min(21, Math.max(14, Math.round(14 + (minutes - 1) * 0.8)));
+  // 11–17 с на кадр: при 14–21 с статичная картинка держалась слишком долго,
+  // и фильм читался как слайд-шоу, а не как смена планов.
+  const secondsPerScene = Math.min(17, Math.max(11, Math.round(11 + (minutes - 1) * 0.65)));
   const scenesCount = Math.min(
     MAX_SCENES,
     Math.max(MIN_SCENES, Math.round((minutes * 60) / secondsPerScene))

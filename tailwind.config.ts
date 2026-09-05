@@ -101,11 +101,17 @@ const config: Config = {
           from: { opacity: "0", transform: "scale(0.97)" },
           to: { opacity: "1", transform: "scale(1)" },
         },
+        xfade: {
+          from: { opacity: "0" },
+          to: { opacity: "1" },
+        },
       },
       animation: {
         "ken-burns": "ken-burns 20s ease-out forwards",
         "fade-in": "fade-in 0.22s ease-out both",
         "scale-in": "scale-in 0.18s ease-out both",
+        // Проявление нового кадра поверх предыдущего — та же длительность, что XFADE_SEC в экспорте.
+        xfade: "xfade 0.45s ease-out both",
       },
     },
   },

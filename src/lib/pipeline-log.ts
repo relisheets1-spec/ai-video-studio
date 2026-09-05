@@ -18,10 +18,9 @@ export const STAGE_LABELS: Record<PipelineStage, string> = {
  * генерация навсегда оставалась в статусе generating_script, и в админке
  * такую запись было не отличить от идущей прямо сейчас.
  *
- * Пишем в video_generations, а не в отдельную таблицу: DDL к этой базе из
- * репозитория недоступен (см. supabase/migrations/0001 — файл готов, но
- * применять его нужно вручную в консоли Supabase). Этап кодируем префиксом
- * [stage] в error_message, по нему админка фильтрует.
+ * Пишем в саму запись video_generations: этап кодируем префиксом [stage]
+ * в error_message, по нему админка фильтрует. Таблица pipeline_errors
+ * (миграция 0001) есть, но отдельный журнал пока не нужен.
  */
 export async function logPipelineError(opts: {
   stage: PipelineStage;

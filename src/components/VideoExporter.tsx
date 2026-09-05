@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   DownloadSimple,
   X,
@@ -9,387 +9,204 @@ import {
   WarningCircle,
   CircleNotch,
   Lightning,
+  FrameCorners,
+  DeviceMobile,
+  Timer,
 } from "@phosphor-icons/react";
 import { Scene } from "@/lib/types";
-import { Muxer, ArrayBufferTarget } from "mp4-muxer";
 import {
-  FRAME_SIZES,
+  EXPORT_BITRATE,
+  EXPORT_SIZES,
   normalizeOrientation,
   orientationLabel,
+  type ExportResolution,
   type Orientation,
 } from "@/lib/orientation";
-import {
-  buildCues,
-  computeSubtitleLayout,
-  cueIndexAt,
-  estimateSceneSeconds,
-  wrapLines,
-  SUBTITLE_BG,
-  SUBTITLE_FG,
-  SUBTITLE_SHADOW,
-} from "@/lib/subtitles";
+import { computeSubtitleLayout } from "@/lib/subtitles";
+import { detectExportEngine, type EngineInfo } from "@/lib/export/capabilities";
+import { loadAssets } from "@/lib/export/render";
+import { describeEncoderError, encodeWithWebCodecs } from "@/lib/export/webcodecs";
+import { recordRealtime } from "@/lib/export/mediarecorder";
 
 interface VideoExporterProps {
   title: string;
   scenes: Scene[];
-  orientation?: Orientation;
+  /** Формат, в котором фильм сгенерирован — стартовое значение выбора. */
+  defaultOrientation?: Orientation;
   onClose: () => void;
 }
 
-export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, orientation, onClose }) => {
+const FPS = 30;
+const AUDIO_SAMPLE_RATE = 44100;
+
+const AudioContextClass =
+  typeof window !== "undefined" ? window.AudioContext || (window as any).webkitAudioContext : null;
+
+function guessResolution(): ExportResolution {
+  if (typeof window === "undefined") return "1080p";
+  const cores = (navigator as any).hardwareConcurrency ?? 8;
+  return window.innerWidth < 640 || cores <= 4 ? "720p" : "1080p";
+}
+
+export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, defaultOrientation, onClose }) => {
+  const sourceOrientation = normalizeOrientation(defaultOrientation ?? scenes[0]?.orientation);
+
   const [status, setStatus] = useState<"idle" | "rendering" | "finished" | "error">("idle");
   const [progressPercent, setProgressPercent] = useState(0);
   const [statusText, setStatusText] = useState("");
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [fileSizeMb, setFileSizeMb] = useState<string | null>(null);
+  const [outputExt, setOutputExt] = useState<"mp4" | "webm">("mp4");
+  const [hiddenWarning, setHiddenWarning] = useState(false);
+
+  const [exportOrientation, setExportOrientation] = useState<Orientation>(sourceOrientation);
+  const [resolution, setResolution] = useState<ExportResolution>(guessResolution);
+  const [engine, setEngine] = useState<EngineInfo | null>(null);
 
   const cancelRef = useRef(false);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Кадр 1080p @ 30 FPS. Ориентацию берём из сцен: старые видео её не имеют
-  // и корректно читаются как 16:9 — именно так они и были сгенерированы.
-  const frameOrientation = normalizeOrientation(orientation ?? scenes[0]?.orientation);
-  const { w: WIDTH, h: HEIGHT } = FRAME_SIZES[frameOrientation];
-  const FPS = 30;
-  const AUDIO_SAMPLE_RATE = 44100;
-
-  // Одна разметка на весь экспорт — те же пропорции, что и в превью плеера.
+  const { w: WIDTH, h: HEIGHT } = EXPORT_SIZES[resolution][exportOrientation];
+  const bitrate = EXPORT_BITRATE[resolution];
+  // Разметка субтитров — от выбранного холста, а не от формата генерации.
   const layout = computeSubtitleLayout(WIDTH, HEIGHT);
+
+  const totalSeconds = scenes.reduce((acc, s) => acc + (s.actualDuration || s.durationEstimate || 0), 0);
+
+  useEffect(() => {
+    if (status !== "idle") return;
+    let cancelled = false;
+    setEngine(null);
+    detectExportEngine(WIDTH, HEIGHT, bitrate, FPS, AUDIO_SAMPLE_RATE).then((info) => {
+      if (!cancelled) setEngine(info);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [WIDTH, HEIGHT, bitrate, status]);
+
+  useEffect(() => {
+    if (status !== "rendering" || engine?.engine !== "mediarecorder") return;
+    const onVisibility = () => {
+      if (document.hidden) setHiddenWarning(true);
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [status, engine]);
 
   const startExport = async () => {
     try {
-      if (typeof window === "undefined" || !("VideoEncoder" in window) || !("AudioEncoder" in window)) {
+      if (!engine || engine.engine === "none" || !AudioContextClass) {
         throw new Error(
-          "Ваш браузер не поддерживает аппаратный кодировщик WebCodecs H.264/AAC. Рекомендуется Chrome, Edge, Яндекс Браузер или Opera."
+          "Ваш браузер не поддерживает ни аппаратный кодировщик WebCodecs, ни запись MediaRecorder. Попробуйте Chrome, Edge, Safari 17+ или Firefox."
         );
       }
 
       setStatus("rendering");
       cancelRef.current = false;
+      setHiddenWarning(false);
       setProgressPercent(0);
-      setStatusText("Параллельная предзагрузка всех кадров и аудио...");
+      setStatusText("Загрузка кадров и аудио...");
 
-      // Canvas
-      const canvas = document.createElement("canvas");
-      canvas.width = WIDTH;
-      canvas.height = HEIGHT;
-      const ctx = canvas.getContext("2d", { alpha: false });
-      if (!ctx) throw new Error("Не удалось создать 2D контекст");
+      const onProgress = (p: number) => setProgressPercent(p);
+      const onStatus = (t: string) => setStatusText(t);
 
-      // Audio Context
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const audioCtx = new AudioContextClass({ sampleRate: AUDIO_SAMPLE_RATE });
+      let blob: Blob | null = null;
+      let ext: "mp4" | "webm" = "mp4";
 
-      // MP4 Muxer (ISO BMFF container)
-      const target = new ArrayBufferTarget();
-      const muxer = new Muxer({
-        target,
-        video: {
-          codec: "avc",
-          width: WIDTH,
-          height: HEIGHT,
-        },
-        audio: {
-          codec: "aac",
-          numberOfChannels: 2,
+      if (engine.engine === "webcodecs" && engine.codec) {
+        const audioCtx = new AudioContextClass({ sampleRate: AUDIO_SAMPLE_RATE });
+        const assets = await loadAssets(scenes, audioCtx, AUDIO_SAMPLE_RATE);
+        if (cancelRef.current) return;
+        blob = await encodeWithWebCodecs({
+          assets,
+          W: WIDTH,
+          H: HEIGHT,
+          fps: FPS,
+          bitrate,
+          codec: engine.codec,
           sampleRate: AUDIO_SAMPLE_RATE,
-        },
-        fastStart: "in-memory",
-        firstTimestampBehavior: "offset",
-      });
-
-      // VideoEncoder
-      let videoEncoderError: any = null;
-      const videoEncoder = new VideoEncoder({
-        output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-        error: (err) => {
-          console.error("VideoEncoder error:", err);
-          videoEncoderError = err;
-        },
-      });
-
-      const preferredCodecs = ["avc1.4d002a", "avc1.64002a", "avc1.420034", "avc1.420028"];
-      let selectedVideoCodec = preferredCodecs[0];
-      for (const candidate of preferredCodecs) {
-        try {
-          const sup = await VideoEncoder.isConfigSupported({
-            codec: candidate,
-            width: WIDTH,
-            height: HEIGHT,
-            bitrate: 5_000_000,
-            framerate: FPS,
-          });
-          if (sup && sup.supported) {
-            selectedVideoCodec = candidate;
-            break;
-          }
-        } catch {}
-      }
-
-      videoEncoder.configure({
-        codec: selectedVideoCodec,
-        width: WIDTH,
-        height: HEIGHT,
-        bitrate: 5_500_000,
-        framerate: FPS,
-        hardwareAcceleration: "prefer-hardware",
-        avc: { format: "avc" },
-      });
-
-      // AudioEncoder
-      let audioEncoderError: any = null;
-      const audioEncoder = new AudioEncoder({
-        output: (chunk, meta) => muxer.addAudioChunk(chunk, meta),
-        error: (err) => {
-          console.error("AudioEncoder error:", err);
-          audioEncoderError = err;
-        },
-      });
-
-      audioEncoder.configure({
-        codec: "mp4a.40.2",
-        numberOfChannels: 2,
-        sampleRate: AUDIO_SAMPLE_RATE,
-        bitrate: 128_000,
-      });
-
-      // 1. HIGH-SPEED PARALLEL PRELOAD
-      const loadedAssets = await Promise.all(
-        scenes.map(async (scene, idx) => {
-          const img = new Image();
-          img.crossOrigin = "anonymous";
-          const imgPromise = new Promise<HTMLImageElement>((resolve) => {
-            img.onload = () => resolve(img);
-            img.onerror = () => resolve(img);
-            img.src = scene.imageUrl || "";
-          });
-
-          let audioBuffer: AudioBuffer | null = null;
-          let durationSec = scene.durationEstimate || estimateSceneSeconds(scene.narration);
-          if (scene.audioUrl) {
-            try {
-              const res = await fetch(scene.audioUrl);
-              const arr = await res.arrayBuffer();
-              audioBuffer = await audioCtx.decodeAudioData(arr);
-              durationSec = audioBuffer.duration;
-            } catch (e) {
-              console.warn("Audio load error scene", idx, e);
-            }
-          }
-
-          if (!audioBuffer) {
-            const sampleCount = Math.max(1, Math.round(durationSec * AUDIO_SAMPLE_RATE));
-            audioBuffer = audioCtx.createBuffer(2, sampleCount, AUDIO_SAMPLE_RATE);
-          }
-
-          return {
-            img: await imgPromise,
-            audioBuffer,
-            durationSec,
-            scene,
-          };
-        })
-      );
-
-      if (cancelRef.current) return;
-
-      let globalVideoFrames = 0;
-      let globalAudioSamples = 0;
-      const totalScenes = loadedAssets.length;
-
-      // 2. MULTI-SCENE ENCODING LOOP
-      for (let i = 0; i < totalScenes; i++) {
-        if (cancelRef.current) break;
-
-        const { img, audioBuffer, durationSec, scene } = loadedAssets[i];
-        const sceneNum = i + 1;
-        setStatusText(`Аппаратный рендер сцены ${sceneNum}/${totalScenes}: ${scene.title}`);
-
-        // Fast Audio Encoding
-        const left = audioBuffer.getChannelData(0);
-        const right = audioBuffer.numberOfChannels > 1 ? audioBuffer.getChannelData(1) : left;
-        const AAC_CHUNK = 1024;
-        let audioOffset = 0;
-
-        while (audioOffset < audioBuffer.length) {
-          const chunkSize = Math.min(AAC_CHUNK, audioBuffer.length - audioOffset);
-          const planarBuffer = new Float32Array(chunkSize * 2);
-          planarBuffer.set(left.subarray(audioOffset, audioOffset + chunkSize), 0);
-          planarBuffer.set(right.subarray(audioOffset, audioOffset + chunkSize), chunkSize);
-
-          const timestampUs = Math.round(((globalAudioSamples + audioOffset) / AUDIO_SAMPLE_RATE) * 1_000_000);
-
-          const audioData = new AudioData({
-            format: "f32-planar",
-            sampleRate: AUDIO_SAMPLE_RATE,
-            numberOfFrames: chunkSize,
-            numberOfChannels: 2,
-            timestamp: timestampUs,
-            data: planarBuffer,
-          });
-
-          audioEncoder.encode(audioData);
-          audioData.close();
-
-          audioOffset += chunkSize;
-
-          if (audioEncoder.encodeQueueSize > 50) {
-            await new Promise((r) => setTimeout(r, 0));
-          }
-        }
-        globalAudioSamples += audioBuffer.length;
-
-        // Субтитры: список реплик с таймкодами считается ОДИН раз на сцену.
-        // Раньше getActiveSentence() звался на каждый кодируемый кадр, то есть
-        // 30 x длительность раз прогонял три регулярки.
-        ctx.font = layout.fontCss;
-        const measure = (str: string) => ctx.measureText(str).width;
-        const cues = scene.narration ? buildCues(scene.narration, durationSec) : [];
-        const cueBoxes = cues.map((cue) => {
-          const lines = wrapLines(cue.text, layout.maxTextW, measure);
-          const widest = lines.reduce((max, line) => Math.max(max, measure(line)), 0);
-          const cardW = Math.min(layout.maxCardW, widest + layout.padX * 2);
-          const cardH = lines.length * layout.lineHeight + layout.padY * 2;
-          return {
-            lines,
-            cardW,
-            cardH,
-            cardX: (WIDTH - cardW) / 2,
-            cardY: HEIGHT - layout.bottom - cardH,
-          };
+          layout,
+          cancelRef,
+          onProgress,
+          onStatus,
         });
-
-        const totalFrames = Math.max(1, Math.round(durationSec * FPS));
-
-        for (let frame = 0; frame < totalFrames; frame++) {
-          if (cancelRef.current) break;
-
-          const progress = frame / totalFrames;
-          const elapsedSec = progress * durationSec;
-          const zoomScale = 1 + progress * 0.05;
-
-          // Frame Drawing
-          // ВНИМАНИЕ: цвета ниже запекаются в MP4 и НЕ должны зависеть от темы.
-          // Не заменять на токены — иначе в светлой теме в файл попадут белые поля.
-          ctx.fillStyle = "#0A0B0E";
-          ctx.fillRect(0, 0, WIDTH, HEIGHT);
-
-          if (img.complete && img.naturalWidth > 0) {
-            // Вписывание по короткой стороне (cover), а не растяжение под холст:
-            // gpt-image-1-mini отдаёт 3:2 / 2:3, поэтому растяжение исказило бы кадр.
-            // DOM в превью уже делает object-cover — приводим холст к нему.
-            const cover = Math.max(WIDTH / img.naturalWidth, HEIGHT / img.naturalHeight);
-            const scale = cover * zoomScale;
-            const dw = img.naturalWidth * scale;
-            const dh = img.naturalHeight * scale;
-            ctx.drawImage(img, (WIDTH - dw) / 2, (HEIGHT - dh) / 2, dw, dh);
-          }
-
-          // Нижняя шторка — те же пропорции, что и в превью
-          const gradient = ctx.createLinearGradient(0, HEIGHT - layout.scrimH, 0, HEIGHT);
-          gradient.addColorStop(0, "rgba(0, 0, 0, 0)");
-          gradient.addColorStop(1, "rgba(0, 0, 0, 0.72)");
-          ctx.fillStyle = gradient;
-          ctx.fillRect(0, HEIGHT - layout.scrimH, WIDTH, layout.scrimH);
-
-          // Субтитры: одна реплика за раз, позиция и кегль пропорциональны кадру
-          const activeCue = cueIndexAt(cues, elapsedSec);
-          const box = activeCue >= 0 ? cueBoxes[activeCue] : null;
-
-          if (box && box.lines.length > 0) {
-            ctx.save();
-            // Подложка запекается в файл и тему не наследует — только литералы.
-            // Обводки нет намеренно: 1.5px stroke по roundRect давал рваные
-            // скругления, а залитый roundRect сглаживается чисто.
-            ctx.fillStyle = SUBTITLE_BG;
-            ctx.beginPath();
-            if ((ctx as any).roundRect) {
-              (ctx as any).roundRect(box.cardX, box.cardY, box.cardW, box.cardH, layout.radius);
-            } else {
-              ctx.rect(box.cardX, box.cardY, box.cardW, box.cardH);
-            }
-            ctx.fill();
-
-            ctx.font = layout.fontCss;
-            ctx.fillStyle = SUBTITLE_FG;
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.shadowColor = SUBTITLE_SHADOW;
-            ctx.shadowBlur = layout.shadowBlur;
-            ctx.shadowOffsetY = layout.shadowOffsetY;
-
-            for (let lIdx = 0; lIdx < box.lines.length; lIdx++) {
-              const baselineY = box.cardY + layout.padY + layout.lineHeight * (lIdx + 0.5);
-              ctx.fillText(box.lines[lIdx], WIDTH / 2, baselineY);
-            }
-            ctx.restore();
-          }
-
-          // Hardware Frame Encode
-          const timestampUs = Math.round(globalVideoFrames * (1_000_000 / FPS));
-          const isKeyFrame = globalVideoFrames % (FPS * 2) === 0;
-
-          const videoFrame = new VideoFrame(canvas, { timestamp: timestampUs });
-          videoEncoder.encode(videoFrame, { keyFrame: isKeyFrame });
-          videoFrame.close();
-
-          globalVideoFrames++;
-
-          if (videoEncoder.encodeQueueSize > 60) {
-            await new Promise((r) => setTimeout(r, 0));
-          }
-
-          if (frame % 60 === 0) {
-            const overallPct = Math.min(98, Math.round(((i + frame / totalFrames) / totalScenes) * 100));
-            setProgressPercent(overallPct);
-            await new Promise((r) => setTimeout(r, 0));
-          }
+      } else if (engine.engine === "mediarecorder" && engine.mime) {
+        // AudioContext создаётся в обработчике клика — так требует iOS.
+        const audioCtx = new AudioContextClass();
+        const assets = await loadAssets(scenes, audioCtx, audioCtx.sampleRate);
+        if (cancelRef.current) return;
+        if (!canvasRef.current) throw new Error("Холст записи не смонтирован");
+        const result = await recordRealtime({
+          assets,
+          W: WIDTH,
+          H: HEIGHT,
+          fps: FPS,
+          bitrate,
+          mime: engine.mime,
+          layout,
+          canvas: canvasRef.current,
+          audioCtx,
+          cancelRef,
+          onProgress,
+          onStatus,
+        });
+        if (result) {
+          blob = result.blob;
+          ext = result.ext;
         }
       }
 
-      if (cancelRef.current) {
-        videoEncoder.close();
-        audioEncoder.close();
-        return;
-      }
+      if (!blob) return; // отменено
 
-      if (videoEncoderError) throw new Error("Ошибка видеокодировщика: " + videoEncoderError.message);
-      if (audioEncoderError) throw new Error("Ошибка аудиокодировщика: " + audioEncoderError.message);
-
-      setStatusText("Финализация контейнера MP4 (moov-атом)...");
-      setProgressPercent(99);
-
-      await videoEncoder.flush();
-      await audioEncoder.flush();
-      videoEncoder.close();
-      audioEncoder.close();
-
-      muxer.finalize();
-
-      const buffer = target.buffer;
-      const mp4Blob = new Blob([buffer], { type: "video/mp4" });
-      const url = URL.createObjectURL(mp4Blob);
+      const url = URL.createObjectURL(blob);
       setDownloadUrl(url);
-      setFileSizeMb((mp4Blob.size / (1024 * 1024)).toFixed(1));
+      setOutputExt(ext);
+      setFileSizeMb((blob.size / (1024 * 1024)).toFixed(1));
       setStatus("finished");
-      setStatusText("Чистый MP4 готов к загрузке!");
+      setStatusText("Видео готово к загрузке");
     } catch (err: any) {
       console.error("Export Error:", err);
       setStatus("error");
-      setStatusText(err.message || "Ошибка при экспорте видео");
+      const msg = String(err?.message || "");
+      setStatusText(
+        /closed codec|reclaimed/i.test(msg) ? describeEncoderError(err) : msg || "Ошибка при экспорте видео"
+      );
     }
   };
 
+  const safeTitle = title.replace(/[^a-zA-Z0-9а-яА-ЯёЁәғқңөұүһіӘҒҚҢӨҰҮҺІ_-]/g, "_").slice(0, 60);
+  const fileName = `${safeTitle}_${orientationLabel(exportOrientation).replace(":", "x")}_${resolution}.${outputExt}`;
+
+  const engineLabel =
+    engine === null
+      ? "Проверка возможностей браузера..."
+      : engine.engine === "webcodecs"
+      ? "Быстрый рендер: аппаратный WebCodecs H.264/AAC"
+      : engine.engine === "mediarecorder"
+      ? `Совместимый режим: запись в реальном времени (~${Math.max(1, Math.ceil(totalSeconds / 60))} мин), не сворачивайте вкладку`
+      : "Экспорт в этом браузере недоступен";
+
+  const mismatch = exportOrientation !== sourceOrientation;
+
+  const optionBtn = (active: boolean) =>
+    `flex items-center gap-2.5 p-3 rounded-xl border text-left transition-colors cursor-pointer ${
+      active ? "border-accent bg-accent/10 text-white" : "border-white/15 bg-white/[0.04] text-zinc-300 hover:bg-white/[0.08]"
+    }`;
+
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-fade-in select-none">
-      <div className="bg-stage border border-white/10 rounded-2xl p-6 max-w-md w-full space-y-5 shadow-2xl relative">
+    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-fade-in select-none">
+      <div className="bg-stage border border-white/10 rounded-2xl p-5 sm:p-6 max-w-md w-full space-y-4 sm:space-y-5 shadow-2xl relative max-h-[95dvh] overflow-y-auto">
         <div className="flex items-center justify-between pb-3 border-b border-white/10">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/30 text-accent flex items-center justify-center">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-accent/10 border border-accent/30 text-accent flex items-center justify-center shrink-0">
               <FilmStrip size={18} weight="bold" />
             </div>
-            <div>
-              <h3 className="font-extrabold text-sm text-white tracking-tight">Экспорт видео в MP4</h3>
-              <p className="text-[11px] text-zinc-400">{WIDTH}×{HEIGHT} ({orientationLabel(frameOrientation)}) @ 30 FPS • Субтитры по одному предложению</p>
+            <div className="min-w-0">
+              <h3 className="font-extrabold text-sm text-white tracking-tight">Экспорт видео</h3>
+              <p className="text-[11px] text-zinc-400 truncate">
+                {WIDTH}×{HEIGHT} ({orientationLabel(exportOrientation)}) @ {FPS} FPS
+              </p>
             </div>
           </div>
           <button
@@ -398,6 +215,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, ori
               onClose();
             }}
             className="p-1.5 rounded-lg hover:bg-white/10 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+            aria-label="Закрыть"
           >
             <X size={18} weight="bold" />
           </button>
@@ -405,56 +223,106 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, ori
 
         {status === "idle" && (
           <div className="space-y-4">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500 mb-2">Формат</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" className={optionBtn(exportOrientation === "landscape")} onClick={() => setExportOrientation("landscape")}>
+                  <FrameCorners size={20} className="shrink-0" />
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-semibold leading-tight">Горизонтальный 16:9</span>
+                    <span className="block text-[11px] text-zinc-400 mt-0.5">YouTube</span>
+                  </span>
+                </button>
+                <button type="button" className={optionBtn(exportOrientation === "portrait")} onClick={() => setExportOrientation("portrait")}>
+                  <DeviceMobile size={20} className="shrink-0" />
+                  <span className="min-w-0">
+                    <span className="block text-[13px] font-semibold leading-tight">Вертикальный 9:16</span>
+                    <span className="block text-[11px] text-zinc-400 mt-0.5">Reels · Shorts · TikTok</span>
+                  </span>
+                </button>
+              </div>
+              {mismatch && (
+                <p className="text-[11.5px] text-amber-300/90 mt-2 leading-snug">
+                  {sourceOrientation === "landscape"
+                    ? "Кадры фильма горизонтальные — при экспорте 9:16 картинка будет обрезана по краям."
+                    : "Кадры фильма вертикальные — при экспорте 16:9 картинка будет обрезана сверху и снизу."}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500 mb-2">Качество</div>
+              <div className="grid grid-cols-2 gap-2">
+                {(["1080p", "720p"] as ExportResolution[]).map((r) => (
+                  <button key={r} type="button" className={optionBtn(resolution === r)} onClick={() => setResolution(r)}>
+                    <Timer size={18} className="shrink-0" />
+                    <span className="min-w-0">
+                      <span className="block text-[13px] font-semibold leading-tight">{r === "1080p" ? "Full HD 1080p" : "HD 720p"}</span>
+                      <span className="block text-[11px] text-zinc-400 mt-0.5">{r === "1080p" ? "Максимальное качество" : "Быстрее, легче файл"}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="p-3.5 rounded-xl bg-white/[0.06] border border-white/10 space-y-2 text-xs">
-              <div className="flex items-center justify-between text-zinc-400">
+              <div className="flex items-center justify-between gap-3 text-zinc-400">
                 <span>Фильм:</span>
                 <span className="font-bold text-white truncate max-w-[200px]">{title}</span>
               </div>
               <div className="flex items-center justify-between text-zinc-400">
                 <span>Кадров:</span>
-                <span className="font-bold text-accent">{scenes.length} сцен</span>
+                <span className="font-bold text-accent">{scenes.length}</span>
               </div>
-              <div className="flex items-center justify-between text-zinc-400">
-                <span>Субтитры:</span>
-                <span className="font-bold text-white">70% ширины, по предложению</span>
-              </div>
-              <div className="flex items-center justify-between text-zinc-400">
-                <span>Ускорение:</span>
-                <span className="font-bold text-accent flex items-center gap-1">
-                  <Lightning size={14} weight="fill" /> Hardware WebCodecs
+              <div className="flex items-start justify-between gap-3 text-zinc-400">
+                <span className="shrink-0">Движок:</span>
+                <span className={`font-bold text-right ${engine?.engine === "webcodecs" ? "text-accent" : "text-white"} flex items-start gap-1`}>
+                  {engine?.engine === "webcodecs" && <Lightning size={14} weight="fill" className="shrink-0 mt-px" />}
+                  <span>{engineLabel}</span>
                 </span>
               </div>
             </div>
 
             <button
               onClick={startExport}
-              className="w-full py-3.5 rounded-xl bg-accent hover:bg-accent-hover active:scale-[0.99] text-accent-ink font-black text-sm shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
+              disabled={engine === null || engine.engine === "none"}
+              className="w-full py-3.5 rounded-xl bg-accent hover:bg-accent-hover active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed text-accent-ink font-black text-sm shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               <Lightning size={18} weight="fill" />
-              <span>Запустить экспорт MP4</span>
+              <span>Собрать видео {orientationLabel(exportOrientation)}</span>
             </button>
           </div>
         )}
 
         {status === "rendering" && (
           <div className="space-y-4 py-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="font-medium text-zinc-200 flex items-center gap-2">
-                <CircleNotch size={16} weight="bold" className="animate-spin text-accent" />
-                <span className="truncate max-w-[240px]">{statusText}</span>
+            <div className="flex items-center justify-between text-xs gap-3">
+              <span className="font-medium text-zinc-200 flex items-center gap-2 min-w-0">
+                <CircleNotch size={16} weight="bold" className="animate-spin text-accent shrink-0" />
+                <span className="truncate">{statusText}</span>
               </span>
-              <span className="font-mono font-bold text-sm text-accent">{progressPercent}%</span>
+              <span className="font-mono font-bold text-sm text-accent shrink-0">{progressPercent}%</span>
             </div>
 
             <div className="w-full h-2 rounded-full bg-zinc-900 overflow-hidden border border-white/10">
-              <div
-                className="h-full bg-accent transition-all duration-200 rounded-full"
-                style={{ width: `${progressPercent}%` }}
-              />
+              <div className="h-full bg-accent transition-all duration-200 rounded-full" style={{ width: `${progressPercent}%` }} />
             </div>
 
+            {/* Холст виден только в совместимом режиме: Safari не отдаёт кадры с невидимого холста. */}
+            <canvas
+              ref={canvasRef}
+              className={engine?.engine === "mediarecorder" ? "w-full rounded-xl border border-white/10 bg-black" : "hidden"}
+            />
+
+            {hiddenWarning && (
+              <p className="text-[11.5px] text-amber-300/90 text-center leading-snug">
+                Вкладка была свёрнута — в записи возможны пропуски. Держите её открытой до конца.
+              </p>
+            )}
+
             <p className="text-[11px] text-zinc-400 text-center">
-              Аппаратная сборка на GPU: {WIDTH}×{HEIGHT} ({orientationLabel(frameOrientation)}) @ 30 FPS
+              {WIDTH}×{HEIGHT} ({orientationLabel(exportOrientation)}) @ {FPS} FPS ·{" "}
+              {engine?.engine === "webcodecs" ? "аппаратная сборка" : "запись в реальном времени"}
             </p>
           </div>
         )}
@@ -466,20 +334,32 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, ori
             </div>
 
             <div className="space-y-1">
-              <h4 className="font-bold text-base text-white">Видео успешно собрано!</h4>
+              <h4 className="font-bold text-base text-white">Видео собрано</h4>
               <p className="text-xs text-zinc-400">
-                Размер файла: <span className="font-bold text-white">{fileSizeMb} МБ</span>
+                {orientationLabel(exportOrientation)} · {resolution} · размер <span className="font-bold text-white">{fileSizeMb} МБ</span>
               </p>
             </div>
 
             <a
               href={downloadUrl}
-              download={`${title.replace(/[^a-zA-Z0-9а-яА-ЯёЁ_-]/g, "_")}_${orientationLabel(frameOrientation).replace(":", "x")}.mp4`}
+              download={fileName}
               className="w-full py-3.5 rounded-xl bg-accent hover:bg-accent-hover active:scale-[0.99] text-accent-ink font-black text-sm shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer block"
             >
               <DownloadSimple size={18} weight="bold" />
-              <span>Скачать файл MP4</span>
+              <span>Скачать {outputExt.toUpperCase()}</span>
             </a>
+
+            <button
+              type="button"
+              onClick={() => {
+                setStatus("idle");
+                setDownloadUrl(null);
+                setProgressPercent(0);
+              }}
+              className="w-full py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs transition-colors cursor-pointer"
+            >
+              Собрать в другом формате
+            </button>
           </div>
         )}
 
@@ -490,10 +370,10 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, ori
               <span>{statusText}</span>
             </div>
             <button
-              onClick={startExport}
+              onClick={() => setStatus("idle")}
               className="w-full py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white font-bold text-xs transition-colors cursor-pointer"
             >
-              Повторить экспорт
+              Попробовать снова
             </button>
           </div>
         )}
