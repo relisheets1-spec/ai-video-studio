@@ -1,13 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { imageApiSize, normalizeOrientation, promptAspectHint } from "@/lib/orientation";
+import { logPipelineError } from "@/lib/pipeline-log";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 export async function POST(req: NextRequest) {
+  let loggedVideoId: string | null = null;
   try {
     const { videoId, sceneId, visualPrompt, style = "cinematic photorealistic", orientation } = await req.json();
     const frameOrientation = normalizeOrientation(orientation);
+    loggedVideoId = typeof videoId === "string" ? videoId : null;
 
     if (!videoId || sceneId === undefined || !visualPrompt) {
       return NextResponse.json({ error: "videoId, sceneId и visualPrompt обязательны" }, { status: 400 });
@@ -89,7 +92,7 @@ export async function POST(req: NextRequest) {
       imageUrl: publicUrlData.publicUrl,
     });
   } catch (err: any) {
-    console.error("Image Route Error:", err);
+    await logPipelineError({ stage: "image", videoId: loggedVideoId, message: err?.message || String(err) });
     return NextResponse.json({ error: err.message || "Ошибка при генерации изображения" }, { status: 500 });
   }
 }

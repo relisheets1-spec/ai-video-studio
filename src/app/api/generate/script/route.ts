@@ -11,10 +11,15 @@ import {
   buildVisualsPrompt,
 } from "@/lib/script/prompts";
 import { segmentNarration, countWords } from "@/lib/script/segment";
+import { logPipelineError } from "@/lib/pipeline-log";
 
 const MODEL = "gpt-4o-2024-11-20";
 
 export async function POST(req: NextRequest) {
+  // Нужен в catch, чтобы упавшая генерация не осталась висеть в статусе
+  // generating_script навсегда.
+  let createdVideoId: string | null = null;
+
   try {
     const ip = getClientIp(req);
 
@@ -131,6 +136,7 @@ export async function POST(req: NextRequest) {
     if (insertError) {
       return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
+    createdVideoId = videoRecord.id;
 
     // --- Проход 1: план истории ---
     const blueprintPrompt = buildBlueprintPrompt({ genre, language, plan, topic });
@@ -269,7 +275,11 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err: any) {
-    console.error("Script Generation Error:", err);
+    await logPipelineError({
+      stage: "llm",
+      videoId: createdVideoId,
+      message: err?.message || String(err),
+    });
     return NextResponse.json({ error: err.message || "Ошибка при генерации сценария" }, { status: 500 });
   }
 }

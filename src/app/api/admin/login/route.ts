@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { signAdminToken } from "@/lib/admin-auth";
 
 export async function POST(req: NextRequest) {
   try {
@@ -23,8 +24,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Неверный пароль администратора" }, { status: 401 });
     }
 
-    // Generate separate admin session token
-    const adminToken = `ai_video_admin_session_${Date.now()}_${Math.random().toString(36).substring(2, 12)}`;
+    // Подписанный токен со сроком жизни. Прежний вариант был просто строкой
+    // с Date.now() и случайным хвостом — сервер его никак не сверял.
+    const adminToken = signAdminToken();
 
     return NextResponse.json({
       success: true,

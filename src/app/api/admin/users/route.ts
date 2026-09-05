@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { verifyAdminToken, UNAUTHORIZED } from "@/lib/admin-auth";
+import { clearFreeze, listFreezes, setFreeze } from "@/lib/freeze";
 
-function isAuthorizedAdmin(req: NextRequest): boolean {
-  const token = req.headers.get("x-admin-token") || req.headers.get("authorization")?.replace("Bearer ", "");
-  if (token && token.startsWith("ai_video_admin_session_")) return true;
-  return false;
-}
 
 export async function GET(req: NextRequest) {
-  if (!isAuthorizedAdmin(req)) {
-    return NextResponse.json({ error: "Доступ запрещен: требуется авторизация администратора" }, { status: 401 });
+  if (!verifyAdminToken(req)) {
+    return NextResponse.json(UNAUTHORIZED, { status: 401 });
   }
 
   try {
@@ -22,21 +19,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({ users: users || [] });
+    // Активные заморозки отдаём вместе со списком — одним запросом.
+    const freezes = await listFreezes();
+    return NextResponse.json({ users: users || [], freezes });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
-  if (!isAuthorizedAdmin(req)) {
-    return NextResponse.json({ error: "Доступ запрещен: требуется авторизация администратора" }, { status: 401 });
+  if (!verifyAdminToken(req)) {
+    return NextResponse.json(UNAUTHORIZED, { status: 401 });
   }
 
   try {
-    const { action, userId, amount } = await req.json();
+    const { action, userId, amount, hours } = await req.json();
 
-    if (!userId) {
+    if (!userId && action !== "set_default_limit") {
       return NextResponse.json({ error: "userId обязателен" }, { status: 400 });
     }
 
@@ -118,6 +117,27 @@ export async function POST(req: NextRequest) {
 
       if (error) return NextResponse.json({ error: error.message }, { status: 500 });
       return NextResponse.json({ success: true, user: data });
+    }
+
+    if (action === "freeze") {
+      // hours === "forever" -> бессрочно; иначе число часов.
+      const span = hours === "forever" ? "forever" : Math.max(1, Number(hours) || 24);
+      await setFreeze(userId, span as number | "forever");
+      return NextResponse.json({ success: true, frozen: true });
+    }
+
+    if (action === "unfreeze") {
+      await clearFreeze(userId);
+      return NextResponse.json({ success: true, frozen: false });
+    }
+
+    if (action === "set_default_limit") {
+      // Лимит по умолчанию для новых инвайт-кодов.
+      const value = String(Math.max(0, Math.floor(Number(amount) || 10)));
+      await supabaseAdmin
+        .from("system_settings")
+        .upsert({ key: "default_generations_limit", value }, { onConflict: "key" });
+      return NextResponse.json({ success: true, value });
     }
 
     if (action === "delete") {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { getClientIp } from "@/lib/security";
+import { getFreezeUntil, formatFreezeUntil } from "@/lib/freeze";
 
 const MAX_FAILED_ATTEMPTS = 10;
 const BLOCK_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -225,6 +226,18 @@ export async function POST(req: NextRequest) {
           {
             error: "Доступ по данному коду заблокирован или отклонен администратором.",
             status: userCode.status,
+          },
+          { status: 403 }
+        );
+      }
+
+      // Временная заморозка: отдельно от постоянной блокировки статусом.
+      const frozenUntil = await getFreezeUntil(userCode.id);
+      if (frozenUntil) {
+        return NextResponse.json(
+          {
+            error: `Аккаунт временно заморожен администратором (до ${formatFreezeUntil(frozenUntil.toISOString())}).`,
+            status: "frozen",
           },
           { status: 403 }
         );

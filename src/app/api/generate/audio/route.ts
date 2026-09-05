@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { openai } from "@/lib/openai";
 import { normalizeLanguage } from "@/lib/content/languages";
+import { logPipelineError } from "@/lib/pipeline-log";
 import {
   findVoice,
   modelForLanguage,
@@ -13,6 +14,7 @@ import {
 const MAX_NARRATION_CHARS = 1500;
 
 export async function POST(req: NextRequest) {
+  let loggedVideoId: string | null = null;
   try {
     const {
       videoId,
@@ -40,6 +42,8 @@ export async function POST(req: NextRequest) {
     if (typeof sceneId !== "number" || sceneId < 0 || sceneId > 40) {
       return NextResponse.json({ error: "Недопустимый номер сцены" }, { status: 400 });
     }
+
+    loggedVideoId = typeof videoId === "string" ? videoId : null;
 
     // Verify valid active video session (protects TTS from abuse)
     const { data: video, error: videoErr } = await supabaseAdmin
@@ -188,7 +192,7 @@ export async function POST(req: NextRequest) {
       usedFallback,
     });
   } catch (err: any) {
-    console.error("Audio Generation Error:", err);
+    await logPipelineError({ stage: "tts", videoId: loggedVideoId, message: err?.message || String(err) });
     return NextResponse.json({ error: err.message || "Ошибка при генерации аудио" }, { status: 500 });
   }
 }

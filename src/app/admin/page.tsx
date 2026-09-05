@@ -57,6 +57,21 @@ const FILTERS: { id: StatusFilter; label: string }[] = [
   { id: "blocked", label: "Заблокирован" },
 ];
 
+/** Форматирование срока заморозки — чистая функция, без обращения к БД. */
+function formatFreezeUntil(value: string): string {
+  if (value === "forever") return "бессрочно";
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString("ru-RU");
+}
+
+const STAGE_LABELS_UI: Record<string, string> = {
+  llm: "Сценарий",
+  tts: "Озвучка",
+  image: "Картинки",
+  render: "Рендер",
+  auth: "Доступ",
+};
+
 export default function AdminPage() {
   const { notify } = useToast();
 
@@ -91,6 +106,15 @@ export default function AdminPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [pendingDelete, setPendingDelete] = useState<AccessCode | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Заморозка аккаунтов и лог отказов пайплайна
+  const [freezes, setFreezes] = useState<Record<string, string>>({});
+  const [freezeTarget, setFreezeTarget] = useState<AccessCode | null>(null);
+  const [tab, setTab] = useState<"users" | "logs">("users");
+  const [logs, setLogs] = useState<any[]>([]);
+  const [logStage, setLogStage] = useState<string>("all");
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [expandedLog, setExpandedLog] = useState<string | null>(null);
 
   const getAdminHeaders = () => {
     const token = typeof window !== "undefined" ? localStorage.getItem("ai_video_admin_token") || "" : "";
@@ -130,6 +154,7 @@ export default function AdminPage() {
       if (!res.ok) throw new Error(data.error || "Ошибка загрузки пользователей");
       const userList: AccessCode[] = data.users || [];
       setUsers(userList);
+      setFreezes(data.freezes || {});
 
       // Initialize editable balances
       const initial: Record<string, number> = {};
@@ -141,6 +166,51 @@ export default function AdminPage() {
       setError(err.message);
     } finally {
       setLoadingUsers(false);
+    }
+  };
+
+  const loadLogs = async (stage: string = logStage) => {
+    setLoadingLogs(true);
+    try {
+      const res = await fetch(`/api/admin/logs?stage=${encodeURIComponent(stage)}`, {
+        headers: getAdminHeaders(),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Ошибка загрузки логов");
+      setLogs(data.logs || []);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoadingLogs(false);
+    }
+  };
+
+  const handleFreeze = async (userId: string, hours: number | "forever") => {
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({ action: "freeze", userId, hours }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Не удалось заморозить");
+      setFreezeTarget(null);
+      loadUsers();
+    } catch (err: any) {
+      setError(err.message);
+    }
+  };
+
+  const handleUnfreeze = async (userId: string) => {
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "POST",
+        headers: getAdminHeaders(),
+        body: JSON.stringify({ action: "unfreeze", userId }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Не удалось разморозить");
+      loadUsers();
+    } catch (err: any) {
+      setError(err.message);
     }
   };
 
@@ -423,7 +493,98 @@ export default function AdminPage() {
           />
         </div>
 
+        {/* Вкладки: пользователи / лог отказов */}
+        <div className="flex items-center gap-1 p-1 rounded-full bg-surface-2 border border-hairline w-fit mb-4">
+          {([
+            { id: "users" as const, label: "Пользователи" },
+            { id: "logs" as const, label: "Логи ошибок" },
+          ]).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => {
+                setTab(t.id);
+                if (t.id === "logs") loadLogs();
+              }}
+              className={`h-9 px-4 rounded-full text-[13px] font-medium transition-colors cursor-pointer ${
+                tab === t.id ? "bg-contrast text-contrast-ink" : "text-muted hover:text-ink"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        {tab === "logs" && (
+          <Tile flush>
+            <div className="flex flex-wrap items-center gap-3 p-5 border-b border-hairline">
+              <div className="flex items-center gap-1 p-1 rounded-full bg-surface-2 border border-hairline overflow-x-auto">
+                {[
+                  { id: "all", label: "Все" },
+                  { id: "llm", label: "Сценарий" },
+                  { id: "tts", label: "Озвучка" },
+                  { id: "image", label: "Картинки" },
+                  { id: "render", label: "Рендер" },
+                ].map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => {
+                      setLogStage(f.id);
+                      loadLogs(f.id);
+                    }}
+                    className={`h-8 px-3.5 rounded-full text-[12.5px] font-medium whitespace-nowrap transition-colors cursor-pointer ${
+                      logStage === f.id ? "bg-contrast text-contrast-ink" : "text-muted hover:text-ink"
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+              <span className="text-[12.5px] text-faint tabular ml-auto">
+                {loadingLogs ? "Загрузка…" : `${logs.length} записей`}
+              </span>
+            </div>
+
+            <div className="divide-y divide-hairline">
+              {logs.length === 0 && !loadingLogs && (
+                <div className="p-8 text-center text-[13.5px] text-muted">
+                  Отказов не зафиксировано
+                </div>
+              )}
+              {logs.map((log) => (
+                <button
+                  key={log.id}
+                  type="button"
+                  onClick={() => setExpandedLog(expandedLog === log.id ? null : log.id)}
+                  className="w-full text-left p-4 sm:px-5 hover:bg-surface-2 transition-colors cursor-pointer block"
+                >
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    <Badge tone={log.stale ? "warn" : "danger"}>
+                      {log.stale ? "зависла" : STAGE_LABELS_UI[log.stage as string] || "ошибка"}
+                    </Badge>
+                    <span className="text-[13.5px] font-medium text-ink truncate max-w-[420px]">
+                      {log.topic}
+                    </span>
+                    <span className="text-[12px] text-faint tabular ml-auto whitespace-nowrap">
+                      {new Date(log.createdAt).toLocaleString("ru-RU")}
+                    </span>
+                  </div>
+                  <div
+                    className={`text-[12.5px] text-muted mt-1.5 font-mono ${
+                      expandedLog === log.id ? "" : "truncate"
+                    }`}
+                  >
+                    {log.message}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </Tile>
+        )}
+
         {/* Таблица */}
+        {tab === "users" && (
         <Tile flush>
           <div className="flex flex-wrap items-center gap-3 p-5 border-b border-hairline">
             <div className="relative flex-1 min-w-[220px]">
@@ -596,6 +757,11 @@ export default function AdminPage() {
 
                         <td className="py-3.5 px-5">
                           <div className="flex items-center justify-end gap-1.5">
+                            {freezes[u.id] && (
+                              <Badge tone="warn">
+                                до {formatFreezeUntil(freezes[u.id])}
+                              </Badge>
+                            )}
                             {u.status === "pending" && (
                               <>
                                 <Button
@@ -613,6 +779,25 @@ export default function AdminPage() {
                                   Отклонить
                                 </Button>
                               </>
+                            )}
+                            {freezes[u.id] ? (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                title={`Заморожен до ${formatFreezeUntil(freezes[u.id])}`}
+                                onClick={() => handleUnfreeze(u.id)}
+                              >
+                                Разморозить
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                variant="secondary"
+                                title="Временно заблокировать вход"
+                                onClick={() => setFreezeTarget(u)}
+                              >
+                                Заморозить
+                              </Button>
                             )}
                             <IconButton
                               size="sm"
@@ -634,6 +819,7 @@ export default function AdminPage() {
             </table>
           </div>
         </Tile>
+        )}
       </main>
 
       {/* Создание инвайт-кода */}
@@ -697,6 +883,33 @@ export default function AdminPage() {
             />
           </Field>
         </form>
+      </Modal>
+
+      <Modal
+        open={!!freezeTarget}
+        onClose={() => setFreezeTarget(null)}
+        title="Заморозить аккаунт"
+      >
+        <p className="text-[13.5px] text-muted leading-snug mb-4">
+          Вход по коду{" "}
+          <span className="font-mono text-ink">{freezeTarget?.secret_code}</span> будет
+          отклоняться до окончания срока. Баланс генераций сохраняется.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          {([
+            { label: "24 часа", value: 24 as const },
+            { label: "7 дней", value: 168 as const },
+            { label: "Бессрочно", value: "forever" as const },
+          ]).map((opt) => (
+            <Button
+              key={String(opt.value)}
+              variant="secondary"
+              onClick={() => freezeTarget && handleFreeze(freezeTarget.id, opt.value)}
+            >
+              {opt.label}
+            </Button>
+          ))}
+        </div>
       </Modal>
 
       <ConfirmDialog
