@@ -1,4 +1,4 @@
-import { CHAT_PRICES, ELEVEN_PAYG_USD_PER_1K, ELEVEN_SCENARIOS, type VideoCost } from "./pricing";
+import { chatPriceFor, ELEVEN_PAYG_USD_PER_1K, ELEVEN_SCENARIOS, type VideoCost } from "./pricing";
 
 /** Форматирование стоимости для архива и модалки. Без React и без сервера. */
 
@@ -46,13 +46,22 @@ export interface CostRow {
 /** Строки таблицы: статья · модель · количество · официальная цена · сумма. */
 export function costRows(cost: VideoCost): CostRow[] {
   const rows: CostRow[] = [];
-  const chat = CHAT_PRICES[cost.llm.model] || CHAT_PRICES["gpt-4o"];
+  // Проходы могут идти на разных моделях (план — gpt-5.1, монолог — gpt-4o): цена по каждой.
+  const models = Array.from(
+    new Set((cost.llm.breakdown || []).map((b) => (b.model || cost.llm.model).replace(/-\d{4}-\d{2}-\d{2}$/, "")))
+  );
+  const priceLine = (models.length ? models : [cost.llm.model])
+    .map((m) => {
+      const p = chatPriceFor(m);
+      return `${models.length > 1 ? m + ": " : ""}${formatUsd(p.inputPerM)} / ${formatUsd(p.outputPerM)} за 1M`;
+    })
+    .join("; ");
 
   rows.push({
     item: "Текст (сценарий)",
     model: cost.llm.model,
     quantity: `${formatInt(cost.llm.inputTokens)} вх. + ${formatInt(cost.llm.outputTokens)} исх. токенов, ${cost.llm.calls} вызов.`,
-    price: `${formatUsd(chat.inputPerM)} / ${formatUsd(chat.outputPerM)} за 1M`,
+    price: priceLine,
     total: formatUsd(cost.llm.usd, 4),
   });
 

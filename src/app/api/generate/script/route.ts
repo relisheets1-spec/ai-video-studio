@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { openai } from "@/lib/openai";
 import { getClientIp, checkOpenAiRateLimit, sanitizeScriptInput } from "@/lib/security";
 import { planFromMinutes } from "@/lib/plan";
 import { buildBlueprintPrompt, buildNarrationPrompt, buildRepairPrompt, type Blueprint } from "@/lib/script/prompts";
@@ -10,7 +9,7 @@ import { requireUser } from "@/lib/session";
 import { decryptSecret } from "@/lib/crypto";
 import { fetchSubscription } from "@/lib/elevenlabs";
 import { LlmUsage } from "@/lib/llm-usage";
-import { SCRIPT_MODEL as MODEL } from "@/lib/script/model";
+import { NARRATION_MODEL, SCRIPT_MODEL as MODEL, VISION_MODEL, scriptChat } from "@/lib/script/model";
 import { isReferenceAnalysis, type ReferenceAnalysis } from "@/lib/reference";
 
 /** Vercel fluid compute: до 300 с. Сценарий на 15 минут идёт двумя этапами. */
@@ -89,7 +88,7 @@ export async function POST(req: NextRequest) {
     const startedAt = new Date().toISOString();
     // Референс (необязательно): распознавание уже оплачено при загрузке — учитываем его токены здесь.
     const reference = parseReference(body?.reference, user.id);
-    if (reference) usage.add("reference", reference.usage);
+    if (reference) usage.add("reference", reference.usage, VISION_MODEL);
 
     // Остаток кредитов ElevenLabs до генерации — для точного «сколько ушло».
     const userKey = decryptSecret(user.elevenlabs_key_enc);
@@ -120,16 +119,16 @@ export async function POST(req: NextRequest) {
 
     // --- Проход 1: план ---
     const blueprintPrompt = buildBlueprintPrompt({ genre, language, plan, topic, reference: reference?.analysis ?? null });
-    const blueprintRes = await openai.chat.completions.create({
-      model: MODEL,
-      response_format: { type: "json_object" },
+    const blueprintRes = await scriptChat({
+      json: true,
       temperature: 0.9,
+      reasoning: "low",
       messages: [
         { role: "system", content: blueprintPrompt.system },
         { role: "user", content: blueprintPrompt.user },
       ],
     });
-    usage.add("blueprint", blueprintRes.usage);
+    usage.add("blueprint", blueprintRes.usage, blueprintRes.model);
 
     let blueprint: Blueprint = {};
     try {
@@ -163,12 +162,9 @@ export async function POST(req: NextRequest) {
         { role: "system", content: narrationPrompt.system },
         { role: "user", content: narrationPrompt.user },
       ];
-      const res = await openai.chat.completions.create({
-        model: MODEL,
-        temperature: 0.85,
-        messages: narrationMessages,
-      });
-      usage.add(totalParts > 1 ? `narration-${k}` : "narration", res.usage);
+      // Монолог пишет gpt-4o: он держит коридор объёма, gpt-5.1 пишет в 1,5–2 раза длиннее.
+      const res = await scriptChat({ model: NARRATION_MODEL, temperature: 0.85, messages: narrationMessages });
+      usage.add(totalParts > 1 ? `narration-${k}` : "narration", res.usage, res.model);
       pieces.push((res.choices[0].message.content || "").trim());
     }
     let narration = joinChunks(pieces);
@@ -178,12 +174,8 @@ export async function POST(req: NextRequest) {
     if (totalParts === 1 && written < plan.totalWords * 0.85) {
       narrationMessages.push({ role: "assistant", content: narration });
       narrationMessages.push({ role: "user", content: buildRepairPrompt(plan.askWords - written, plan.totalWords) });
-      const repaired = await openai.chat.completions.create({
-        model: MODEL,
-        temperature: 0.85,
-        messages: narrationMessages,
-      });
-      usage.add("repair", repaired.usage);
+      const repaired = await scriptChat({ model: NARRATION_MODEL, temperature: 0.85, messages: narrationMessages });
+      usage.add("repair", repaired.usage, repaired.model);
       const repairedText = repaired.choices[0].message.content || "";
       if (countWords(repairedText) > written) narration = repairedText;
     }

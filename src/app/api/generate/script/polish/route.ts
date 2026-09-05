@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { openai } from "@/lib/openai";
 import { MIN_SCENES, planFromMinutes } from "@/lib/plan";
 import { resolveStyleFragment } from "@/lib/content/styles";
 import { normalizeGenre } from "@/lib/content/genres";
@@ -27,7 +26,7 @@ import {
 import { logPipelineError } from "@/lib/pipeline-log";
 import { requireUser } from "@/lib/session";
 import { LlmUsage } from "@/lib/llm-usage";
-import { SCRIPT_MODEL as MODEL } from "@/lib/script/model";
+import { SCRIPT_MODEL as MODEL, scriptChat } from "@/lib/script/model";
 import { isReferenceAnalysis } from "@/lib/reference";
 
 export const maxDuration = 300;
@@ -108,15 +107,14 @@ export async function POST(req: NextRequest) {
       for (const chunk of chunks) {
         const chunkWords = countWords(chunk);
         try {
-          const editedRes = await openai.chat.completions.create({
-            model: MODEL,
+          const editedRes = await scriptChat({
             temperature: 0.3,
             messages: [
               { role: "system", content: editor.system },
               { role: "user", content: editor.userPrefix + chunk },
             ],
           });
-          usage.add("editor", editedRes.usage);
+          usage.add("editor", editedRes.usage, editedRes.model);
           const candidate = (editedRes.choices[0].message.content || "").trim();
           const candidateWords = countWords(candidate);
           const markersKept = countMarkers(candidate) === countMarkers(chunk);
@@ -150,15 +148,16 @@ export async function POST(req: NextRequest) {
         const target = Math.max(20, Math.round(chunkWords * ratio));
         const prompt = buildTrimPrompt({ language, targetWords: target, currentWords: chunkWords });
         try {
-          const res = await openai.chat.completions.create({
-            model: MODEL,
+          // reasoning low: без размышлений gpt-5.1 «сокращает» 652 → 638 слов, с low — до 532.
+          const res = await scriptChat({
             temperature: 0.3,
+            reasoning: "low",
             messages: [
               { role: "system", content: prompt.system },
               { role: "user", content: prompt.userPrefix + chunk },
             ],
           });
-          usage.add("trim", res.usage);
+          usage.add("trim", res.usage, res.model);
           const candidate = (res.choices[0].message.content || "").trim();
           const candidateWords = countWords(candidate);
           const markersKept = countMarkers(candidate) === countMarkers(chunk);
@@ -193,15 +192,14 @@ export async function POST(req: NextRequest) {
         const wordsA = countWords(chunk);
         const prompt = buildRhythmRepairPrompt({ language, words: wordsA, markers: countMarkers(chunk), stats: chunkStats });
         try {
-          const res = await openai.chat.completions.create({
-            model: MODEL,
+          const res = await scriptChat({
             temperature: 0.4,
             messages: [
               { role: "system", content: prompt.system },
               { role: "user", content: prompt.user + chunk },
             ],
           });
-          usage.add("rhythm", res.usage);
+          usage.add("rhythm", res.usage, res.model);
           const candidate = (res.choices[0].message.content || "").trim();
           const wordsB = countWords(candidate);
           const statsB = rhythmStats(candidate);
@@ -239,16 +237,15 @@ export async function POST(req: NextRequest) {
 
     // --- Визуальные промпты ---
     const visualsPrompt = buildVisualsPrompt({ fragments, blueprint, styleFragment, orientation, fragmentBeats, reference });
-    const visualsRes = await openai.chat.completions.create({
-      model: MODEL,
-      response_format: { type: "json_object" },
+    const visualsRes = await scriptChat({
+      json: true,
       temperature: 0.6,
       messages: [
         { role: "system", content: visualsPrompt.system },
         { role: "user", content: visualsPrompt.user },
       ],
     });
-    usage.add("visuals", visualsRes.usage);
+    usage.add("visuals", visualsRes.usage, visualsRes.model);
 
     let visuals: any[] = [];
     let visualsWorld: Blueprint["world"] | undefined;

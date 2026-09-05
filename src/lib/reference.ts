@@ -1,5 +1,5 @@
 import { openai } from "./openai";
-import { SCRIPT_MODEL } from "./script/model";
+import { VISION_MODEL } from "./script/model";
 
 /**
  * Референс персонажа/объекта. GPT-4o смотрит на картинку и описывает для
@@ -37,7 +37,7 @@ export function isReferenceAnalysis(v: unknown): v is ReferenceAnalysis {
 
 export async function analyzeReference(imageUrl: string): Promise<{ analysis: ReferenceAnalysis; usage: ReferenceUsage }> {
   const res = await openai.chat.completions.create({
-    model: SCRIPT_MODEL,
+    model: VISION_MODEL,
     temperature: 0.2,
     response_format: { type: "json_object" },
     messages: [

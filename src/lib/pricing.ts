@@ -91,8 +91,17 @@ export type ScenarioId = keyof typeof ELEVEN_SCENARIOS;
 
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
 
+/** Цена по id модели: точное совпадение, иначе самый длинный префикс (gpt-5.1-2025-11-13 → gpt-5.1). */
+export function chatPriceFor(model: string): { inputPerM: number; outputPerM: number } {
+  if (CHAT_PRICES[model]) return CHAT_PRICES[model];
+  const key = Object.keys(CHAT_PRICES)
+    .filter((k) => model.startsWith(k))
+    .sort((a, b) => b.length - a.length)[0];
+  return key ? CHAT_PRICES[key] : CHAT_PRICES["gpt-4o"];
+}
+
 export function usdForChat(model: string, promptTokens: number, completionTokens: number): number {
-  const price = CHAT_PRICES[model] || CHAT_PRICES["gpt-4o"];
+  const price = chatPriceFor(model);
   return round4((promptTokens / 1e6) * price.inputPerM + (completionTokens / 1e6) * price.outputPerM);
 }
 
@@ -151,12 +160,13 @@ export function estimateFilmCost(input: { scenesCount: number; estimatedChars: n
 // ---------------------------------------------------------------------------
 
 export interface LlmUsageJson {
+  /** Подпись использованных моделей, например "gpt-5.1 + gpt-4o". */
   model: string;
   calls: number;
   inputTokens: number;
   outputTokens: number;
   usd: number;
-  breakdown: Array<{ pass: string; inputTokens: number; outputTokens: number }>;
+  breakdown: Array<{ pass: string; model?: string; inputTokens: number; outputTokens: number; usd?: number }>;
 }
 
 export interface TtsFrameUsage {
