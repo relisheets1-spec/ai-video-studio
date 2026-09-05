@@ -606,10 +606,13 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
               />
             ) : (
               <div
-                className="w-full rounded-control bg-black/40 border border-white/[0.08] flex flex-col items-center justify-center gap-3 p-6 text-center select-none mx-auto"
+                className="rounded-control bg-black/40 border border-white/[0.08] flex flex-col items-center justify-center gap-3 p-6 text-center select-none mx-auto"
                 style={{
                   aspectRatio: aspectRatioCss(orientation),
-                  maxHeight: orientation === "portrait" ? "min(70vh, 620px)" : undefined,
+                  ...(orientation === "portrait"
+                    ? { height: "min(70vh, 620px)", width: "auto" }
+                    : { width: "100%", height: "auto" }),
+                  maxWidth: "100%",
                 }}
               >
                 <span className="grid place-items-center w-12 h-12 rounded-control bg-white/[0.05] text-white/40">
