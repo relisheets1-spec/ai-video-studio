@@ -81,7 +81,9 @@ export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}
   const token = getStudioToken();
   const headers = new Headers(init.headers || {});
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  // FormData (загрузка референса) должна уйти как multipart — браузер сам ставит boundary.
+  const isForm = typeof FormData !== "undefined" && init.body instanceof FormData;
+  if (init.body && !isForm && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
 
   const res = await fetch(input, { ...init, headers });
 
