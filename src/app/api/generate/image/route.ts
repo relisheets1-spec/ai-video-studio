@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
+import { imageApiSize, normalizeOrientation, promptAspectHint } from "@/lib/orientation";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
 export async function POST(req: NextRequest) {
   try {
-    const { videoId, sceneId, visualPrompt, style = "cinematic photorealistic" } = await req.json();
+    const { videoId, sceneId, visualPrompt, style = "cinematic photorealistic", orientation } = await req.json();
+    const frameOrientation = normalizeOrientation(orientation);
 
     if (!videoId || sceneId === undefined || !visualPrompt) {
       return NextResponse.json({ error: "videoId, sceneId и visualPrompt обязательны" }, { status: 400 });
@@ -31,9 +33,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Сессия генерации видео истекла (более 2 часов)" }, { status: 403 });
     }
 
-    const cleanPrompt = `${String(visualPrompt).slice(0, 500)}. Style: ${String(style).slice(0, 80)}, 16:9 widescreen composition, cinematic lighting, masterpiece.`;
+    const cleanPrompt = `${String(visualPrompt).slice(0, 500)}. Style: ${String(style).slice(0, 80)}, ${promptAspectHint(frameOrientation)}, cinematic lighting, masterpiece.`;
 
-    // Call OpenAI image generation using supported gpt-image-1-mini with medium quality and widescreen 1536x1024
+    // gpt-image-1-mini: 1536x1024 (гориз.) или 1024x1536 (верт.) — это 3:2 / 2:3,
+    // а не 16:9 / 9:16, поэтому на холсте экспорта обязателен cover-fit.
     const openAiRes = await fetch("https://api.openai.com/v1/images/generations", {
       method: "POST",
       headers: {
@@ -44,7 +47,7 @@ export async function POST(req: NextRequest) {
         model: "gpt-image-1-mini",
         prompt: cleanPrompt,
         quality: "medium",
-        size: "1536x1024",
+        size: imageApiSize(frameOrientation),
         n: 1,
       }),
     });

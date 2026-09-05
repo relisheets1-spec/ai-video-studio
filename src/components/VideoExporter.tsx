@@ -12,78 +12,31 @@ import {
 } from "@phosphor-icons/react";
 import { Scene } from "@/lib/types";
 import { Muxer, ArrayBufferTarget } from "mp4-muxer";
+import {
+  FRAME_SIZES,
+  normalizeOrientation,
+  orientationLabel,
+  type Orientation,
+} from "@/lib/orientation";
+import {
+  buildCues,
+  computeSubtitleLayout,
+  cueIndexAt,
+  estimateSceneSeconds,
+  wrapLines,
+  SUBTITLE_BG,
+  SUBTITLE_FG,
+  SUBTITLE_SHADOW,
+} from "@/lib/subtitles";
 
 interface VideoExporterProps {
   title: string;
   scenes: Scene[];
+  orientation?: Orientation;
   onClose: () => void;
 }
 
-// Robust NLP sentence splitter for exported video
-function splitNarrationIntoSentences(text: string): string[] {
-  if (!text) return [];
-  const clean = text.trim();
-  if (!clean) return [];
-
-  // 1. Protect decimal numbers (e.g. 1.5 -> 1\uFFF05)
-  let protectedText = clean.replace(/(\d+)\.(\d+)/g, "$1\uFFF0$2");
-
-  // 2. Protect known abbreviation patterns
-  protectedText = protectedText.replace(
-    /\b(г|гг|в|вв|н\.э|до н\.э|т\.е|т\.д|т\.п|млн|млрд|тыс|руб|долл|ж|жж|ғ|ғғ)\./gi,
-    (m) => m.replace(/\./g, "\uFFF0")
-  );
-
-  // Also protect dots followed by lowercase letters/digits
-  protectedText = protectedText.replace(/\.(?=\s*[а-яёәғқңөұүһa-z0-9])/g, "\uFFF0");
-
-  // 3. Match sentences ending in [.!?…] followed by optional quotes/brackets or end of string
-  const regex = /[^.!?…\n]+(?:[.!?…]+["'»”’\)\]]*(?=\s|$)|$)/g;
-  const rawSentences: string[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(protectedText)) !== null) {
-    const s = match[0].replace(/\uFFF0/g, ".").trim();
-    if (s) rawSentences.push(s);
-  }
-
-  // 4. If a piece has no punctuation and is long (> 16 words), chunk it gracefully
-  const finalSentences: string[] = [];
-  for (const sent of rawSentences) {
-    const words = sent.split(/\s+/).filter(Boolean);
-    if (words.length > 16 && !/[.!?…]/.test(sent)) {
-      for (let i = 0; i < words.length; i += 8) {
-        finalSentences.push(words.slice(i, i + 8).join(" "));
-      }
-    } else {
-      finalSentences.push(sent);
-    }
-  }
-
-  return finalSentences.length > 0 ? finalSentences : [clean];
-}
-
-function getActiveSentence(text: string, elapsedSec: number, sceneDuration: number): string {
-  if (!text) return "";
-  const sentences = splitNarrationIntoSentences(text);
-  if (sentences.length <= 1) return sentences[0] || text.trim();
-
-  const weights = sentences.map((s) => Math.max(s.length, 12));
-  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
-  const dur = Math.max(sceneDuration, 1);
-  const progress = Math.min(0.999, Math.max(0, elapsedSec / dur));
-  const currentThreshold = progress * totalWeight;
-
-  let accumulated = 0;
-  for (let i = 0; i < sentences.length; i++) {
-    accumulated += weights[i];
-    if (currentThreshold <= accumulated || i === sentences.length - 1) {
-      return sentences[i];
-    }
-  }
-  return sentences[0];
-}
-
-export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onClose }) => {
+export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, orientation, onClose }) => {
   const [status, setStatus] = useState<"idle" | "rendering" | "finished" | "error">("idle");
   const [progressPercent, setProgressPercent] = useState(0);
   const [statusText, setStatusText] = useState("");
@@ -92,11 +45,15 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
 
   const cancelRef = useRef(false);
 
-  // Full HD 1080p @ 30 FPS
-  const WIDTH = 1920;
-  const HEIGHT = 1080;
+  // Кадр 1080p @ 30 FPS. Ориентацию берём из сцен: старые видео её не имеют
+  // и корректно читаются как 16:9 — именно так они и были сгенерированы.
+  const frameOrientation = normalizeOrientation(orientation ?? scenes[0]?.orientation);
+  const { w: WIDTH, h: HEIGHT } = FRAME_SIZES[frameOrientation];
   const FPS = 30;
   const AUDIO_SAMPLE_RATE = 44100;
+
+  // Одна разметка на весь экспорт — те же пропорции, что и в превью плеера.
+  const layout = computeSubtitleLayout(WIDTH, HEIGHT);
 
   const startExport = async () => {
     try {
@@ -207,7 +164,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
           });
 
           let audioBuffer: AudioBuffer | null = null;
-          let durationSec = scene.durationEstimate || 19;
+          let durationSec = scene.durationEstimate || estimateSceneSeconds(scene.narration);
           if (scene.audioUrl) {
             try {
               const res = await fetch(scene.audioUrl);
@@ -281,19 +238,25 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
         }
         globalAudioSamples += audioBuffer.length;
 
-        // Subtitle wrapping setup:
-        // ~70% screen width = 1920 * 0.70 = 1344 px
-        const MAX_SUBTITLE_WIDTH = Math.round(WIDTH * 0.70);
-        ctx.font = "bold 40px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-        const lineHeight = 52;
-
-        let lastActiveSentence = "";
-        let cachedLines: string[] = [];
-        let cachedCardWidth = 0;
-        let cachedCardHeight = 0;
-        let cachedCardX = 0;
-        let cachedCardY = 0;
-        let cachedStartY = 0;
+        // Субтитры: список реплик с таймкодами считается ОДИН раз на сцену.
+        // Раньше getActiveSentence() звался на каждый кодируемый кадр, то есть
+        // 30 x длительность раз прогонял три регулярки.
+        ctx.font = layout.fontCss;
+        const measure = (str: string) => ctx.measureText(str).width;
+        const cues = scene.narration ? buildCues(scene.narration, durationSec) : [];
+        const cueBoxes = cues.map((cue) => {
+          const lines = wrapLines(cue.text, layout.maxTextW, measure);
+          const widest = lines.reduce((max, line) => Math.max(max, measure(line)), 0);
+          const cardW = Math.min(layout.maxCardW, widest + layout.padX * 2);
+          const cardH = lines.length * layout.lineHeight + layout.padY * 2;
+          return {
+            lines,
+            cardW,
+            cardH,
+            cardX: (WIDTH - cardW) / 2,
+            cardY: HEIGHT - layout.bottom - cardH,
+          };
+        });
 
         const totalFrames = Math.max(1, Math.round(durationSec * FPS));
 
@@ -311,84 +274,54 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
           ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
           if (img.complete && img.naturalWidth > 0) {
-            ctx.save();
-            ctx.translate(WIDTH / 2, HEIGHT / 2);
-            ctx.scale(zoomScale, zoomScale);
-            ctx.drawImage(img, -WIDTH / 2, -HEIGHT / 2, WIDTH, HEIGHT);
-            ctx.restore();
+            // Вписывание по короткой стороне (cover), а не растяжение под холст:
+            // gpt-image-1-mini отдаёт 3:2 / 2:3, поэтому растяжение исказило бы кадр.
+            // DOM в превью уже делает object-cover — приводим холст к нему.
+            const cover = Math.max(WIDTH / img.naturalWidth, HEIGHT / img.naturalHeight);
+            const scale = cover * zoomScale;
+            const dw = img.naturalWidth * scale;
+            const dh = img.naturalHeight * scale;
+            ctx.drawImage(img, (WIDTH - dw) / 2, (HEIGHT - dh) / 2, dw, dh);
           }
 
-          // Bottom Vignette
-          const gradient = ctx.createLinearGradient(0, HEIGHT - 360, 0, HEIGHT);
-          gradient.addColorStop(0, "rgba(10, 11, 14, 0)");
-          gradient.addColorStop(1, "rgba(10, 11, 14, 0.88)");
+          // Нижняя шторка — те же пропорции, что и в превью
+          const gradient = ctx.createLinearGradient(0, HEIGHT - layout.scrimH, 0, HEIGHT);
+          gradient.addColorStop(0, "rgba(0, 0, 0, 0)");
+          gradient.addColorStop(1, "rgba(0, 0, 0, 0.72)");
           ctx.fillStyle = gradient;
-          ctx.fillRect(0, HEIGHT - 360, WIDTH, 360);
+          ctx.fillRect(0, HEIGHT - layout.scrimH, WIDTH, layout.scrimH);
 
-          // Sentence-by-sentence subtitle rendering
-          if (scene.narration) {
-            const currentSentence = getActiveSentence(scene.narration, elapsedSec, durationSec);
+          // Субтитры: одна реплика за раз, позиция и кегль пропорциональны кадру
+          const activeCue = cueIndexAt(cues, elapsedSec);
+          const box = activeCue >= 0 ? cueBoxes[activeCue] : null;
 
-            if (currentSentence !== lastActiveSentence) {
-              lastActiveSentence = currentSentence;
-              cachedLines = [];
-
-              if (currentSentence) {
-                const words = currentSentence.trim().split(/\s+/);
-                let currLine = "";
-                for (const w of words) {
-                  const test = currLine ? `${currLine} ${w}` : w;
-                  if (ctx.measureText(test).width > MAX_SUBTITLE_WIDTH - 60) {
-                    if (currLine) cachedLines.push(currLine);
-                    currLine = w;
-                  } else {
-                    currLine = test;
-                  }
-                }
-                if (currLine) cachedLines.push(currLine);
-
-                let maxMeasured = 0;
-                for (const line of cachedLines) {
-                  const w = ctx.measureText(line).width;
-                  if (w > maxMeasured) maxMeasured = w;
-                }
-
-                const padX = 36;
-                const padY = 20;
-                cachedCardWidth = Math.min(MAX_SUBTITLE_WIDTH, maxMeasured + padX * 2);
-                cachedCardHeight = cachedLines.length * lineHeight + padY * 2;
-                cachedCardX = (WIDTH - cachedCardWidth) / 2;
-                cachedCardY = HEIGHT - 120 - cachedCardHeight;
-                cachedStartY = cachedCardY + padY + 32;
-              }
+          if (box && box.lines.length > 0) {
+            ctx.save();
+            // Подложка запекается в файл и тему не наследует — только литералы.
+            // Обводки нет намеренно: 1.5px stroke по roundRect давал рваные
+            // скругления, а залитый roundRect сглаживается чисто.
+            ctx.fillStyle = SUBTITLE_BG;
+            ctx.beginPath();
+            if ((ctx as any).roundRect) {
+              (ctx as any).roundRect(box.cardX, box.cardY, box.cardW, box.cardH, layout.radius);
+            } else {
+              ctx.rect(box.cardX, box.cardY, box.cardW, box.cardH);
             }
+            ctx.fill();
 
-            if (cachedLines.length > 0) {
-              ctx.save();
-              // Подложка субтитров — тоже запекается в файл, тему не наследует.
-              ctx.fillStyle = "rgba(10, 12, 18, 0.88)";
-              ctx.strokeStyle = "rgba(255, 255, 255, 0.18)";
-              ctx.lineWidth = 1.5;
-              ctx.beginPath();
-              if ((ctx as any).roundRect) {
-                (ctx as any).roundRect(cachedCardX, cachedCardY, cachedCardWidth, cachedCardHeight, 18);
-              } else {
-                ctx.rect(cachedCardX, cachedCardY, cachedCardWidth, cachedCardHeight);
-              }
-              ctx.fill();
-              ctx.stroke();
+            ctx.font = layout.fontCss;
+            ctx.fillStyle = SUBTITLE_FG;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.shadowColor = SUBTITLE_SHADOW;
+            ctx.shadowBlur = layout.shadowBlur;
+            ctx.shadowOffsetY = layout.shadowOffsetY;
 
-              ctx.font = "bold 40px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
-              ctx.fillStyle = "#FFFFFF";
-              ctx.textAlign = "center";
-              ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
-              ctx.shadowBlur = 8;
-
-              for (let lIdx = 0; lIdx < cachedLines.length; lIdx++) {
-                ctx.fillText(cachedLines[lIdx], WIDTH / 2, cachedStartY + lIdx * lineHeight);
-              }
-              ctx.restore();
+            for (let lIdx = 0; lIdx < box.lines.length; lIdx++) {
+              const baselineY = box.cardY + layout.padY + layout.lineHeight * (lIdx + 0.5);
+              ctx.fillText(box.lines[lIdx], WIDTH / 2, baselineY);
             }
+            ctx.restore();
           }
 
           // Hardware Frame Encode
@@ -456,7 +389,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
             </div>
             <div>
               <h3 className="font-extrabold text-sm text-white tracking-tight">Экспорт видео в MP4</h3>
-              <p className="text-[11px] text-zinc-400">Full HD 1080p @ 30 FPS • Субтитры по одному предложению</p>
+              <p className="text-[11px] text-zinc-400">{WIDTH}×{HEIGHT} ({orientationLabel(frameOrientation)}) @ 30 FPS • Субтитры по одному предложению</p>
             </div>
           </div>
           <button
@@ -521,7 +454,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
             </div>
 
             <p className="text-[11px] text-zinc-400 text-center">
-              Аппаратная сборка на GPU в формате 1080p @ 30 FPS
+              Аппаратная сборка на GPU: {WIDTH}×{HEIGHT} ({orientationLabel(frameOrientation)}) @ 30 FPS
             </p>
           </div>
         )}
@@ -541,7 +474,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, onC
 
             <a
               href={downloadUrl}
-              download={`${title.replace(/[^a-zA-Z0-9а-яА-ЯёЁ_-]/g, "_")}_1080p.mp4`}
+              download={`${title.replace(/[^a-zA-Z0-9а-яА-ЯёЁ_-]/g, "_")}_${orientationLabel(frameOrientation).replace(":", "x")}.mp4`}
               className="w-full py-3.5 rounded-xl bg-accent hover:bg-accent-hover active:scale-[0.99] text-accent-ink font-black text-sm shadow-xl transition-all flex items-center justify-center gap-2 cursor-pointer block"
             >
               <DownloadSimple size={18} weight="bold" />

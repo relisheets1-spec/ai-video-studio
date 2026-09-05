@@ -1,3 +1,7 @@
+import type { Orientation } from "./orientation";
+
+export type { Orientation };
+
 export interface AccessCode {
   id: string;
   user_name: string;
@@ -13,11 +17,18 @@ export interface Scene {
   id: number;
   title: string;
   narration: string; // The spoken text
-  visualPrompt: string; // The prompt for DALL-E
+  visualPrompt: string; // The prompt for the image model
   audioUrl?: string; // Supabase public URL of audio MP3
   imageUrl?: string; // Supabase public URL of generated image
-  durationEstimate?: number; // Estimated seconds (e.g. 25-30s)
-  actualDuration?: number;
+  durationEstimate?: number; // Serverside guess, used only until audio metadata loads
+  actualDuration?: number; // Measured length of the decoded MP3
+  /**
+   * Ориентация кадра. Хранится ВНУТРИ scenes jsonb, а не отдельной колонкой:
+   * в репозитории нет миграций, схема заведена руками, и вставка с
+   * несуществующей колонкой уронила бы каждую генерацию.
+   * Старые видео поля не имеют — читаются как "landscape", что для них верно.
+   */
+  orientation?: Orientation;
 }
 
 export interface VideoGeneration {

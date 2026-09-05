@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { normalizeOrientation, type Orientation } from "./orientation";
 
 // In-memory sliding window rate-limiter
 interface RateLimitEntry {
@@ -83,10 +84,11 @@ export function sanitizeScriptInput(data: any): {
     voice: string;
     targetMinutes: number;
     language: "ru" | "kz";
+    orientation: Orientation;
     secretCode?: string;
   };
 } {
-  const { topic, genre, style, voice, targetMinutes, language, secretCode } = data || {};
+  const { topic, genre, style, voice, targetMinutes, language, orientation, secretCode } = data || {};
 
   if (!topic || typeof topic !== "string") {
     return { valid: false, error: "Укажите тему сюжета" };
@@ -105,6 +107,7 @@ export function sanitizeScriptInput(data: any): {
   const chosenVoice = typeof voice === "string" && voice.length > 0 ? voice.slice(0, 80) : "nPczCjzI2devNBz1zQrb";
   const cleanStyle = typeof style === "string" ? style.slice(0, 100) : "cinematic photorealistic 8k";
   const chosenLang: "ru" | "kz" = language === "kz" ? "kz" : "ru";
+  const chosenOrientation = normalizeOrientation(orientation);
   const cleanSecretCode = typeof secretCode === "string" ? secretCode.trim() : undefined;
 
   const numMinutes = Number(targetMinutes);
@@ -124,6 +127,7 @@ export function sanitizeScriptInput(data: any): {
       voice: chosenVoice,
       targetMinutes: chosenMinutes,
       language: chosenLang,
+      orientation: chosenOrientation,
       secretCode: cleanSecretCode,
     },
   };

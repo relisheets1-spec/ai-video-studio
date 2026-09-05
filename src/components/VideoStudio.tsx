@@ -5,6 +5,8 @@ import {
   Play,
   Clock,
   Sliders,
+  FrameCorners,
+  DeviceMobile,
   FilmStrip,
   Key,
   ArrowCounterClockwise,
@@ -21,6 +23,7 @@ import {
   Trash,
 } from "@phosphor-icons/react";
 import { Scene, VideoGeneration, VoiceOption } from "@/lib/types";
+import { aspectRatioCss, normalizeOrientation, type Orientation } from "@/lib/orientation";
 import { VideoPlayer } from "./VideoPlayer";
 import { VideoExporter } from "./VideoExporter";
 import { VoiceSelector } from "./VoiceSelector";
@@ -130,6 +133,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   const [selectedStyle, setSelectedStyle] = useState(STYLE_OPTIONS[0].id);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("s0phbFBBp708ZeIy8oGx");
   const [targetMinutes, setTargetMinutes] = useState(0.5); // Default: test duration
+  // Ориентация кадра. По умолчанию 16:9 — так были сгенерированы все прошлые видео.
+  const [orientation, setOrientation] = useState<Orientation>("landscape");
 
   // Personal ElevenLabs key
   const [userKey, setUserKey] = useState("");
@@ -261,6 +266,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
           voice: selectedVoice,
           language,
           targetMinutes,
+          orientation,
           userId: user.id,
           secretCode: user.secretCode,
         }),
@@ -324,6 +330,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             sceneId: scene.id,
             visualPrompt: scene.visualPrompt,
             style: selectedStyle,
+            orientation,
           }),
         });
 
@@ -383,6 +390,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     { value: 0.5, label: "Быстрый тест", badge: "4 кадра", desc: "4 кадра · ~25 сек · $0.05" },
     { value: 8, label: "Полный фильм", badge: "25 кадров", desc: "25 кадров · ~8 мин · $0.37" },
   ];
+
+  const currentOrientation = currentVideo
+    ? normalizeOrientation(currentVideo.scenes[0]?.orientation)
+    : orientation;
 
   const activeGenre = GENRE_OPTIONS.find((g) => g.id === selectedGenre);
   const activeStyle = STYLE_OPTIONS.find((st) => st.id === selectedStyle);
@@ -540,6 +551,27 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
               </div>
             </Tile>
           </div>
+
+          <Tile title="Формат кадра" icon={<FrameCorners size={20} />}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <SelectCard
+                layout="horizontal"
+                selected={orientation === "landscape"}
+                onClick={() => setOrientation("landscape")}
+                icon={<FrameCorners size={20} />}
+                title="Горизонтальный 16:9"
+                meta="YouTube · 1920×1080"
+              />
+              <SelectCard
+                layout="horizontal"
+                selected={orientation === "portrait"}
+                onClick={() => setOrientation("portrait")}
+                icon={<DeviceMobile size={20} />}
+                title="Вертикальный 9:16"
+                meta="Reels и Shorts · 1080×1920"
+              />
+            </div>
+          </Tile>
         </form>
 
         {/* ================= ПРАВО: монитор и архив ================= */}
@@ -567,10 +599,17 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
               <VideoPlayer
                 title={currentVideo.title}
                 scenes={currentVideo.scenes}
+                orientation={currentOrientation}
                 onExportClick={() => setShowExporter(true)}
               />
             ) : (
-              <div className="aspect-video w-full rounded-control bg-black/40 border border-white/[0.08] flex flex-col items-center justify-center gap-3 p-6 text-center select-none">
+              <div
+                className="w-full rounded-control bg-black/40 border border-white/[0.08] flex flex-col items-center justify-center gap-3 p-6 text-center select-none mx-auto"
+                style={{
+                  aspectRatio: aspectRatioCss(orientation),
+                  maxHeight: orientation === "portrait" ? "min(70vh, 620px)" : undefined,
+                }}
+              >
                 <span className="grid place-items-center w-12 h-12 rounded-control bg-white/[0.05] text-white/40">
                   <FilmStrip size={24} />
                 </span>
@@ -679,6 +718,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 {activeGenre && <Badge tone="outline">{activeGenre.label}</Badge>}
                 {activeStyle && <Badge tone="outline">{activeStyle.label}</Badge>}
                 {activeDuration && <Badge tone="outline">{activeDuration.badge}</Badge>}
+                <Badge tone="outline">{orientation === "portrait" ? "9:16" : "16:9"}</Badge>
 
               </div>
 
@@ -701,6 +741,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
         <VideoExporter
           title={currentVideo.title}
           scenes={currentVideo.scenes}
+          orientation={currentOrientation}
           onClose={() => setShowExporter(false)}
         />
       )}

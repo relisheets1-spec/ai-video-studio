@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   Play,
   Pause,
@@ -17,83 +17,31 @@ import {
   CaretRight,
 } from "@phosphor-icons/react";
 import { Scene } from "@/lib/types";
+import {
+  aspectRatioCss,
+  normalizeOrientation,
+  type Orientation,
+} from "@/lib/orientation";
+import {
+  buildCues,
+  computeSubtitleLayout,
+  cueIndexAt,
+  estimateSceneSeconds,
+  wrapLines,
+  SUBTITLE_BG,
+  SUBTITLE_SHADOW,
+  SUBTITLE_FONT_STACK,
+  SUBTITLE_FONT_WEIGHT,
+} from "@/lib/subtitles";
 
 interface VideoPlayerProps {
   title: string;
   scenes: Scene[];
+  orientation?: Orientation;
   onExportClick?: () => void;
 }
 
-// Robust NLP sentence splitter for RU & KZ narration:
-// - Preserves decimal numbers (e.g. 1.5 млн)
-// - Preserves abbreviations (г., н.э., т.е., млрд., руб.)
-// - Preserves closing quotation marks and brackets
-// - Gracefully chunks sentences without punctuation to prevent massive blocks
-export function splitNarrationIntoSentences(text: string): string[] {
-  if (!text) return [];
-  const clean = text.trim();
-  if (!clean) return [];
-
-  // 1. Protect decimal numbers (e.g. 1.5 -> 1\uFFF05)
-  let protectedText = clean.replace(/(\d+)\.(\d+)/g, "$1\uFFF0$2");
-
-  // 2. Protect known abbreviation patterns
-  protectedText = protectedText.replace(
-    /\b(г|гг|в|вв|н\.э|до н\.э|т\.е|т\.д|т\.п|млн|млрд|тыс|руб|долл|ж|жж|ғ|ғғ)\./gi,
-    (m) => m.replace(/\./g, "\uFFF0")
-  );
-
-  // Also protect dots followed by lowercase letters/digits (continuation of clause/abbreviation)
-  protectedText = protectedText.replace(/\.(?=\s*[а-яёәғқңөұүһa-z0-9])/g, "\uFFF0");
-
-  // 3. Match sentences ending in [.!?…] followed by optional quotes/brackets or end of string
-  const regex = /[^.!?…\n]+(?:[.!?…]+["'»”’\)\]]*(?=\s|$)|$)/g;
-  const rawSentences: string[] = [];
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(protectedText)) !== null) {
-    const s = match[0].replace(/\uFFF0/g, ".").trim();
-    if (s) rawSentences.push(s);
-  }
-
-  // 4. If a piece has no punctuation and is long (> 16 words), chunk it gracefully
-  const finalSentences: string[] = [];
-  for (const sent of rawSentences) {
-    const words = sent.split(/\s+/).filter(Boolean);
-    if (words.length > 16 && !/[.!?…]/.test(sent)) {
-      for (let i = 0; i < words.length; i += 8) {
-        finalSentences.push(words.slice(i, i + 8).join(" "));
-      }
-    } else {
-      finalSentences.push(sent);
-    }
-  }
-
-  return finalSentences.length > 0 ? finalSentences : [clean];
-}
-
-// Determine active sentence proportionally to playback progress in current scene
-export function getActiveSentence(text: string, elapsedSec: number, sceneDuration: number): string {
-  if (!text) return "";
-  const sentences = splitNarrationIntoSentences(text);
-  if (sentences.length <= 1) return sentences[0] || text.trim();
-
-  const weights = sentences.map((s) => Math.max(s.length, 12));
-  const totalWeight = weights.reduce((sum, w) => sum + w, 0);
-  const dur = Math.max(sceneDuration, 1);
-  const progress = Math.min(0.999, Math.max(0, elapsedSec / dur));
-  const currentThreshold = progress * totalWeight;
-
-  let accumulated = 0;
-  for (let i = 0; i < sentences.length; i++) {
-    accumulated += weights[i];
-    if (currentThreshold <= accumulated || i === sentences.length - 1) {
-      return sentences[i];
-    }
-  }
-  return sentences[0];
-}
-
-export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExportClick }) => {
+export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orientation, onExportClick }) => {
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -106,7 +54,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [hoverTooltip, setHoverTooltip] = useState<{ sec: number; x: number; sceneTitle: string } | null>(null);
 
+  // Реальные длительности из метаданных MP3. Раньше плеер тактовал субтитры от
+  // серверной оценки (длина/13), а экспортёр — от декодированного аудио, поэтому
+  // превью и файл расходились. Теперь обе стороны считают от одного числа.
+  const [measuredDurations, setMeasuredDurations] = useState<number[]>([]);
+  // Размер кадра в пикселях — из него считается кегль субтитров.
+  const [frameBox, setFrameBox] = useState({ w: 0, h: 0 });
+  const [controlsVisible, setControlsVisible] = useState(true);
+
+  const frameOrientation = normalizeOrientation(orientation ?? scenes[0]?.orientation);
+  const frameAspect = aspectRatioCss(frameOrientation);
+
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const fsWrapperRef = useRef<HTMLDivElement | null>(null);
+  const pseudoFsRef = useRef(false);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const measureCanvasRef = useRef<CanvasRenderingContext2D | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const carouselRef = useRef<HTMLDivElement | null>(null);
   const audioCacheRef = useRef<Map<number, HTMLAudioElement>>(new Map());
@@ -117,6 +80,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
 
   const currentSceneIndexRef = useRef(0);
   currentSceneIndexRef.current = currentSceneIndex;
+  const isMutedRef = useRef(false);
+  isMutedRef.current = isMuted;
+
+  // Сигнатура источников аудио: меняется только при реальной смене дорожек.
+  const audioSignature = scenes.map((s) => s.audioUrl || "").join("|");
+
+  /** Единственный источник длительности сцены: измеренная > серверная > оценка. */
+  const durOf = useCallback(
+    (index: number) =>
+      measuredDurations[index] ||
+      scenes[index]?.actualDuration ||
+      scenes[index]?.durationEstimate ||
+      estimateSceneSeconds(scenes[index]?.narration),
+    [measuredDurations, scenes]
+  );
 
   // Preload all scene images into memory immediately
   useEffect(() => {
@@ -174,7 +152,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
         const audio = new Audio();
         audio.preload = "auto";
         audio.src = scene.audioUrl;
-        audio.muted = isMuted;
+        audio.muted = isMutedRef.current;
 
         audio.onwaiting = () => {
           if (currentSceneIndexRef.current === index) {
@@ -194,6 +172,17 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
           }
         };
 
+        audio.onloadedmetadata = () => {
+          const d = audio.duration;
+          if (!Number.isFinite(d) || d <= 0) return;
+          setMeasuredDurations((prev) => {
+            if (Math.abs((prev[index] ?? 0) - d) < 0.01) return prev;
+            const next = [...prev];
+            next[index] = d;
+            return next;
+          });
+        };
+
         audioCacheRef.current.set(index, audio);
       }
     });
@@ -206,9 +195,11 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
       audioCacheRef.current.clear();
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [scenes, handleAdvanceScene, isMuted]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioSignature, handleAdvanceScene]);
 
   // Sync mute state across all cached audio elements
+  // (звук синхронизируется отдельно — пересоздавать Audio ради mute не нужно)
   useEffect(() => {
     audioCacheRef.current.forEach((audio) => {
       audio.muted = isMuted;
@@ -216,13 +207,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
   }, [isMuted]);
 
   const currentScene = scenes[currentSceneIndex] || scenes[0];
-  const sceneDuration = currentScene?.durationEstimate || 17;
+  const sceneDuration = durOf(currentSceneIndex);
 
-  const totalDuration = scenes.reduce((acc, s) => acc + (s.durationEstimate || 17), 0);
+  const totalDuration = scenes.reduce((acc, _s, i) => acc + durOf(i), 0);
 
   const elapsedPriorScenes = scenes
     .slice(0, currentSceneIndex)
-    .reduce((acc, s) => acc + (s.durationEstimate || 17), 0);
+    .reduce((acc, _s, i) => acc + durOf(i), 0);
   const overallElapsed = elapsedPriorScenes + sceneElapsed;
 
   const formatTime = (secs: number) => {
@@ -318,7 +309,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
     const clamped = Math.max(0, Math.min(totalDuration, targetSec));
     let accumulated = 0;
     for (let i = 0; i < scenes.length; i++) {
-      const dur = scenes[i].durationEstimate || 17;
+      const dur = durOf(i);
       if (clamped <= accumulated + dur || i === scenes.length - 1) {
         const offsetInScene = Math.max(0, clamped - accumulated);
         jumpToScene(i, offsetInScene);
@@ -336,7 +327,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
 
     let accumulated = 0;
     for (let i = 0; i < scenes.length; i++) {
-      const dur = scenes[i].durationEstimate || 17;
+      const dur = durOf(i);
       if (targetSec <= accumulated + dur || i === scenes.length - 1) {
         const offsetInScene = Math.max(0, targetSec - accumulated);
 
@@ -386,7 +377,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
     let accumulated = 0;
     let sceneName = scenes[0]?.title || "";
     for (let i = 0; i < scenes.length; i++) {
-      const dur = scenes[i].durationEstimate || 17;
+      const dur = durOf(i);
       if (targetSec <= accumulated + dur || i === scenes.length - 1) {
         sceneName = `Кадр ${i + 1}: ${scenes[i]?.title}`;
         break;
@@ -421,16 +412,103 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
     }
   };
 
-  const toggleFullscreen = () => {
-    if (!containerRef.current) return;
-    if (!document.fullscreenElement) {
-      containerRef.current.requestFullscreen().catch(console.error);
-      setIsFullscreen(true);
-    } else {
-      document.exitFullscreen().catch(console.error);
+  // Полноэкранный режим.
+  // Разворачиваем ОБЁРТКУ, а не сам кадр: UA-стили навязывают :fullscreen
+  // width/height:100% !important, и пропорции кадра сломались бы, а разметка
+  // субтитров посчиталась бы от экрана. Внутри обёртки кадр letterbox-ится,
+  // поэтому субтитры физически не могут уехать за нижнюю границу кадра.
+  const exitFullscreen = useCallback(() => {
+    if (pseudoFsRef.current) {
+      pseudoFsRef.current = false;
+      document.body.style.overflow = "";
       setIsFullscreen(false);
+      return;
     }
-  };
+    const exit = document.exitFullscreen || (document as any).webkitExitFullscreen;
+    if (exit) exit.call(document);
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    const el = fsWrapperRef.current;
+    if (!el) return;
+
+    const active =
+      document.fullscreenElement || (document as any).webkitFullscreenElement || pseudoFsRef.current;
+    if (active) {
+      exitFullscreen();
+      return;
+    }
+
+    const request = el.requestFullscreen || (el as any).webkitRequestFullscreen;
+    if (request) {
+      Promise.resolve(request.call(el)).catch(() => {
+        // iOS Safari не даёт Fullscreen API произвольным элементам —
+        // остаётся только CSS-псевдофуллскрин.
+        pseudoFsRef.current = true;
+        document.body.style.overflow = "hidden";
+        setIsFullscreen(true);
+      });
+    } else {
+      pseudoFsRef.current = true;
+      document.body.style.overflow = "hidden";
+      setIsFullscreen(true);
+    }
+  }, [exitFullscreen]);
+
+  // Слушаем реальное состояние: раньше isFullscreen ставился оптимистично и
+  // не сбрасывался ни по Esc, ни по системному жесту.
+  useEffect(() => {
+    const sync = () => {
+      const native = document.fullscreenElement || (document as any).webkitFullscreenElement;
+      setIsFullscreen(!!native || pseudoFsRef.current);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && pseudoFsRef.current) exitFullscreen();
+    };
+    document.addEventListener("fullscreenchange", sync);
+    document.addEventListener("webkitfullscreenchange", sync);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("fullscreenchange", sync);
+      document.removeEventListener("webkitfullscreenchange", sync);
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = "";
+    };
+  }, [exitFullscreen]);
+
+  // Измеряем кадр — от него считается кегль субтитров, чтобы превью
+  // совпадало с MP4 при любом размере сцены.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      const r = entries[0].contentRect;
+      setFrameBox((prev) =>
+        Math.abs(prev.w - r.width) < 1 && Math.abs(prev.h - r.height) < 1
+          ? prev
+          : { w: r.width, h: r.height }
+      );
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Дека управления перекрывала субтитры (её градиент ~118px при z-30 против
+  // z-20 у субтитров). Прячем её при простое во время проигрывания.
+  const revealControls = useCallback(() => {
+    setControlsVisible(true);
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    if (isPlayingRef.current) {
+      idleTimerRef.current = setTimeout(() => setControlsVisible(false), 2500);
+    }
+  }, []);
+
+  useEffect(() => {
+    revealControls();
+    return () => {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    };
+  }, [isPlaying, revealControls]);
 
   // Carousel horizontal scroll buttons
   const scrollCarousel = (direction: "left" | "right") => {
@@ -456,26 +534,78 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
   const sceneBoundaries: number[] = [];
   let accumSec = 0;
   for (let i = 0; i < scenes.length - 1; i++) {
-    accumSec += scenes[i].durationEstimate || 17;
+    accumSec += durOf(i);
     sceneBoundaries.push(accumSec);
   }
 
-  // Active sentence calculation for current scene (sentence-by-sentence)
-  const activeSentence = getActiveSentence(
-    currentScene?.narration || "",
-    sceneElapsed,
-    sceneDuration
+  // Разметка субтитров: те же пропорции, что и на холсте экспортёра.
+  // minFontPx — единственное сознательное отступление от WYSIWYG: в крохотной
+  // сцене студии честные 13px были бы нечитаемы.
+  const subtitleLayout = computeSubtitleLayout(
+    frameBox.w || 960,
+    frameBox.h || 540,
+    { minFontPx: 12 }
+  );
+
+  const measureSubtitle = useCallback(
+    (str: string) => {
+      if (!measureCanvasRef.current) {
+        measureCanvasRef.current = document.createElement("canvas").getContext("2d");
+      }
+      const c = measureCanvasRef.current;
+      if (!c) return str.length * subtitleLayout.font * 0.5;
+      c.font = subtitleLayout.fontCss;
+      return c.measureText(str).width;
+    },
+    [subtitleLayout.fontCss, subtitleLayout.font]
+  );
+
+  const cues = useMemo(
+    () => (currentScene?.narration ? buildCues(currentScene.narration, sceneDuration) : []),
+    [currentScene?.narration, sceneDuration]
+  );
+  const activeCueIndex = cueIndexAt(cues, sceneElapsed);
+  const activeSentence = activeCueIndex >= 0 ? cues[activeCueIndex].text : "";
+
+  // Ширину карточки считаем по контенту, как это делает холст. Раньше DOM
+  // жёстко задавал w-[70%], и одно слово растягивалось на 70% кадра.
+  const subtitleLines = useMemo(
+    () => (activeSentence ? wrapLines(activeSentence, subtitleLayout.maxTextW, measureSubtitle) : []),
+    [activeSentence, subtitleLayout.maxTextW, measureSubtitle]
   );
 
   const progressPercent = Math.min(100, (overallElapsed / (totalDuration || 1)) * 100);
 
   return (
     <div className="w-full max-w-5xl mx-auto space-y-3 select-none">
-      {/* Screen Container */}
+      {/* Обёртка полноэкранного режима: разворачивается ОНА, кадр внутри
+          letterbox-ится и сохраняет свои пропорции. */}
       <div
-        ref={containerRef}
-        className="relative aspect-video w-full rounded-2xl overflow-hidden bg-stage border border-white/10 shadow-2xl group"
+        ref={fsWrapperRef}
+        className={
+          isFullscreen
+            ? "fixed inset-0 z-[100] bg-black flex items-center justify-center"
+            : "w-full"
+        }
+        style={isFullscreen ? { height: "100dvh", paddingBottom: "env(safe-area-inset-bottom, 0px)" } : undefined}
+        onPointerMove={revealControls}
+        onPointerDown={revealControls}
       >
+        {/* Screen Container */}
+        <div
+          ref={containerRef}
+          className="relative w-full rounded-2xl overflow-hidden bg-stage border border-white/10 shadow-2xl group"
+          style={{
+            aspectRatio: frameAspect,
+            maxWidth: "100%",
+            maxHeight: isFullscreen
+              ? "100%"
+              : frameOrientation === "portrait"
+              ? "min(70vh, 620px)"
+              : undefined,
+            marginInline: "auto",
+          }}
+        >
         {/* Visual Frame */}
         {currentScene?.imageUrl ? (
           <div className="absolute inset-0 overflow-hidden">
@@ -485,7 +615,14 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
               alt={currentScene.title}
               className="w-full h-full object-cover animate-ken-burns"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-black/35 pointer-events-none" />
+            {/* Шторка — те же пропорции и та же прозрачность, что на холсте */}
+            <div
+              className="absolute inset-x-0 bottom-0 pointer-events-none"
+              style={{
+                height: subtitleLayout.scrimH,
+                background: "linear-gradient(to top, rgba(0,0,0,0.72), rgba(0,0,0,0))",
+              }}
+            />
           </div>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center bg-stage text-center p-6">
@@ -527,13 +664,39 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
           </div>
         </div>
 
-        {/* Subtitles: STRICTLY ~70% screen width, +10% larger text, ONE sentence at a time */}
-        {showSubtitles && activeSentence && (
-          <div className="absolute bottom-16 sm:bottom-20 left-0 right-0 flex justify-center z-20 pointer-events-none px-4 transition-all duration-150">
-            <div className="w-[70%] max-w-[70%] px-4 sm:px-6 py-2.5 sm:py-3.5 rounded-2xl bg-black/85 backdrop-blur-md border border-white/20 text-center shadow-2xl">
-              <p className="text-[16px] sm:text-[20px] md:text-[22px] font-extrabold text-white leading-snug tracking-wide drop-shadow-lg">
-                {activeSentence}
-              </p>
+        {/* Субтитры: одна реплика, кегль и отступ пропорциональны кадру —
+            ровно те же формулы, что и при выжигании в MP4. Пока дека управления
+            видна, приподнимаем карточку, чтобы её не закрывал градиент. */}
+        {showSubtitles && subtitleLines.length > 0 && (
+          <div
+            className="absolute left-0 right-0 flex justify-center z-20 pointer-events-none transition-all duration-200"
+            style={{ bottom: subtitleLayout.bottom + (controlsVisible ? subtitleLayout.font * 2.4 : 0) }}
+          >
+            <div
+              className="text-center"
+              style={{
+                maxWidth: subtitleLayout.maxCardW,
+                paddingInline: subtitleLayout.padX,
+                paddingBlock: subtitleLayout.padY,
+                borderRadius: subtitleLayout.radius,
+                background: SUBTITLE_BG,
+              }}
+            >
+              {subtitleLines.map((line, i) => (
+                <span
+                  key={i}
+                  className="block text-white whitespace-pre"
+                  style={{
+                    fontFamily: SUBTITLE_FONT_STACK,
+                    fontWeight: SUBTITLE_FONT_WEIGHT,
+                    fontSize: subtitleLayout.font,
+                    lineHeight: `${subtitleLayout.lineHeight}px`,
+                    textShadow: `0 ${subtitleLayout.shadowOffsetY}px ${subtitleLayout.shadowBlur}px ${SUBTITLE_SHADOW}`,
+                  }}
+                >
+                  {line}
+                </span>
+              ))}
             </div>
           </div>
         )}
@@ -555,7 +718,12 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
         </div>
 
         {/* Bottom Floating Control Deck */}
-        <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/90 to-transparent pt-8 pb-3 px-4 sm:px-5 z-30 flex flex-col gap-2.5">
+        <div
+          className={`absolute bottom-0 inset-x-0 bg-gradient-to-t from-black via-black/90 to-transparent pt-8 pb-3 px-4 sm:px-5 z-30 flex flex-col gap-2.5 transition-opacity duration-300 ${
+            controlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+          }`}
+          onPointerEnter={revealControls}
+        >
           {/* Enhanced Responsive Timeline Scrubber with Drag, Tick marks & Tooltip */}
           <div
             ref={timelineRef}
@@ -698,6 +866,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
             </div>
           </div>
         </div>
+        </div>
       </div>
 
       {/* Frame Carousel with Left/Right Scroll Chevrons & Smooth Wheel Navigation */}
@@ -739,7 +908,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
                     : "border-white/10 hover:border-white/25 bg-black/40"
                 }`}
               >
-                <div className="aspect-video w-full rounded-lg overflow-hidden bg-black mb-2 relative">
+                <div className="w-full rounded-lg overflow-hidden bg-black mb-2 relative" style={{ aspectRatio: frameAspect }}>
                   {scene.imageUrl ? (
                     <img src={scene.imageUrl} alt={scene.title} className="w-full h-full object-cover" />
                   ) : (
@@ -748,7 +917,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, onExpor
                     </div>
                   )}
                   <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/85 text-[10px] font-mono font-bold text-white border border-white/10">
-                    {scene.durationEstimate || 17}с
+                    {Math.round(durOf(idx))}с
                   </span>
                   {isSelected && (
                     <span className="absolute top-1 left-1 w-2.5 h-2.5 rounded-full bg-accent" />

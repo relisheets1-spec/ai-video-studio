@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { openai } from "@/lib/openai";
 import { getClientIp, checkOpenAiRateLimit, sanitizeScriptInput } from "@/lib/security";
+import { promptAspectHint } from "@/lib/orientation";
 
 const GENRE_RULES: Record<string, string> = {
   thriller: "ЖАНР: ТРИЛЛЕР И САСПЕНС. Нагнетай адреналин и тревогу с первой секунды. Ставки смертельно высоки. Каждая сцена усиливает ощущение надвигающейся угрозы. Обязателен неожиданный сюжетный твист в кульминации.",
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: validation.error }, { status: 400 });
     }
 
-    const { topic, genre, style, voice, targetMinutes, language, secretCode } = validation.sanitized;
+    const { topic, genre, style, voice, targetMinutes, language, orientation, secretCode } = validation.sanitized;
 
     // 3. User Resolution & Balance Verification
     let userId: string | null = null;
@@ -188,8 +189,8 @@ export async function POST(req: NextRequest) {
       "- visualPrompt: ДЕТАЛЬНЫЙ ПРОМПТ ДЛЯ AI-ГЕНЕРАТОРА ИЗОБРАЖЕНИЙ СТРОГО НА АНГЛИЙСКОМ ЯЗЫКЕ!\n\n" +
       "КРИТИЧЕСКИЕ ПРАВИЛА ДЛЯ visualPrompt (НА АНГЛИЙСКОМ):\n" +
       "1. Промпт КАЖДОГО кадра ОБЯЗАН СТРОГО СООТВЕТСТВОВАТЬ СОДЕРЖАНИЮ СЦЕНЫ! Никаких посторонних волков, абстрактных лесов, если сюжет про Рим/космос/батыров!\n" +
-      "2. Обязательно укажи: центральный объект/персонажей, их позу и действия, исторически точные костюмы/доспехи, архитектуру, ракурс 16:9 widescreen composition 35mm lens, драматичный кинематографичный свет, стиль: " + style + ".\n\n" +
-      "Отвечай строго в формате JSON: { \"title\": \"...\", \"overview\": \"...\", \"scenes\": [{ \"id\": 1, \"title\": \"...\", \"narration\": \"...\", \"visualPrompt\": \"Cinematic 16:9 shot...\", \"durationEstimate\": " + (isTestMode ? 7 : 19) + " }] }";
+      "2. Обязательно укажи: центральный объект/персонажей, их позу и действия, исторически точные костюмы/доспехи, архитектуру, ракурс " + promptAspectHint(orientation) + ", драматичный кинематографичный свет, стиль: " + style + ".\n\n" +
+      "Отвечай строго в формате JSON: { \"title\": \"...\", \"overview\": \"...\", \"scenes\": [{ \"id\": 1, \"title\": \"...\", \"narration\": \"...\", \"visualPrompt\": \"Cinematic " + promptAspectHint(orientation) + " shot...\", \"durationEstimate\": " + (isTestMode ? 7 : 19) + " }] }";
 
     const userMessage =
       language === "kz"
@@ -216,11 +217,16 @@ export async function POST(req: NextRequest) {
 
     const parsed = JSON.parse(content);
 
+    // Ориентацию проставляем на сервере в каждую сцену. Хранится внутри
+    // scenes jsonb, а не отдельной колонкой: миграций в репозитории нет,
+    // и вставка с несуществующей колонкой уронила бы каждую генерацию.
+    const scenesOut = (parsed.scenes || []).map((sc: any) => ({ ...sc, orientation }));
+
     // Update video record
     await supabaseAdmin
       .from("video_generations")
       .update({
-        scenes: parsed.scenes || [],
+        scenes: scenesOut,
         status: "generating_audio",
       })
       .eq("id", videoRecord.id);
@@ -228,7 +234,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       videoId: videoRecord.id,
       title: parsed.title || topic,
-      scenes: parsed.scenes || [],
+      scenes: scenesOut,
     });
   } catch (err: any) {
     console.error("Script Generation Error:", err);
