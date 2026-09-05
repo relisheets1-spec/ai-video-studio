@@ -9,6 +9,7 @@ import { normalizeOrientation } from "@/lib/orientation";
 import {
   buildEditorPrompt,
   buildRhythmRepairPrompt,
+  buildTrimPrompt,
   buildVisualsPrompt,
   type Blueprint,
 } from "@/lib/script/prompts";
@@ -27,6 +28,7 @@ import { logPipelineError } from "@/lib/pipeline-log";
 import { requireUser } from "@/lib/session";
 import { LlmUsage } from "@/lib/llm-usage";
 import { SCRIPT_MODEL as MODEL } from "@/lib/script/model";
+import { isReferenceAnalysis } from "@/lib/reference";
 
 export const maxDuration = 300;
 
@@ -66,7 +68,7 @@ export async function POST(req: NextRequest) {
 
     const { data: row } = await supabaseAdmin
       .from("video_generations")
-      .select("id, user_id, status, topic, draft, cost")
+      .select("id, user_id, status, topic, draft, cost, reference_analysis")
       .eq("id", videoId)
       .maybeSingle();
 
@@ -84,7 +86,9 @@ export async function POST(req: NextRequest) {
     const language = normalizeLanguage(params.language);
     const orientation = normalizeOrientation(params.orientation);
     const plan = planFromMinutes(params.targetMinutes, language);
-    const styleFragment = resolveStyleFragment(params.style);
+    const reference = isReferenceAnalysis(row.reference_analysis) ? row.reference_analysis : null;
+    // С референсом стиль задаёт картинка пользователя, а не выбранный пресет.
+    const styleFragment = reference ? reference.stylePrompt : resolveStyleFragment(params.style);
     const blueprint: Blueprint = draft.blueprint || {};
     if (!Array.isArray(blueprint.beats)) blueprint.beats = [];
     if (!Array.isArray(blueprint.characters)) blueprint.characters = [];
@@ -130,6 +134,46 @@ export async function POST(req: NextRequest) {
       }
       narration = joinChunks(edited);
       console.info(`[editor] chunks=${chunks.length} accepted=${accepted} words ${beforeEdit} -> ${countWords(narration)}`);
+    }
+
+    // --- Объём: ролик не должен быть длиннее заказа. Если после редактора
+    // текст длиннее потолка больше чем на 12%, режем кусками до цели. ---
+    const afterEditor = countWords(narration);
+    if (afterEditor > plan.totalWords * 1.12) {
+      const chunks = splitIntoChunks(narration, 700);
+      const ratio = plan.totalWords / afterEditor;
+      const trimmed: string[] = [];
+      let accepted = 0;
+      for (const chunk of chunks) {
+        const chunkWords = countWords(chunk);
+        const target = Math.max(20, Math.round(chunkWords * ratio));
+        const prompt = buildTrimPrompt({ language, targetWords: target, currentWords: chunkWords });
+        try {
+          const res = await openai.chat.completions.create({
+            model: MODEL,
+            temperature: 0.3,
+            messages: [
+              { role: "system", content: prompt.system },
+              { role: "user", content: prompt.userPrefix + chunk },
+            ],
+          });
+          usage.add("trim", res.usage);
+          const candidate = (res.choices[0].message.content || "").trim();
+          const candidateWords = countWords(candidate);
+          const markersKept = countMarkers(candidate) === countMarkers(chunk);
+          if (markersKept && candidateWords < chunkWords && candidateWords >= target * 0.85) {
+            trimmed.push(candidate);
+            accepted++;
+          } else {
+            trimmed.push(chunk);
+          }
+        } catch (trimErr) {
+          console.warn("[trim] chunk failed, keeping original:", trimErr);
+          trimmed.push(chunk);
+        }
+      }
+      narration = joinChunks(trimmed);
+      console.info(`[trim] target=${plan.totalWords} chunks=${chunks.length} accepted=${accepted} words ${afterEditor} -> ${countWords(narration)}`);
     }
 
     // --- Ритм: только для кусков, где статистика не прошла пороги ---
@@ -193,7 +237,7 @@ export async function POST(req: NextRequest) {
     const fragmentBeats = assignBeats(fragments, blueprint.beats);
 
     // --- Визуальные промпты ---
-    const visualsPrompt = buildVisualsPrompt({ fragments, blueprint, styleFragment, orientation, fragmentBeats });
+    const visualsPrompt = buildVisualsPrompt({ fragments, blueprint, styleFragment, orientation, fragmentBeats, reference });
     const visualsRes = await openai.chat.completions.create({
       model: MODEL,
       response_format: { type: "json_object" },

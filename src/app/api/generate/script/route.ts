@@ -11,9 +11,44 @@ import { decryptSecret } from "@/lib/crypto";
 import { fetchSubscription } from "@/lib/elevenlabs";
 import { LlmUsage } from "@/lib/llm-usage";
 import { SCRIPT_MODEL as MODEL } from "@/lib/script/model";
+import { isReferenceAnalysis, type ReferenceAnalysis } from "@/lib/reference";
 
 /** Vercel fluid compute: до 300 с. Сценарий на 15 минут идёт двумя этапами. */
 export const maxDuration = 300;
+
+/** Референс принимаем только из нашего хранилища и только из папки этого пользователя. */
+function parseReference(
+  raw: any,
+  userId: string
+): { url: string; analysis: ReferenceAnalysis; usage: { prompt_tokens: number; completion_tokens: number } } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const url = typeof raw.url === "string" ? raw.url : "";
+  if (!url || url.length > 400) return null;
+  try {
+    const u = new URL(url);
+    const base = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || "");
+    if (u.host !== base.host) return null;
+    if (!u.pathname.startsWith(`/storage/v1/object/public/video-assets/refs/${userId}/`)) return null;
+  } catch {
+    return null;
+  }
+  if (!isReferenceAnalysis(raw.analysis)) return null;
+  const a = raw.analysis as ReferenceAnalysis;
+  return {
+    url,
+    analysis: {
+      summary: String(a.summary || "").slice(0, 200),
+      kind: a.kind,
+      subjectPrompt: a.subjectPrompt.slice(0, 600),
+      stylePrompt: a.stylePrompt.slice(0, 300),
+      palette: String(a.palette || "").slice(0, 200),
+    },
+    usage: {
+      prompt_tokens: Math.max(0, Math.round(Number(raw?.usage?.inputTokens) || 0)),
+      completion_tokens: Math.max(0, Math.round(Number(raw?.usage?.outputTokens) || 0)),
+    },
+  };
+}
 
 /**
  * Этап 1 из 2: план истории → один непрерывный монолог → ремонт объёма.
@@ -52,6 +87,9 @@ export async function POST(req: NextRequest) {
 
     const plan = planFromMinutes(targetMinutes, language);
     const startedAt = new Date().toISOString();
+    // Референс (необязательно): распознавание уже оплачено при загрузке — учитываем его токены здесь.
+    const reference = parseReference(body?.reference, user.id);
+    if (reference) usage.add("reference", reference.usage);
 
     // Остаток кредитов ElevenLabs до генерации — для точного «сколько ушло».
     const userKey = decryptSecret(user.elevenlabs_key_enc);
@@ -69,6 +107,8 @@ export async function POST(req: NextRequest) {
         scenes: [],
         cost: null,
         draft: null,
+        reference_url: reference?.url ?? null,
+        reference_analysis: reference?.analysis ?? null,
       })
       .select("id")
       .single();
@@ -79,7 +119,7 @@ export async function POST(req: NextRequest) {
     createdVideoId = videoRecord.id;
 
     // --- Проход 1: план ---
-    const blueprintPrompt = buildBlueprintPrompt({ genre, language, plan, topic });
+    const blueprintPrompt = buildBlueprintPrompt({ genre, language, plan, topic, reference: reference?.analysis ?? null });
     const blueprintRes = await openai.chat.completions.create({
       model: MODEL,
       response_format: { type: "json_object" },

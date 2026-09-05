@@ -84,24 +84,24 @@ export const CostModal: React.FC<CostModalProps> = ({ open, onClose, title, cost
         </div>
 
         <div className="text-[12.5px] text-muted leading-relaxed flex flex-col gap-1">
-          {t.creditsBefore !== null && t.creditsAfter !== null && (
-            <div>
-              Кредиты ElevenLabs до → после:{" "}
-              <span className="tabular text-ink">
-                {formatInt(t.creditsBefore)} → {formatInt(t.creditsAfter)}
-              </span>
-              {t.creditsSpent !== null && (
-                <>
-                  {" "}
-                  (списано <span className="tabular text-ink">{formatInt(t.creditsSpent)}</span>
-                  {t.characterLimit ? ` из ${formatInt(t.characterLimit)}` : ""})
-                </>
-              )}
-            </div>
-          )}
           {t.credits > 0 && (
             <div>
-              Точность: {t.creditsSource === "history" ? `по истории запросов ElevenLabs (${t.historyMatched} из ${t.frames})` : "по числу символов, история недоступна"}.
+              Списано кредитов ElevenLabs:{" "}
+              <span className="tabular text-ink">{formatInt(t.credits)}</span>
+              {" — "}
+              {t.creditsSource === "history"
+                ? `точно, по истории запросов (${t.historyMatched} из ${t.frames})`
+                : "по числу символов, история недоступна"}
+              .
+            </div>
+          )}
+          {t.creditsBefore !== null && t.creditsAfter !== null && (
+            <div className="text-faint">
+              Счётчик аккаунта до → после: {formatInt(t.creditsBefore)} → {formatInt(t.creditsAfter)}
+              {t.creditsSpent !== null && t.creditsSpent !== t.credits
+                ? ` (счётчик ElevenLabs обновляется с задержкой в несколько минут, поэтому разница ${formatInt(t.creditsSpent)} может отличаться)`
+                : ""}
+              {t.characterLimit ? `; лимит ${formatInt(t.characterLimit)} в месяц` : ""}.
             </div>
           )}
           {t.keyOwner === "env" && <div>Озвучка шла с ключа владельца сайта, а не с вашего.</div>}

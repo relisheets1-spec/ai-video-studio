@@ -605,21 +605,37 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             </div>
           </Tile>
 
-          <Tile title="Жанр истории" icon={<FilmStrip size={20} />}>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 sm:gap-2.5">
-              {GENRE_OPTIONS.map((g) => {
-                const Icon = g.icon;
-                return (
-                  <SelectCard
-                    key={g.id}
-                    size="sm"
-                    selected={selectedGenre === g.id}
-                    onClick={() => setSelectedGenre(g.id)}
-                    icon={<Icon size={18} />}
-                    title={g.label}
-                  />
-                );
-              })}
+          <Tile
+            title="Жанр истории"
+            icon={<FilmStrip size={20} />}
+            action={<span className="text-[12px] text-faint">листайте →</span>}
+          >
+            {/* Два ряда горизонтальным слайдером; второй ряд сдвинут на полкарточки,
+                чтобы плитки шли «кирпичиком», а не столбиками. */}
+            <div className="overflow-x-auto no-scrollbar -mx-5 px-5 pb-1">
+              <div className="flex flex-col gap-2 min-w-max">
+                {[GENRE_OPTIONS.filter((_, i) => i % 2 === 0), GENRE_OPTIONS.filter((_, i) => i % 2 === 1)].map(
+                  (row, rowIdx) => (
+                    <div key={rowIdx} className={cn("flex gap-2", rowIdx === 1 && "pl-[78px]")}>
+                      {row.map((g) => {
+                        const Icon = g.icon;
+                        return (
+                          <SelectCard
+                            key={g.id}
+                            size="sm"
+                            layout="horizontal"
+                            selected={selectedGenre === g.id}
+                            onClick={() => setSelectedGenre(g.id)}
+                            icon={<Icon size={18} />}
+                            title={g.label}
+                            className="w-[156px] shrink-0"
+                          />
+                        );
+                      })}
+                    </div>
+                  )
+                )}
+              </div>
             </div>
           </Tile>
 
