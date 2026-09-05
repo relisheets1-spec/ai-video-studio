@@ -19,11 +19,20 @@ import {
   Camera,
   Archive,
   Palette,
+  BookOpen,
+  Sparkle,
+  PaintBrush,
   TextAa,
   Trash,
 } from "@phosphor-icons/react";
 import { Scene, VideoGeneration, VoiceOption } from "@/lib/types";
 import { aspectRatioCss, normalizeOrientation, type Orientation } from "@/lib/orientation";
+import { GENRE_IDS, GENRES, type GenreId } from "@/lib/content/genres";
+import { STYLE_IDS, STYLES, type StyleId } from "@/lib/content/styles";
+import { INSPIRATION } from "@/lib/content/inspiration";
+import { type ContentLanguage } from "@/lib/content/languages";
+import { defaultVoiceFor } from "@/lib/content/voices";
+import { formatPlanLength, planFromMinutes, pluralFrames, MAX_MINUTES, MIN_MINUTES } from "@/lib/plan";
 import { VideoPlayer } from "./VideoPlayer";
 import { VideoExporter } from "./VideoExporter";
 import { VoiceSelector } from "./VoiceSelector";
@@ -35,6 +44,7 @@ import {
   IconTile,
   Modal,
   Progress,
+  Slider,
   SelectCard,
   Textarea,
   Tile,
@@ -53,86 +63,53 @@ interface VideoStudioProps {
   onUserUpdate: (updated: any) => void;
 }
 
-// Genre options with rich Phosphor icons and vibrant individual color accents
-const GENRE_OPTIONS = [
-  { id: "thriller", label: "Триллер", icon: Lightning },
-  { id: "detective", label: "Детектив", icon: MagnifyingGlass },
-  { id: "drama", label: "Драма", icon: Heart },
-  { id: "comedy", label: "Комедия", icon: Smiley },
-  { id: "scifi_adventure", label: "Sci-Fi", icon: Planet },
-  { id: "horror", label: "Хоррор", icon: Ghost },
-];
+/**
+ * Каталоги жанров, стилей и тем переехали в src/lib/content — их же читают
+ * серверные роуты. Здесь остаётся только сопоставление ключа иконке: тянуть
+ * React-компоненты в модуль, который импортирует route handler, не нужно.
+ */
+const GENRE_ICONS: Record<GenreId, React.ElementType> = {
+  thriller: Lightning,
+  detective: MagnifyingGlass,
+  drama: Heart,
+  comedy: Smiley,
+  scifi_adventure: Planet,
+  horror: Ghost,
+  narrative: BookOpen,
+};
 
-const STYLE_OPTIONS = [
-  { id: "cinematic photorealistic 8k", label: "Кино 8K", icon: Camera },
-  { id: "historical documentary photography", label: "Хроника", icon: Archive },
-  { id: "cyberpunk sci-fi dark neon", label: "Киберпанк", icon: Lightning },
-  { id: "epic dark fantasy digital art", label: "Концепт-арт", icon: Palette },
-];
+const STYLE_ICONS: Record<StyleId, React.ElementType> = {
+  cinematic: Camera,
+  documentary: Archive,
+  cyberpunk: Lightning,
+  concept_art: Palette,
+  noir: MagnifyingGlass,
+  anime: Sparkle,
+  watercolor: PaintBrush,
+  retro_film: FilmStrip,
+};
 
-const INSPIRATION_THEMES_RU = [
-  {
-    label: "💼 IT-стартап: триумф и крах",
-    genre: "drama",
-    prompt: "История амбициозного IT-стартапа: от первой гениальной идеи в гараже и миллиардных инвестиций до сокрушительного краха из-за гордыни основателей и корпоративного шпионажа.",
-  },
-  {
-    label: "🕵️ Тайна горного отеля",
-    genre: "detective",
-    prompt: "В элитном закрытом отеле в горах посреди ночи бесследно исчезает влиятельный постоялец. Детектив начинает расследование и понимает, что каждый свидетель и персонал отеля лгут.",
-  },
-  {
-    label: "🏙️ Ночное ограбление в Алматы",
-    genre: "thriller",
-    prompt: "Ночь в центре Алматы. Дерзкая группа грабителей проникает в защищенное хранилище частного банка, но неожиданный сбой системы безопасности запирает их внутри вместе с заложниками.",
-  },
-  {
-    label: "📱 Афера искусственного интеллекта",
-    genre: "thriller",
-    prompt: "Финансовый аналитик раскрывает сложную мошенническую схему, управляемую самообучающимся алгоритмом, который крадет миллионы долларов и подставляет невиновных сотрудников.",
-  },
-  {
-    label: "⚖️ Судебная битва: невиновный",
-    genre: "drama",
-    prompt: "Напряженный судебный процесс по резонансному делу. Молодой адвокат вступает в схватку с коррумпированной системой, чтобы защитить человека, которого несправедливо обвинили в тяжком преступлении.",
-  },
-];
+const GENRE_OPTIONS = GENRE_IDS.map((id) => ({
+  id,
+  label: GENRES[id].label,
+  icon: GENRE_ICONS[id],
+}));
 
-const INSPIRATION_THEMES_KZ = [
-  {
-    label: "💼 Стартаптың өрлеуі мен құлдырауы",
-    genre: "drama",
-    prompt: "Амбициялы IT-стартаптың шынайы тарихы: гараждағы алғашқы идея мен миллиардтаған инвестициялардан бастап, негізін қалаушылардың өр көкіректігі салдарынан күйреуіне дейін.",
-  },
-  {
-    label: "🕵️ Қонақүйдегі жұмбақ жоғалу",
-    genre: "detective",
-    prompt: "Таудағы элиталық жабық қонақүйде түн ортасында беделді қонақ із-түзсіз жоғалады. Детектив зерттеу барысында куәгерлердің әрқайсысы бірдеңені жасырып тұрғанын аңғарады.",
-  },
-  {
-    label: "🏙️ Алматыдағы түнгі тонау",
-    genre: "thriller",
-    prompt: "Түнгі Алматы орталығы. Тәжірибелі қарақшылар тобы жеке банктің күзетілетін қоймасына кіреді, бірақ дабыл жүйесінің істен шығуы оларды ғимарат ішінде қамап тастайды.",
-  },
-  {
-    label: "📱 Жасанды интеллект алаяқтығы",
-    genre: "thriller",
-    prompt: "Қаржы сарапшысы миллиондаған қаржыны жымқырып, кінәсіз қызметкерлерге жала жауып отырған өздігінен үйренетін алгоритм мен киберқылмыстың ізіне түседі.",
-  },
-  {
-    label: "⚖️ Сот драмасы: жазықсыз сотталушы",
-    genre: "drama",
-    prompt: "Атышулы іс бойынша өткен сот процесі. Жас адвокат жазықсыз айыпталған адамның кінәсіздігін дәлелдеп, шындықты қорғау үшін жемқор жүйемен тайталасады.",
-  },
-];
+const STYLE_OPTIONS = STYLE_IDS.map((id) => ({
+  id,
+  label: STYLES[id].label,
+  icon: STYLE_ICONS[id],
+}));
 
 export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) => {
-  const [language, setLanguage] = useState<"ru" | "kz">("ru");
+  const [language, setLanguage] = useState<ContentLanguage>("ru");
   const [topic, setTopic] = useState("");
   const [selectedGenre, setSelectedGenre] = useState(GENRE_OPTIONS[0].id);
   const [selectedStyle, setSelectedStyle] = useState(STYLE_OPTIONS[0].id);
-  const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("s0phbFBBp708ZeIy8oGx");
-  const [targetMinutes, setTargetMinutes] = useState(0.5); // Default: test duration
+  const [selectedVoice, setSelectedVoice] = useState<VoiceOption>(defaultVoiceFor("ru"));
+  // ТЗ: значения по умолчанию нет — пользователь обязан выбрать хронометраж
+  // сам, до этого кнопка запуска заблокирована.
+  const [targetMinutes, setTargetMinutes] = useState<number | null>(null);
   // Ориентация кадра. По умолчанию 16:9 — так были сгенерированы все прошлые видео.
   const [orientation, setOrientation] = useState<Orientation>("landscape");
 
@@ -211,7 +188,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     }
   };
 
-  const inspirationThemes = language === "kz" ? INSPIRATION_THEMES_KZ : INSPIRATION_THEMES_RU;
+  const inspirationThemes = INSPIRATION[language];
 
   const handleSaveKey = (e: React.FormEvent) => {
     e.preventDefault();
@@ -224,19 +201,18 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     setShowKeyModal(false);
   };
 
-  const handleLanguageChange = (newLang: "ru" | "kz") => {
+  const handleLanguageChange = (newLang: ContentLanguage) => {
     setLanguage(newLang);
-    // Automatically select the primary voice of the chosen language
-    if (newLang === "kz") {
-      setSelectedVoice("JBFqnCBsd6RMkjVDRZzb");
-    } else {
-      setSelectedVoice("s0phbFBBp708ZeIy8oGx");
-    }
+    setSelectedVoice(defaultVoiceFor(newLang));
   };
 
   const handleStartGeneration = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!topic.trim()) return;
+    if (targetMinutes === null) {
+      setError("Выберите хронометраж перед запуском генерации");
+      return;
+    }
 
     if (user.remaining <= 0) {
       setError("Лимит генераций исчерпан. Обратитесь к администратору.");
@@ -246,12 +222,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     setIsGenerating(true);
     setError(null);
     setProgressPercent(5);
-    const isTest = targetMinutes <= 1;
-    const frameTarget = isTest ? "4 кадра (тест)" : "25 кадров (8 мин)";
     const currentGenreObj = GENRE_OPTIONS.find((g) => g.id === selectedGenre);
 
     setProgressStep(
-      `Шаг 1 из 4: GPT-4o создает драматургию (${currentGenreObj?.label || "Сюжет"}, ${frameTarget})...`
+      `Шаг 1 из 4: GPT-4o пишет сплошной закадровый рассказ (${currentGenreObj?.label || "Сюжет"}, ~${plan.minutes} мин)...`
     );
 
     try {
@@ -281,8 +255,12 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
 
       setProgressPercent(25);
 
-      // 2. Audio generation scene by scene
+      // 2. Озвучка кадр за кадром.
+      // Последовательно и намеренно: каждый запрос кондиционируется соседними
+      // фрагментами и id предыдущих запросов, иначе 30 независимо
+      // синтезированных файлов звучат как 30 разных дублей и на стыках слышны швы.
       const scenesWithAudio: Scene[] = [];
+      const recentRequestIds: string[] = [];
       for (let i = 0; i < totalScenes; i++) {
         const scene = scenes[i];
         setProgressStep(
@@ -297,12 +275,18 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             sceneId: scene.id,
             narration: scene.narration,
             voice: selectedVoice,
+            language,
+            previousText: scenes[i - 1]?.narration,
+            nextText: scenes[i + 1]?.narration,
+            previousRequestIds: recentRequestIds.slice(-3),
             elevenLabsApiKey: userKey || undefined,
           }),
         });
 
         const audioData = await audioRes.json();
         if (!audioRes.ok) throw new Error(audioData.error || `Ошибка генерации аудио кадра ${i + 1}`);
+
+        if (audioData.requestId) recentRequestIds.push(audioData.requestId);
 
         scenesWithAudio.push({
           ...scene,
@@ -356,6 +340,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
           userId: user.id,
           secretCode: user.secretCode,
           scenes: finalScenes,
+          totalDuration: finalScenes.reduce(
+            (acc, sc) => acc + (sc.actualDuration || sc.durationEstimate || 0),
+            0
+          ),
         }),
       });
 
@@ -386,10 +374,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     }
   };
 
-  const DURATION_OPTIONS = [
-    { value: 0.5, label: "Быстрый тест", badge: "4 кадра", desc: "4 кадра · ~25 сек · $0.05" },
-    { value: 8, label: "Полный фильм", badge: "25 кадров", desc: "25 кадров · ~8 мин · $0.37" },
-  ];
 
   const currentOrientation = currentVideo
     ? normalizeOrientation(currentVideo.scenes[0]?.orientation)
@@ -397,10 +381,12 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
 
   const activeGenre = GENRE_OPTIONS.find((g) => g.id === selectedGenre);
   const activeStyle = STYLE_OPTIONS.find((st) => st.id === selectedStyle);
-  const activeDuration = DURATION_OPTIONS.find((d) => d.value === targetMinutes);
   const wordCount = topic.split(" ").filter(Boolean).length;
-  const plannedFrames = targetMinutes <= 1 ? 4 : 25;
-  const plannedLength = targetMinutes <= 1 ? "~25 сек" : "~8 мин";
+  // Единый расчёт «что именно будет сгенерировано»: кадры, длина и стоимость
+  // считаются одной функцией и на клиенте, и на сервере.
+  const plan = planFromMinutes(targetMinutes ?? MIN_MINUTES, language);
+  const plannedFrames = targetMinutes === null ? "—" : plan.scenesCount;
+  const plannedLength = targetMinutes === null ? "—" : formatPlanLength(plan);
   const currentDuration = currentVideo
     ? currentVideo.scenes.reduce((acc, sc) => acc + (sc.actualDuration || sc.durationEstimate || 0), 0)
     : 0;
@@ -520,16 +506,32 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <Tile title="Хронометраж" icon={<Clock size={20} />}>
-              <div className="flex flex-col gap-2.5">
-                {DURATION_OPTIONS.map((opt) => (
-                  <SelectCard
-                    key={opt.value}
-                    selected={targetMinutes === opt.value}
-                    onClick={() => setTargetMinutes(opt.value)}
-                    title={opt.label}
-                    meta={opt.desc}
-                  />
-                ))}
+              <div className="flex flex-col gap-4">
+                <Slider
+                  value={targetMinutes}
+                  min={MIN_MINUTES}
+                  max={MAX_MINUTES}
+                  step={1}
+                  onChange={setTargetMinutes}
+                  placeholder="Выберите длительность"
+                  valueLabel={`${plan.minutes} мин · ${pluralFrames(plan.scenesCount)}`}
+                  ticks={[MIN_MINUTES, 4, 7, MAX_MINUTES]}
+                />
+
+                {/* Стоимость показываем честно: прежние подписи ($0.05 / $0.37)
+                    учитывали только картинки и занижали цену примерно вчетверо,
+                    потому что озвучка в них не входила вовсе. */}
+                {targetMinutes !== null && (
+                  <div className="rounded-control bg-surface-2 border border-hairline px-3.5 py-3 text-[13px] text-muted leading-snug">
+                    <span className="text-ink font-medium">{formatPlanLength(plan)}</span>
+                    {" · "}
+                    {pluralFrames(plan.scenesCount)}
+                    {" · "}
+                    <span className="tabular">~{plan.estimatedChars.toLocaleString("ru-RU")}</span> символов ElevenLabs
+                    {" · "}
+                    <span className="tabular">≈ ${plan.estimatedCostUsd.toFixed(2)}</span>
+                  </div>
+                )}
               </div>
             </Tile>
 
@@ -721,7 +723,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
               <div className="hidden md:flex items-center gap-2 min-w-0 text-[12.5px] text-muted">
                 {activeGenre && <Badge tone="outline">{activeGenre.label}</Badge>}
                 {activeStyle && <Badge tone="outline">{activeStyle.label}</Badge>}
-                {activeDuration && <Badge tone="outline">{activeDuration.badge}</Badge>}
+                {targetMinutes !== null && <Badge tone="outline">{pluralFrames(plan.scenesCount)}</Badge>}
                 <Badge tone="outline">{orientation === "portrait" ? "9:16" : "16:9"}</Badge>
               </div>
 
@@ -730,10 +732,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 form="studio-form"
                 size="lg"
                 icon={<Play size={20} weight="fill" />}
-                disabled={user.remaining <= 0 || !topic.trim()}
+                disabled={user.remaining <= 0 || !topic.trim() || targetMinutes === null}
                 className="w-full md:w-auto"
               >
-                {targetMinutes <= 1 ? "Запустить тест" : "Запустить генерацию"}
+                {targetMinutes === null ? "Выберите хронометраж" : "Запустить генерацию"}
               </Button>
             </div>
           )}

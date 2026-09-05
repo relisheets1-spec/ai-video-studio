@@ -49,3 +49,26 @@ export const FlagKZ: React.FC<{ className?: string }> = ({ className }) => (
     <rect width="21" height="15" rx="2" fill="none" stroke="rgb(0 0 0 / 0.12)" />
   </svg>
 );
+
+/** Юнион Джек: язык English принято обозначать британским флагом. */
+export const FlagEN: React.FC<{ className?: string }> = ({ className }) => (
+  <svg viewBox="0 0 21 15" className={className} aria-hidden="true">
+    <defs>
+      <clipPath id="flag-en-clip">
+        <rect width="21" height="15" rx="2" />
+      </clipPath>
+    </defs>
+    <g clipPath="url(#flag-en-clip)">
+      <rect width="21" height="15" fill="#012169" />
+      {/* белый косой крест */}
+      <path d="M0 0 21 15M21 0 0 15" stroke="#FFF" strokeWidth="3" />
+      {/* красный косой крест */}
+      <path d="M0 0 21 15M21 0 0 15" stroke="#C8102E" strokeWidth="1.6" />
+      {/* белый прямой крест */}
+      <path d="M10.5 0v15M0 7.5h21" stroke="#FFF" strokeWidth="5" />
+      {/* красный прямой крест */}
+      <path d="M10.5 0v15M0 7.5h21" stroke="#C8102E" strokeWidth="3" />
+    </g>
+    <rect width="21" height="15" rx="2" fill="none" stroke="rgb(0 0 0 / 0.12)" />
+  </svg>
+);

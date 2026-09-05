@@ -1,0 +1,86 @@
+{
+  "note": "Единый каталог голосов. Читается и приложением (voices.ts), и scripts/gen-voice-samples.mjs, чтобы превью-сэмплы и продакшен никогда не разъезжались.",
+  "models": {
+    "ru": "eleven_multilingual_v2",
+    "en": "eleven_multilingual_v2",
+    "kz": "eleven_v3"
+  },
+  "modelNote": "Казахского нет в языковом покрытии multilingual_v2 — его читал бы англоязычный голос по буквам, отсюда механическое звучание. Единственная модель с казахским — v3.",
+  "settings": {
+    "eleven_multilingual_v2": {
+      "stability": 0.45,
+      "similarity_boost": 0.8,
+      "style": 0.3,
+      "use_speaker_boost": true,
+      "speed": 0.95
+    },
+    "eleven_v3": {
+      "stability": 0.5,
+      "similarity_boost": 0.75,
+      "use_speaker_boost": true
+    }
+  },
+  "settingsNote": "Раньше рантайм слал stability 0.5 / similarity 0.75 без style и speaker_boost, а скрипт сэмплов — более богатые настройки. Пользователь слушал одно, а получал другое. Теперь настройки общие.",
+  "voices": [
+    {
+      "id": "s0phbFBBp708ZeIy8oGx",
+      "name": "Аркадий",
+      "gender": "male",
+      "lang": "ru",
+      "roleTitle": "Мужской голос",
+      "tag": "Глубокий, тёплый тон • Триллеры и большие истории",
+      "previewFile": "arcadays_sample.mp3",
+      "sampleText": "Ночь опустилась на город. Никто ещё не знал, чем закончится эта история."
+    },
+    {
+      "id": "Jhqrj1kYppTq06Kj3KFa",
+      "name": "Мишель",
+      "gender": "female",
+      "lang": "ru",
+      "roleTitle": "Женский голос",
+      "tag": "Бархатный кинематографичный тембр • Драма и детектив",
+      "previewFile": "mishki_sample.mp3",
+      "sampleText": "Он вошёл в комнату и понял, что опоздал ровно на одну минуту."
+    },
+    {
+      "id": "nPczCjzI2devNBz1zQrb",
+      "name": "Brian",
+      "gender": "male",
+      "lang": "en",
+      "roleTitle": "Мужской голос",
+      "tag": "Deep American narration • Documentary and thriller",
+      "previewFile": "en_male_sample.mp3",
+      "sampleText": "Night fell over the city. No one yet knew how this story would end."
+    },
+    {
+      "id": "XrExE9yKIg1WjnnlVkGX",
+      "name": "Matilda",
+      "gender": "female",
+      "lang": "en",
+      "roleTitle": "Женский голос",
+      "tag": "Warm American narrator • Drama and human stories",
+      "previewFile": "en_female_sample.mp3",
+      "sampleText": "He walked into the room and realised he was exactly one minute too late."
+    },
+    {
+      "id": "JBFqnCBsd6RMkjVDRZzb",
+      "name": "Ерлан",
+      "gender": "male",
+      "lang": "kz",
+      "roleTitle": "Ер адам дауысы",
+      "tag": "Шешен, салиқалы баяндаушы • Тарихи оқиғаларға",
+      "previewFile": "kz_male_sample.mp3",
+      "sampleText": "Түн қалаға түсті. Бұл оқиға қалай аяқталарын әлі ешкім білген жоқ."
+    },
+    {
+      "id": "EXAVITQu4vr4xnSDxMaL",
+      "name": "Айгерім",
+      "gender": "female",
+      "lang": "kz",
+      "roleTitle": "Әйел адам дауысы",
+      "tag": "Жұмсақ, анық, әсерлі тембр • Драма мен кино хикаяларына",
+      "previewFile": "kz_female_sample.mp3",
+      "sampleText": "Ол бөлмеге кірді де, дәл бір минутқа кешіккенін түсінді."
+    }
+  ]
+}

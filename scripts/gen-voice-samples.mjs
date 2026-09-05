@@ -1,40 +1,27 @@
 /**
- * Перегенерация всех демо-сэмплов голосов через ElevenLabs.
- * Приоритет модели — eleven_v3; multilingual_v2 только как запасной вариант,
- * тот же порядок, что и в /api/generate/audio.
+ * Перегенерация демо-сэмплов голосов через ElevenLabs.
  *
- *   node scripts/gen-voice-samples.mjs
+ * Каталог, модели и настройки читаются из src/lib/content/voices.data.json —
+ * того же файла, что использует рантайм. Раньше список голосов и настройки
+ * синтеза были продублированы прямо здесь, причём с БОЛЕЕ богатыми
+ * параметрами, чем в бою: пользователь слушал одно, а в ролике получал другое.
+ *
+ *   node scripts/gen-voice-samples.mjs            # только недостающие
+ *   node scripts/gen-voice-samples.mjs --all      # перегенерировать все
+ *   node scripts/gen-voice-samples.mjs --lang=en  # только один язык
  *
  * Требует ELEVENLABS_API_KEY в .env.local.
  */
 import fs from "node:fs";
+import path from "node:path";
 
-const VOICES = [
-  {
-    id: "s0phbFBBp708ZeIy8oGx",
-    file: "arcadays_sample.mp3",
-    name: "Arcadays (Аркадий)",
-    text: "Город засыпал, не подозревая, что эта ночь изменит всё. Я стоял у окна и ждал сигнала.",
-  },
-  {
-    id: "Jhqrj1kYppTq06Kj3KFa",
-    file: "mishki_sample.mp3",
-    name: "Mishki (Мишки)",
-    text: "Она перечитала письмо трижды. Каждое слово било точно в цель — и назад дороги уже не было.",
-  },
-  {
-    id: "JBFqnCBsd6RMkjVDRZzb",
-    file: "kz_male_sample.mp3",
-    name: "Ерлан (Ер адам)",
-    text: "Дала тынып қалды. Алыстан естілген дыбыс бәрін өзгертетінін ол сол сәтте білген жоқ.",
-  },
-  {
-    id: "EXAVITQu4vr4xnSDxMaL",
-    file: "kz_female_sample.mp3",
-    name: "Айгерім (Әйел адам)",
-    text: "Түн ортасында қала тынышталды. Бірақ бұл тыныштықтың ұзаққа созылмайтынын ешкім білмеді.",
-  },
-];
+const CATALOG = JSON.parse(
+  fs.readFileSync(new URL("../src/lib/content/voices.data.json", import.meta.url), "utf8")
+);
+
+const args = process.argv.slice(2);
+const forceAll = args.includes("--all");
+const langArg = args.find((a) => a.startsWith("--lang="))?.slice("--lang=".length);
 
 const env = fs.readFileSync(".env.local", "utf8");
 const key = env
@@ -48,6 +35,9 @@ if (!key) {
   process.exit(1);
 }
 
+const OUT_DIR = "public/audio/samples";
+fs.mkdirSync(OUT_DIR, { recursive: true });
+
 async function synth(voiceId, text, model) {
   const res = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
     method: "POST",
@@ -55,37 +45,52 @@ async function synth(voiceId, text, model) {
     body: JSON.stringify({
       text,
       model_id: model,
-      voice_settings: {
-        stability: 0.45,
-        similarity_boost: 0.8,
-        style: 0.3,
-        use_speaker_boost: true,
-      },
+      voice_settings: CATALOG.settings[model] || CATALOG.settings.eleven_multilingual_v2,
     }),
   });
   if (!res.ok) {
-    const body = (await res.text()).slice(0, 200);
-    return { ok: false, status: res.status, body };
+    return { ok: false, status: res.status, body: (await res.text()).slice(0, 200) };
   }
   return { ok: true, buf: Buffer.from(await res.arrayBuffer()) };
 }
 
 let failed = 0;
-for (const v of VOICES) {
-  let r = await synth(v.id, v.text, "eleven_v3");
-  let used = "eleven_v3";
-  if (!r.ok) {
-    console.warn(`  ${v.name}: eleven_v3 -> HTTP ${r.status} ${r.body}`);
-    r = await synth(v.id, v.text, "eleven_multilingual_v2");
+let skipped = 0;
+
+for (const v of CATALOG.voices) {
+  if (langArg && v.lang !== langArg) continue;
+
+  const out = path.join(OUT_DIR, v.previewFile);
+  if (!forceAll && fs.existsSync(out)) {
+    skipped++;
+    continue;
+  }
+
+  // Модель выбирается по языку — ровно как в /api/generate/audio.
+  const model = CATALOG.models[v.lang] || "eleven_multilingual_v2";
+  let r = await synth(v.id, v.sampleText, model);
+  let used = model;
+
+  // Единственный запасной вариант: если для языка выбран v3, а он аккаунту
+  // недоступен. Молча подменять модель в бою нельзя — там это давало
+  // слышимую смену тембра посреди ролика, — но для превью это допустимо.
+  if (!r.ok && model === "eleven_v3") {
+    console.warn(`  ${v.name}: ${model} -> HTTP ${r.status} ${r.body}`);
+    r = await synth(v.id, v.sampleText, "eleven_multilingual_v2");
     used = "eleven_multilingual_v2";
   }
+
   if (!r.ok) {
     console.error(`FAIL ${v.name}: HTTP ${r.status} ${r.body}`);
     failed++;
     continue;
   }
-  const out = `public/audio/samples/${v.file}`;
+
   fs.writeFileSync(out, r.buf);
-  console.log(`OK  ${v.name.padEnd(22)} ${used.padEnd(22)} ${String(r.buf.length).padStart(7)} bytes -> ${v.file}`);
+  console.log(
+    `OK  ${v.name.padEnd(12)} ${v.lang}  ${used.padEnd(24)} ${String(r.buf.length).padStart(7)} bytes -> ${v.previewFile}`
+  );
 }
+
+if (skipped) console.log(`(пропущено уже существующих: ${skipped}; --all чтобы перегенерировать)`);
 process.exit(failed ? 1 : 0);

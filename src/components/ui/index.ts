@@ -13,4 +13,5 @@ export { ConfirmDialog } from "./ConfirmDialog";
 export { ToastProvider, useToast } from "./Toast";
 export { Spinner } from "./Spinner";
 export { ThemeToggle } from "./ThemeToggle";
-export { FlagRU, FlagKZ } from "./Flag";
+export { FlagRU, FlagKZ, FlagEN } from "./Flag";
+export { Slider } from "./Slider";

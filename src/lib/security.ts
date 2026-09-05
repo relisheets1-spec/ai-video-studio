@@ -1,5 +1,9 @@
 import { NextRequest } from "next/server";
 import { normalizeOrientation, type Orientation } from "./orientation";
+import { normalizeGenre, type GenreId } from "./content/genres";
+import { normalizeLanguage, type ContentLanguage } from "./content/languages";
+import { STYLES, type StyleId } from "./content/styles";
+import { clampMinutes, MAX_MINUTES, MIN_MINUTES } from "./plan";
 
 // In-memory sliding window rate-limiter
 interface RateLimitEntry {
@@ -79,11 +83,11 @@ export function sanitizeScriptInput(data: any): {
   error?: string;
   sanitized?: {
     topic: string;
-    genre: string;
+    genre: GenreId;
     style: string;
     voice: string;
     targetMinutes: number;
-    language: "ru" | "kz";
+    language: ContentLanguage;
     orientation: Orientation;
     secretCode?: string;
   };
@@ -103,20 +107,24 @@ export function sanitizeScriptInput(data: any): {
     return { valid: false, error: "Сюжет слишком длинный (максимум 2000 символов)" };
   }
 
-  const cleanGenre = typeof genre === "string" && genre.length > 0 ? genre.slice(0, 50) : "thriller";
-  const chosenVoice = typeof voice === "string" && voice.length > 0 ? voice.slice(0, 80) : "nPczCjzI2devNBz1zQrb";
-  const cleanStyle = typeof style === "string" ? style.slice(0, 100) : "cinematic photorealistic 8k";
-  const chosenLang: "ru" | "kz" = language === "kz" ? "kz" : "ru";
+  const cleanGenre = normalizeGenre(genre);
+  const chosenVoice = typeof voice === "string" && voice.length > 0 ? voice.slice(0, 80) : "";
+  // id стиля или — для записей из архива — уже готовый английский фрагмент промпта
+  const cleanStyle =
+    typeof style === "string" && style.length > 0
+      ? (STYLES[style as StyleId] ? style : style.slice(0, 120))
+      : "cinematic";
+  const chosenLang = normalizeLanguage(language);
   const chosenOrientation = normalizeOrientation(orientation);
   const cleanSecretCode = typeof secretCode === "string" ? secretCode.trim() : undefined;
 
+  // Хронометраж обязателен: по ТЗ значения по умолчанию нет, пользователь
+  // выбирает его сам. Правило дублируется на сервере, а не только в UI.
   const numMinutes = Number(targetMinutes);
-  let chosenMinutes = 8;
-  if (numMinutes <= 1) {
-    chosenMinutes = 0.5; // Quick test mode (3 frames, ~20-30s)
-  } else {
-    chosenMinutes = 8; // Strictly 8 minutes (25 frames)
+  if (!Number.isFinite(numMinutes) || numMinutes <= 0) {
+    return { valid: false, error: `Выберите хронометраж: от ${MIN_MINUTES} до ${MAX_MINUTES} минут` };
   }
+  const chosenMinutes = clampMinutes(numMinutes);
 
   return {
     valid: true,

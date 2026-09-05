@@ -3,14 +3,22 @@
 import React, { useState, useRef } from "react";
 import { SpeakerHigh, Play, Pause, User, CheckCircle } from "@phosphor-icons/react";
 import { VoiceOption } from "@/lib/types";
-import { FlagKZ, FlagRU, IconTile, cn } from "@/components/ui";
+import { FlagEN, FlagKZ, FlagRU, IconTile, cn } from "@/components/ui";
+import { LANGUAGE_LABELS, type ContentLanguage } from "@/lib/content/languages";
+import { defaultVoiceFor, VOICE_CATALOG, voicesFor } from "@/lib/content/voices";
 
 interface VoiceSelectorProps {
   selectedVoice: VoiceOption;
   onSelectVoice: (voice: VoiceOption) => void;
-  language: "ru" | "kz";
-  onLanguageChange: (lang: "ru" | "kz") => void;
+  language: ContentLanguage;
+  onLanguageChange: (lang: ContentLanguage) => void;
 }
+
+const LANGUAGE_FLAGS: Record<ContentLanguage, React.FC<{ className?: string }>> = {
+  ru: FlagRU,
+  kz: FlagKZ,
+  en: FlagEN,
+};
 
 export interface VoiceItem {
   id: VoiceOption;
@@ -19,50 +27,23 @@ export interface VoiceItem {
   roleTitle: string;
   tag: string;
   previewUrl: string;
-  lang: "ru" | "kz";
+  lang: ContentLanguage;
 }
 
-export const VOICES_CONFIG: VoiceItem[] = [
-  // Russian voices (Strictly 2: 1 Male, 1 Female)
-  {
-    id: "s0phbFBBp708ZeIy8oGx",
-    name: "Arcadays (Аркадий)",
-    gender: "male",
-    roleTitle: "Мужской голос",
-    tag: "Глубокий, теплый тон • Идеально для триллеров и историй",
-    previewUrl: "/audio/samples/arcadays_sample.mp3",
-    lang: "ru",
-  },
-  {
-    id: "Jhqrj1kYppTq06Kj3KFa",
-    name: "Mishki (Мишки)",
-    gender: "female",
-    roleTitle: "Женский голос",
-    tag: "Бархатный, кинематографичный тембр • Для драмы и детективов",
-    previewUrl: "/audio/samples/mishki_sample.mp3",
-    lang: "ru",
-  },
-
-  // Kazakh voices (Strictly 2: 1 Male, 1 Female)
-  {
-    id: "JBFqnCBsd6RMkjVDRZzb",
-    name: "Ерлан (Ер адам)",
-    gender: "male",
-    roleTitle: "Ер адам дауысы",
-    tag: "Шешен, салиқалы баяндаушы • Тарихи және заманауи оқиғаларға",
-    previewUrl: "/audio/samples/kz_male_sample.mp3",
-    lang: "kz",
-  },
-  {
-    id: "EXAVITQu4vr4xnSDxMaL",
-    name: "Айгерім (Әйел адам)",
-    gender: "female",
-    roleTitle: "Әйел адам дауысы",
-    tag: "Жұмсақ, анық, әсерлі тембр • Драма және кино хикаяларына",
-    previewUrl: "/audio/samples/kz_female_sample.mp3",
-    lang: "kz",
-  },
-];
+/**
+ * Каталог голосов живёт в src/lib/content/voices.data.json — тот же файл
+ * читает scripts/gen-voice-samples.mjs. Раньше список был продублирован в
+ * скрипте, из-за чего сэмплы в интерфейсе и реальная озвучка разъезжались.
+ */
+export const VOICES_CONFIG: VoiceItem[] = VOICE_CATALOG.map((v) => ({
+  id: v.id,
+  name: v.name,
+  gender: v.gender,
+  roleTitle: v.roleTitle,
+  tag: v.tag,
+  previewUrl: `/audio/samples/${v.previewFile}`,
+  lang: v.lang,
+}));
 
 export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
   selectedVoice,
@@ -105,7 +86,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
       .catch(() => setPlayingVoiceKey(null));
   };
 
-  const switchLanguage = (lang: "ru" | "kz") => {
+  const switchLanguage = (lang: ContentLanguage) => {
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
@@ -116,8 +97,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
     // Automatically select the primary voice of chosen language if current isn't valid for that language
     const currentMatchesLang = VOICES_CONFIG.some((v) => v.id === selectedVoice && v.lang === lang);
     if (!currentMatchesLang) {
-      const nextDefaultVoice = lang === "kz" ? "JBFqnCBsd6RMkjVDRZzb" : "s0phbFBBp708ZeIy8oGx";
-      onSelectVoice(nextDefaultVoice);
+      onSelectVoice(defaultVoiceFor(lang));
     }
   };
 
@@ -142,10 +122,8 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
           aria-label="Язык озвучки"
           className="inline-flex items-center p-1 rounded-full bg-surface-2 border border-hairline shrink-0"
         >
-          {([
-            { code: "ru" as const, label: "Русский", Flag: FlagRU },
-            { code: "kz" as const, label: "Қазақша", Flag: FlagKZ },
-          ]).map((l) => {
+          {(Object.keys(LANGUAGE_LABELS) as ContentLanguage[]).map((code) => {
+            const l = { code, label: LANGUAGE_LABELS[code], Flag: LANGUAGE_FLAGS[code] };
             const active = language === l.code;
             return (
               <button
@@ -155,7 +133,7 @@ export const VoiceSelector: React.FC<VoiceSelectorProps> = ({
                 aria-selected={active}
                 onClick={() => switchLanguage(l.code)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full",
+                  "inline-flex items-center gap-1.5 h-8 px-3 sm:px-3.5 rounded-full",
                   "text-[12.5px] font-medium transition-colors cursor-pointer",
                   active
                     ? "bg-contrast text-contrast-ink"

@@ -14,7 +14,22 @@ export async function POST(req: NextRequest) {
       .from("video_generations")
       .update({
         scenes: scenes || [],
-        actual_duration_seconds: totalDuration || 480,
+        // Раньше здесь было `totalDuration || 480`, а клиент totalDuration не
+        // присылал вовсе — поэтому КАЖДОЕ видео записывалось как ровно 8 минут
+        // и архив показывал 480 секунд у всех роликов, включая 25-секундные.
+        actual_duration_seconds: Math.max(
+          0,
+          Math.round(
+            Number(totalDuration) ||
+              (Array.isArray(scenes)
+                ? scenes.reduce(
+                    (acc: number, sc: any) =>
+                      acc + (Number(sc?.actualDuration) || Number(sc?.durationEstimate) || 0),
+                    0
+                  )
+                : 0)
+          )
+        ),
         status: "completed",
         updated_at: new Date().toISOString(),
       })
@@ -74,10 +89,21 @@ export async function POST(req: NextRequest) {
 
     const remaining = Math.max(0, user.generations_limit - newUsed);
 
+    // Клиент читает finData.user — раньше этого ключа здесь не было, ветка
+    // была мёртвой, и баланс обновлялся только при возврате фокуса на вкладку.
     return NextResponse.json({
       success: true,
       generationsUsed: newUsed,
       remaining,
+      user: {
+        id: user.id,
+        userName: user.user_name,
+        secretCode: user.secret_code,
+        status: user.status,
+        remaining,
+        generationsLimit: user.generations_limit,
+        generationsUsed: newUsed,
+      },
     });
   } catch (err: any) {
     console.error("Finalize Error:", err);
