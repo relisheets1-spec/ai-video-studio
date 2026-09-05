@@ -63,14 +63,14 @@ export const Tile: React.FC<TileProps> = ({
           )}
           <div className="min-w-0">
             {title && (
-              <h2 className="text-[15px] font-semibold tracking-tight leading-tight truncate">
+              <h2 className="text-[16.5px] sm:text-[15px] font-semibold tracking-tight leading-tight truncate">
                 {title}
               </h2>
             )}
             {hint && (
               <p
                 className={cn(
-                  "text-[12.5px] leading-snug mt-1",
+                  "text-[13.5px] sm:text-[12.5px] leading-snug mt-1",
                   tone === "surface" ? "text-muted" : "opacity-70"
                 )}
               >

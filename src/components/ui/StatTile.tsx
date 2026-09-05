@@ -33,7 +33,7 @@ export const StatTile: React.FC<StatTileProps> = ({
 }) => (
   <div
     className={cn(
-      "rounded-tile border shadow-soft p-5 flex flex-col justify-between min-h-[124px] min-w-0",
+      "rounded-tile border shadow-soft p-3.5 sm:p-5 flex flex-col justify-between min-h-[92px] sm:min-h-[124px] min-w-0",
       tones[tone],
       className
     )}
@@ -41,7 +41,7 @@ export const StatTile: React.FC<StatTileProps> = ({
     <div className="flex items-start justify-between gap-3">
       <span
         className={cn(
-          "text-[11px] font-semibold uppercase tracking-[0.08em]",
+          "text-[11px] font-semibold uppercase tracking-[0.08em] leading-tight",
           tone === "surface" ? "text-faint" : "opacity-60"
         )}
       >
@@ -53,10 +53,13 @@ export const StatTile: React.FC<StatTileProps> = ({
         </span>
       )}
     </div>
-    <div className="mt-4 min-w-0">
+    <div className="mt-2.5 sm:mt-4 min-w-0">
+      {/* Значение ТЕКУЧЕЕ, а не фиксированное: раньше был text-[32px] + truncate,
+          поэтому на узком экране «~25 сек» не влезало и обрезалось многоточием.
+          clamp сжимает цифры вместо того, чтобы их прятать. */}
       <div
         className={cn(
-          "text-[32px] leading-none font-bold tracking-tight tabular truncate",
+          "text-[clamp(18px,5.2vw,32px)] leading-none font-bold tracking-tight tabular",
           valueClassName
         )}
       >
@@ -65,7 +68,7 @@ export const StatTile: React.FC<StatTileProps> = ({
       {caption && (
         <div
           className={cn(
-            "text-[12.5px] mt-1.5 truncate",
+            "text-[12.5px] mt-1.5",
             tone === "surface" ? "text-muted" : "opacity-70"
           )}
         >

@@ -30,7 +30,7 @@ export const Badge: React.FC<BadgeProps> = ({
   <span
     className={cn(
       "inline-flex items-center gap-1.5 px-2.5 h-6 rounded-full",
-      "text-[12px] font-medium whitespace-nowrap",
+      "text-[12.5px] sm:text-[12px] font-medium whitespace-nowrap",
       tones[tone],
       className
     )}

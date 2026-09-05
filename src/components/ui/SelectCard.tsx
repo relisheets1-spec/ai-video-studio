@@ -65,16 +65,16 @@ export const SelectCard: React.FC<SelectCardProps> = ({
         </span>
       )}
       <span className="min-w-0 flex-1">
-        <span className="block text-[13.5px] font-medium text-ink leading-tight pr-4">
+        <span className="block text-[15px] sm:text-[13.5px] font-medium text-ink leading-tight pr-4">
           {title}
         </span>
         {hint && (
-          <span className="block text-[12px] text-muted leading-snug mt-1">
+          <span className="block text-[13px] sm:text-[12px] text-muted leading-snug mt-1">
             {hint}
           </span>
         )}
         {meta && (
-          <span className="block text-[11.5px] text-faint mt-1.5 tabular">{meta}</span>
+          <span className="block text-[12.5px] sm:text-[11.5px] text-faint mt-1.5 tabular">{meta}</span>
         )}
       </span>
     </div>

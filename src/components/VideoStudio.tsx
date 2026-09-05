@@ -624,25 +624,26 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
 
           {/* Показатели под монитором: заполняют правую колонку и дают
               быстрый ответ на «что именно сейчас будет сгенерировано». */}
-          <div className="grid grid-cols-3 gap-4">
+          {/* На телефоне три колонки давали ~61px под контент — цифры обрезались.
+              «Осталось» самая важная плитка, поэтому в мобильном ряду она идёт
+              первой во всю ширину. */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-4">
             <StatTile
               label="Кадров"
               value={currentVideo ? currentVideo.scenes.length : plannedFrames}
               icon={<FilmStrip size={20} />}
-              valueClassName="text-[26px]"
             />
             <StatTile
               label="Длительность"
               value={currentVideo ? formatSeconds(currentDuration) : plannedLength}
               icon={<Clock size={20} />}
-              valueClassName="text-[22px]"
             />
             <StatTile
               label="Осталось"
               value={user.remaining}
               icon={<Lightning size={20} />}
-              valueClassName="text-[26px]"
               tone={user.remaining > 0 ? "contrast" : "surface"}
+              className="col-span-2 sm:col-span-1"
             />
           </div>
 
@@ -709,7 +710,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
           Кнопка вынесена из формы, поэтому привязана к ней через form="studio-form".
           Так CTA и прогресс всегда на экране и не выталкивают вёрстку. */}
       <div className="fixed bottom-0 inset-x-0 z-30 border-t border-hairline bg-bg/90 backdrop-blur-xl">
-        <div className="max-w-shell mx-auto px-5 sm:px-8 py-3.5">
+        {/* Высота деки одинакова в обоих состояниях: иначе при переходе
+            «форма → генерация → результат» контент сползал относительно
+            фиксированного отступа снизу. */}
+        <div className="max-w-shell mx-auto px-5 sm:px-8 py-3.5 min-h-[76px] sm:min-h-[72px] flex flex-col justify-center">
           {isGenerating ? (
             <Progress value={progressPercent} label={progressStep} />
           ) : (
@@ -719,7 +723,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 {activeStyle && <Badge tone="outline">{activeStyle.label}</Badge>}
                 {activeDuration && <Badge tone="outline">{activeDuration.badge}</Badge>}
                 <Badge tone="outline">{orientation === "portrait" ? "9:16" : "16:9"}</Badge>
-
               </div>
 
               <Button

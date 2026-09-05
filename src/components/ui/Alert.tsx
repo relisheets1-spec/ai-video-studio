@@ -29,7 +29,7 @@ export const Alert: React.FC<{
   <div
     role="alert"
     className={cn(
-      "flex items-start gap-2.5 rounded-control px-3.5 py-3 text-[13px] leading-snug",
+      "flex items-start gap-2.5 rounded-control px-3.5 py-3 text-[14px] sm:text-[13px] leading-snug",
       tones[tone],
       className
     )}

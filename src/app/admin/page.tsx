@@ -463,8 +463,11 @@ export default function AdminPage() {
             </span>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+          {/* На телефоне шесть колонок физически не помещаются; даём таблице
+              честную минимальную ширину, чтобы она горизонтально прокручивалась,
+              а не сминалась в нечитаемую кашу. */}
+          <div className="overflow-x-auto -mx-px">
+            <table className="w-full min-w-[760px] text-left border-collapse">
               <thead>
                 <tr className="bg-surface-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-faint">
                   <th className="py-3 px-5 font-semibold">Пользователь</th>

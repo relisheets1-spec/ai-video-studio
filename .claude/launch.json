@@ -6,7 +6,7 @@
       "runtimeExecutable": "cmd",
       "runtimeArgs": [
         "/c",
-        "subst X: \"C:\\Users\\oatmeal\\Desktop\\Nurtaskot#08\" 2>nul & X: & cd \\ & npm run dev"
+        "X: && npx next dev -p 3000"
       ],
       "port": 3000
     }
