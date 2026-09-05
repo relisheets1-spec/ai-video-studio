@@ -1,0 +1,33 @@
+[Unit]
+Description=AI Video Studio (Next.js standalone)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=studio
+Group=studio
+WorkingDirectory=/var/www/studio/current
+EnvironmentFile=/etc/studio.env
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOSTNAME=127.0.0.1
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=3
+
+# 1 ГБ памяти на всё: приложению хватает 300-400 МБ, потолок ловит утечку
+# раньше, чем OOM-killer выключит nginx или ssh.
+MemoryMax=768M
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/studio
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=studio
+
+[Install]
+WantedBy=multi-user.target

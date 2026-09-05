@@ -1,0 +1,8 @@
+[Unit]
+Description=Резервная копия студии
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=/etc/studio.env
+ExecStart=/usr/local/bin/studio-backup

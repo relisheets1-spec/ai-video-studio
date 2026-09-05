@@ -210,7 +210,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
 
   const syncBalance = async () => {
     try {
-      const res = await authFetch("/api/auth/me");
+      const res = await authFetch("/api/auth/session");
       const data = await res.json();
       if (res.ok && data.user) {
         if (

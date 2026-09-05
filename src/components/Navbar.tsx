@@ -7,8 +7,7 @@ import { Badge, IconTile, ThemeToggle, cn } from "@/components/ui";
 
 interface NavbarProps {
   user?: {
-    userName: string;
-    email?: string;
+    email: string;
     remaining: number;
     generationsLimit: number;
     status: string;
@@ -67,7 +66,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="text-muted">видео</span>
               </span>
               <span className="hidden lg:inline text-[13px] font-medium text-muted px-1 max-w-[220px] truncate">
-                {user.email || user.userName}
+                {user.email}
               </span>
             </>
           )}

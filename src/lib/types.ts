@@ -4,40 +4,19 @@ import type { VideoCost } from "./pricing";
 export type { Orientation, VideoCost };
 
 /**
- * Жизненный цикл инвайт-кода:
- *   invited  — код создан админом, никем не занят;
- *   pending  — пользователь зарегистрировался (почта + ключ), ждёт одобрения;
- *   approved — доступ открыт;
- *   rejected / blocked — доступ закрыт админом.
+ * Жизненный цикл доступа:
+ *   pending  — заявка подана, ждёт администратора;
+ *   invited  — админ одобрил, выдан код приглашения, регистрация не завершена;
+ *   approved — доступ открыт, вход по коду с почты;
+ *   rejected — заявка отклонена;
+ *   blocked  — доступ закрыт, все сессии погашены.
  */
-export type AccessStatus = "invited" | "pending" | "approved" | "rejected" | "blocked";
+export type AccessStatus = "pending" | "invited" | "approved" | "rejected" | "blocked";
 
-/** Строка access_codes в том виде, в каком её видит админка. Ключ ElevenLabs наружу не отдаётся. */
-export interface AccessCode {
-  id: string;
-  user_name: string;
-  secret_code: string;
-  email: string | null;
-  status: AccessStatus;
-  generations_limit: number;
-  generations_used: number;
-  created_at: string;
-  approved_at?: string | null;
-  claimed_at?: string | null;
-  frozen_until?: string | null;
-  has_elevenlabs_key?: boolean;
-}
-
-/** Полная серверная строка — только внутри API-роутов. */
-export interface AccessCodeRow extends Omit<AccessCode, "has_elevenlabs_key"> {
-  elevenlabs_key_enc?: string | null;
-}
-
-/** Профиль, который получает клиент студии. */
+/** Профиль, который получает клиент студии. Ключ ElevenLabs наружу не отдаётся. */
 export interface StudioUser {
   id: string;
   email: string;
-  userName: string;
   status: AccessStatus;
   remaining: number;
   generationsLimit: number;
@@ -45,24 +24,37 @@ export interface StudioUser {
   hasElevenLabsKey: boolean;
 }
 
+/** Строка таблицы пользователей в админке: плюс даты, счётчик фильмов и код приглашения. */
+export interface AdminUserView extends StudioUser {
+  createdAt: string;
+  approvedAt: string | null;
+  registeredAt: string | null;
+  lastLoginAt: string | null;
+  videosCount: number;
+  invite: { code: string; expiresAt: string; usedAt: string | null } | null;
+}
+
 export interface AdminInfo {
   email: string;
+  /** Из ADMIN_EMAILS: такого админа нельзя снять из панели. */
   isPrimary: boolean;
-  appointedBy?: string | null;
+  addedBy?: string | null;
   createdAt?: string | null;
 }
 
 export interface Scene {
   id: number;
   title: string;
-  narration: string; // The spoken text
-  visualPrompt: string; // The prompt for the image model
-  audioUrl?: string; // Supabase public URL of audio MP3
-  imageUrl?: string; // Supabase public URL of generated image
-  durationEstimate?: number; // Serverside guess, used only until audio metadata loads
-  actualDuration?: number; // Measured length of the decoded MP3
+  narration: string;
+  visualPrompt: string;
+  /** Ссылка вида /media/films/<videoId>/scene_1.mp3 */
+  audioUrl?: string;
+  /** Ссылка вида /media/films/<videoId>/scene_1.png */
+  imageUrl?: string;
+  durationEstimate?: number;
+  actualDuration?: number;
   /**
-   * Ориентация кадра. Хранится ВНУТРИ scenes jsonb: так исторически сложилось,
+   * Ориентация кадра. Хранится ВНУТРИ scenes: так исторически сложилось,
    * и старые видео поля не имеют — читаются как "landscape", что для них верно.
    */
   orientation?: Orientation;
@@ -72,7 +64,7 @@ export interface VideoGeneration {
   id: string;
   user_id: string;
   topic: string;
-  genre?: string;
+  genre?: string | null;
   style: string;
   voice: string;
   status: "draft" | "generating_script" | "generating_audio" | "generating_images" | "completed" | "failed";
@@ -80,11 +72,12 @@ export interface VideoGeneration {
   actual_duration_seconds: number;
   scenes: Scene[];
   error_message?: string | null;
-  /** Фактическая стоимость (с сентября 2026); у старых видео отсутствует. */
   cost?: VideoCost | null;
   /** Референс персонажа/объекта, если фильм делался по картинке пользователя. */
   reference_url?: string | null;
   reference_analysis?: { summary?: string; subjectPrompt?: string; stylePrompt?: string } | null;
+  /** Когда уборщик стёр картинки и звук; текст сцен и стоимость остаются. */
+  media_purged_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -96,7 +89,6 @@ export type VoiceOption =
   | "JBFqnCBsd6RMkjVDRZzb" // George
   | "EXAVITQu4vr4xnSDxMaL" // Sarah
   | "pNInz6obpgDQGcFmaJgB" // Adam
-  | "alloy" | "echo" | "fable" | "onyx" | "nova" | "shimmer"
   | string;
 
 export interface GenerationProgress {

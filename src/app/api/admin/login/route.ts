@@ -1,58 +1,45 @@
 import { NextRequest, NextResponse } from "next/server";
+import { issueLoginCode, LOGIN_CODE_TTL_MS } from "@/lib/access";
+import { getAdmin } from "@/lib/admins";
+import { normalizeEmail } from "@/lib/env";
+import { adminCodeMail, sendMail } from "@/lib/mail";
 import { checkAttempts, getClientIp, recordAttempt } from "@/lib/security";
-import {
-  ensurePrimarySeeded,
-  getAdmin,
-  getAdminEpoch,
-  normalizeEmail,
-  passwordIsDefault,
-  verifyAdminPassword,
-} from "@/lib/admins";
-import { signAdminToken } from "@/lib/admin-auth";
 
-/** Вход администратора: почта из списка админов + пароль администратора. */
+/**
+ * Запрос кода для входа в панель.
+ *
+ * Ответ одинаковый для любого адреса: по нему нельзя узнать, кто админ.
+ * Письмо уходит только тем, кто есть в ADMIN_EMAILS или в таблице admins.
+ */
 export async function POST(req: NextRequest) {
-  try {
-    const ip = getClientIp(req);
-    const attempts = await checkAttempts(ip, "admin");
-    if (attempts.blocked) {
-      return NextResponse.json(
-        { error: `Превышен лимит (${attempts.label}). Доступ с этого IP временно закрыт.` },
-        { status: 429 }
-      );
-    }
-
-    const body = await req.json().catch(() => ({}));
-    const email = normalizeEmail(body?.email);
-    const password = typeof body?.password === "string" ? body.password : "";
-
-    if (!email || !password) {
-      return NextResponse.json({ error: "Введите почту и пароль администратора" }, { status: 400 });
-    }
-
-    await ensurePrimarySeeded();
-    const admin = await getAdmin(email);
-    const ok = admin ? await verifyAdminPassword(password) : false;
-
-    if (!admin || !ok) {
-      await recordAttempt(ip, "admin", false, email);
-      return NextResponse.json(
-        { error: `Неверная почта или пароль. Осталось попыток: ${Math.max(0, attempts.attemptsLeft - 1)}.` },
-        { status: 401 }
-      );
-    }
-
-    await recordAttempt(ip, "admin", true, email);
-    const epoch = await getAdminEpoch();
-
-    return NextResponse.json({
-      success: true,
-      adminToken: signAdminToken(admin.email, epoch),
-      admin,
-      passwordIsDefault: await passwordIsDefault(),
-    });
-  } catch (err: any) {
-    console.error("Admin Login Error:", err);
-    return NextResponse.json({ error: err.message || "Ошибка сервера" }, { status: 500 });
+  const ip = getClientIp(req);
+  const attempts = checkAttempts(ip, "admin");
+  if (attempts.blocked) {
+    return NextResponse.json({ error: `Превышен лимит (${attempts.label}). Попробуйте позже.` }, { status: 429 });
   }
+
+  const body = await req.json().catch(() => ({}));
+  const email = normalizeEmail(body?.email);
+  if (!email) return NextResponse.json({ error: "Укажите корректную почту" }, { status: 400 });
+
+  const admin = getAdmin(email);
+  if (!admin) {
+    recordAttempt(ip, "admin", false, email);
+    return NextResponse.json({ state: "code", message: "Если адрес есть в списке администраторов, код отправлен." });
+  }
+
+  const issued = issueLoginCode(email, "admin", ip);
+  if (!issued.ok) {
+    return NextResponse.json(
+      { error: `Код уже отправлен. Новый можно запросить через ${issued.retryAfterSec} с.` },
+      { status: 429 }
+    );
+  }
+
+  const mail = await sendMail(adminCodeMail(email, issued.code, Math.round(LOGIN_CODE_TTL_MS / 60000)));
+  if (!mail.ok) {
+    return NextResponse.json({ error: "Не удалось отправить письмо с кодом" }, { status: 502 });
+  }
+
+  return NextResponse.json({ state: "code", message: "Если адрес есть в списке администраторов, код отправлен." });
 }

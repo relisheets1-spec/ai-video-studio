@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
-import { requireUser, toPublicUser } from "@/lib/session";
+import { requireUser } from "@/lib/session";
+import { findUserById, incrementUsed, toPublicUser } from "@/lib/users";
+import { getOwnedVideo, updateVideo } from "@/lib/videos";
+import { ELEVENLABS_API_KEY } from "@/lib/env";
 import { decryptSecret } from "@/lib/crypto";
 import { MAX_SCENES } from "@/lib/plan";
 import { fetchHistoryCredits, fetchSubscription } from "@/lib/elevenlabs";
 import { computeVideoCost, type ImageFrameUsage, type TtsFrameUsage, type VideoCost } from "@/lib/pricing";
-
-export const maxDuration = 60;
 
 const str = (v: unknown, max = 120) => (typeof v === "string" ? v.slice(0, max) : null);
 const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -54,12 +54,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "videoId обязателен" }, { status: 400 });
     }
 
-    const { data: video } = await supabaseAdmin
-      .from("video_generations")
-      .select("id, user_id, status, cost")
-      .eq("id", videoId)
-      .maybeSingle();
-    if (!video || video.user_id !== user.id) {
+    const video = getOwnedVideo(videoId, user.id);
+    if (!video) {
       return NextResponse.json({ error: "Доступ запрещен: чужое или неизвестное видео" }, { status: 403 });
     }
 
@@ -94,7 +90,7 @@ export async function POST(req: NextRequest) {
       let creditsAfter: number | null = null;
 
       const userKey = decryptSecret(user.elevenlabs_key_enc);
-      const envKey = process.env.ELEVENLABS_API_KEY?.trim() || "";
+      const envKey = ELEVENLABS_API_KEY;
       const sinceUnix = startedAt ? Math.floor(Date.parse(startedAt) / 1000) : Math.floor(Date.now() / 1000) - 3 * 3600;
 
       const byOwner: Record<"user" | "env", string[]> = { user: [], env: [] };
@@ -132,34 +128,16 @@ export async function POST(req: NextRequest) {
       console.error("Cost computation failed:", costErr);
     }
 
-    const { error: videoError } = await supabaseAdmin
-      .from("video_generations")
-      .update({
-        scenes: scenes || [],
-        actual_duration_seconds: durationSeconds,
-        status: "completed",
-        updated_at: new Date().toISOString(),
-        ...(cost ? { cost } : {}),
-      })
-      .eq("id", videoId);
-    if (videoError) {
-      return NextResponse.json({ error: videoError.message }, { status: 500 });
-    }
+    updateVideo(videoId, {
+      scenes: scenes || [],
+      actual_duration_seconds: durationSeconds,
+      status: "completed",
+      ...(cost ? { cost } : {}),
+    });
 
     // Списываем генерацию один раз: повторный finalize баланс не трогает.
-    let newUsed = user.generations_used || 0;
-    if (video.status !== "completed") {
-      newUsed += 1;
-      const { error: userUpdateError } = await supabaseAdmin
-        .from("access_codes")
-        .update({ generations_used: newUsed })
-        .eq("id", user.id);
-      if (userUpdateError) {
-        return NextResponse.json({ error: userUpdateError.message }, { status: 500 });
-      }
-    }
-
-    const publicUser = toPublicUser({ ...user, generations_used: newUsed });
+    const newUsed = video.status !== "completed" ? incrementUsed(user.id) : user.generations_used || 0;
+    const publicUser = toPublicUser(findUserById(user.id) || { ...user, generations_used: newUsed });
     return NextResponse.json({
       success: true,
       generationsUsed: newUsed,

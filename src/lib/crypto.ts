@@ -1,20 +1,25 @@
 import crypto from "node:crypto";
 
 /**
- * Единый криптографический слой: подписанные токены сессий и шифрование
- * пользовательских ключей ElevenLabs.
+ * Единый криптографический слой: подписанные токены сессий, хэши кодов входа
+ * и шифрование пользовательских ключей ElevenLabs.
  *
- * Все ключи выводятся из ADMIN_SECRET_KEY с доменным разделением: подпись
+ * Все ключи выводятся из SESSION_SECRET с доменным разделением: подпись
  * пользовательской сессии никогда не пройдёт как подпись админской, а ключ
  * шифрования не совпадает ни с одной из них.
  */
 
-export type KeyPurpose = "user-session" | "admin-session" | "elevenlabs-key";
+export type KeyPurpose =
+  | "user-session"
+  | "admin-session"
+  | "elevenlabs-key"
+  | "login-code"
+  | "site-gate";
 
 function masterSecret(): string {
-  const key = process.env.ADMIN_SECRET_KEY;
-  if (!key) {
-    throw new Error("ADMIN_SECRET_KEY не задан — подпись сессий и шифрование отключены");
+  const key = process.env.SESSION_SECRET;
+  if (!key || key.length < 16) {
+    throw new Error("SESSION_SECRET не задан (нужно не меньше 16 символов) — подпись сессий и шифрование отключены");
   }
   return key;
 }

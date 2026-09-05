@@ -1,8 +1,14 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  outputFileTracing: false,
+  // Сборка идёт в GitHub Actions, на сервер уезжает .next/standalone —
+  // самодостаточный server.js со своими node_modules, без npm install на VPS.
+  output: "standalone",
+  poweredByHeader: false,
+  reactStrictMode: true,
   experimental: {
     optimizePackageImports: ["@phosphor-icons/react"],
+    // nodemailer грузится только при SMTP — пусть остаётся обычным require.
+    serverComponentsExternalPackages: ["nodemailer"],
   },
   // ВНИМАНИЕ: путь проекта содержит «#» (…/Nurtaskot#08).
   // Next формирует ключи в React Client Manifest как «путь#экспорт»,
@@ -15,16 +21,7 @@ const nextConfig = {
   //     subst X: "C:\Users\oatmeal\Desktop\Nurtaskot#08"
   //     cd /d X:\  &&  npm run dev
   //
-  // subst работает на уровне DOS-устройств, и Node его не разворачивает.
-  // Постоянное решение — убрать «#» из имени папки.
-  images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '**',
-      },
-    ],
-  },
+  // На сервере такой проблемы нет: код лежит в /var/www/studio.
 };
 
 export default nextConfig;

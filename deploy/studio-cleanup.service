@@ -1,0 +1,10 @@
+[Unit]
+Description=Уборка старых медиафайлов студии
+
+[Service]
+Type=oneshot
+User=studio
+Group=studio
+EnvironmentFile=/etc/studio.env
+ExecStart=/usr/bin/node /var/www/studio/current/scripts/cleanup.mjs
+ReadWritePaths=/var/lib/studio

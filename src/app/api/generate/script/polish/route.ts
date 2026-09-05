@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
 import { MIN_SCENES, planFromMinutes } from "@/lib/plan";
 import { resolveStyleFragment } from "@/lib/content/styles";
 import { normalizeGenre } from "@/lib/content/genres";
@@ -28,8 +27,7 @@ import { requireUser } from "@/lib/session";
 import { LlmUsage } from "@/lib/llm-usage";
 import { SCRIPT_MODEL as MODEL, scriptChat } from "@/lib/script/model";
 import { isReferenceAnalysis } from "@/lib/reference";
-
-export const maxDuration = 300;
+import { getOwnedVideo, getVideo, updateVideo } from "@/lib/videos";
 
 const trimPunct = (v: unknown) => (typeof v === "string" ? v.trim().replace(/[.\s]+$/g, "") : "");
 
@@ -65,13 +63,8 @@ export async function POST(req: NextRequest) {
     videoId = typeof body?.videoId === "string" ? body.videoId : null;
     if (!videoId) return NextResponse.json({ error: "videoId обязателен" }, { status: 400 });
 
-    const { data: row } = await supabaseAdmin
-      .from("video_generations")
-      .select("id, user_id, status, topic, draft, cost, reference_analysis")
-      .eq("id", videoId)
-      .maybeSingle();
-
-    if (!row || row.user_id !== user.id) {
+    const row = getOwnedVideo(videoId, user.id);
+    if (!row) {
       return NextResponse.json({ error: "Доступ запрещен: чужое или неизвестное видео" }, { status: 403 });
     }
     const draft: any = row.draft;
@@ -92,7 +85,7 @@ export async function POST(req: NextRequest) {
     if (!Array.isArray(blueprint.beats)) blueprint.beats = [];
     if (!Array.isArray(blueprint.characters)) blueprint.characters = [];
 
-    usage = new LlmUsage(MODEL, draft.llm || row.cost?.llm || null);
+    usage = new LlmUsage(MODEL, draft.llm || (row.cost as any)?.llm || null);
     let narration: string = draft.narration;
 
     // --- Редактор: повторы, служебные связки, длинные предложения, перебор объёма.
@@ -304,11 +297,8 @@ export async function POST(req: NextRequest) {
     const finalStats = rhythmStats(narration);
     console.info(`[rhythm] final: ${JSON.stringify(finalStats)} scenes=${scenesOut.length} words=${actualWords}`);
 
-    const cost = { ...(row.cost || { version: 1, startedAt: null, tts: {} }), llm: usage.toJSON() };
-    await supabaseAdmin
-      .from("video_generations")
-      .update({ scenes: scenesOut, status: "generating_audio", cost, draft: null })
-      .eq("id", videoId);
+    const cost = { ...((row.cost as any) || { version: 1, startedAt: null, tts: {} }), llm: usage.toJSON() };
+    updateVideo(videoId, { scenes: scenesOut, status: "generating_audio", cost, draft: null });
 
     return NextResponse.json({
       videoId,
@@ -317,14 +307,11 @@ export async function POST(req: NextRequest) {
       plan: { requestedMinutes: plan.minutes, scenesCount: scenesOut.length, words: actualWords, rhythm: finalStats },
     });
   } catch (err: any) {
-    await logPipelineError({ stage: "llm", videoId, message: err?.message || String(err) });
+    logPipelineError({ stage: "llm", videoId, message: err?.message || String(err) });
     if (videoId && usage) {
       try {
-        const { data: row } = await supabaseAdmin.from("video_generations").select("cost").eq("id", videoId).maybeSingle();
-        await supabaseAdmin
-          .from("video_generations")
-          .update({ cost: { ...(row?.cost || { version: 1, startedAt: null, tts: {} }), llm: usage.toJSON() } })
-          .eq("id", videoId);
+        const prior = (getVideo(videoId)?.cost as any) || { version: 1, startedAt: null, tts: {} };
+        updateVideo(videoId, { cost: { ...prior, llm: usage.toJSON() } });
       } catch {}
     }
     return NextResponse.json({ error: err.message || "Ошибка при доработке сценария" }, { status: 500 });

@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import crypto from "node:crypto";
-import { supabaseAdmin } from "@/lib/supabase";
 import { requireUser } from "@/lib/session";
 import { analyzeReference } from "@/lib/reference";
 import { logPipelineError } from "@/lib/pipeline-log";
-
-export const maxDuration = 60;
+import { saveReference } from "@/lib/storage";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const TYPES: Record<string, string> = {
@@ -15,8 +12,9 @@ const TYPES: Record<string, string> = {
 };
 
 /**
- * Загрузка референса: файл → хранилище → GPT-4o описывает субъект и стиль.
- * Описание и usage возвращаются клиенту и уходят вместе с запросом сценария.
+ * Загрузка референса: файл → диск сервера → GPT-4o описывает субъект и стиль.
+ * В модель картинка уходит как data-URL, поэтому распознавание работает и на
+ * локальной машине, где /media снаружи не виден.
  */
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
@@ -38,20 +36,14 @@ export async function POST(req: NextRequest) {
     }
 
     const bytes = Buffer.from(await file.arrayBuffer());
-    const path = `refs/${user.id}/${crypto.randomUUID()}.${ext}`;
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from("video-assets")
-      .upload(path, bytes, { contentType: file.type, upsert: false });
-    if (uploadError) {
-      return NextResponse.json({ error: uploadError.message }, { status: 500 });
-    }
-    const { data: pub } = supabaseAdmin.storage.from("video-assets").getPublicUrl(path);
+    const url = await saveReference(user.id, ext, bytes);
+    const dataUrl = `data:${file.type};base64,${bytes.toString("base64")}`;
 
-    const { analysis, usage } = await analyzeReference(pub.publicUrl);
+    const { analysis, usage } = await analyzeReference(dataUrl);
 
-    return NextResponse.json({ url: pub.publicUrl, path, analysis, usage });
+    return NextResponse.json({ url, analysis, usage });
   } catch (err: any) {
-    await logPipelineError({ stage: "llm", videoId: null, message: "reference: " + (err?.message || String(err)) });
+    logPipelineError({ stage: "llm", videoId: null, message: "reference: " + (err?.message || String(err)) });
     return NextResponse.json({ error: err.message || "Не удалось обработать референс" }, { status: 500 });
   }
 }

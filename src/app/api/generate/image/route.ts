@@ -1,30 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
 import { imageApiSize, normalizeOrientation, promptAspectHint } from "@/lib/orientation";
 import { resolveStyleFragment } from "@/lib/content/styles";
 import { logPipelineError } from "@/lib/pipeline-log";
 import { requireUser } from "@/lib/session";
 import { MAX_SCENES } from "@/lib/plan";
 import { isReferenceAnalysis } from "@/lib/reference";
+import { readMediaByUrl, saveSceneImage } from "@/lib/storage";
+import { getOwnedVideo } from "@/lib/videos";
+import { OPENAI_API_KEY } from "@/lib/env";
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const IMAGE_MODEL = "gpt-image-1-mini";
 const IMAGE_QUALITY = "medium";
 /** PNG без сжатия — по требованию владельца (кадр 1536×1024 ≈ 2 МБ). */
 const IMAGE_OUTPUT_FORMAT = "png";
 
-export const maxDuration = 120;
-
-/** Референс скачиваем один раз на инстанс — 30 кадров одного фильма идут подряд. */
+/** Референс читаем с диска один раз на фильм — 30 кадров идут подряд. */
 const referenceCache = new Map<string, { blob: Blob; at: number }>();
 
 async function loadReference(url: string): Promise<Blob> {
   const cached = referenceCache.get(url);
   if (cached && Date.now() - cached.at < 30 * 60 * 1000) return cached.blob;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Не удалось загрузить референс");
-  const type = res.headers.get("content-type") || "image/png";
-  const blob = new Blob([await res.arrayBuffer()], { type });
+  const file = await readMediaByUrl(url);
+  if (!file) throw new Error("Не удалось загрузить референс");
+  const blob = new Blob([new Uint8Array(file.data)], { type: file.contentType });
+  if (referenceCache.size > 20) referenceCache.clear();
   referenceCache.set(url, { blob, at: Date.now() });
   return blob;
 }
@@ -47,12 +46,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Недопустимый номер сцены" }, { status: 400 });
     }
 
-    const { data: video, error: videoErr } = await supabaseAdmin
-      .from("video_generations")
-      .select("id, user_id, created_at, reference_url, reference_analysis")
-      .eq("id", videoId)
-      .single();
-    if (videoErr || !video || video.user_id !== user.id) {
+    const video = getOwnedVideo(videoId, user.id);
+    if (!video) {
       return NextResponse.json({ error: "Доступ запрещен: чужое или неизвестное видео" }, { status: 403 });
     }
     if (Date.now() - new Date(video.created_at).getTime() > 2 * 60 * 60 * 1000) {
@@ -113,16 +108,7 @@ export async function POST(req: NextRequest) {
     const b64Json = openAiData.data[0].b64_json;
     if (!b64Json) throw new Error("Отсутствуют base64 данные изображения");
 
-    const imgBuffer = Buffer.from(b64Json, "base64");
-    const filePath = `images/${videoId}/scene_${sceneId}.png`;
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from("video-assets")
-      .upload(filePath, imgBuffer, { contentType: "image/png", upsert: true });
-    if (uploadError) {
-      console.error("Storage upload error:", uploadError);
-      return NextResponse.json({ error: uploadError.message }, { status: 500 });
-    }
-    const { data: publicUrlData } = supabaseAdmin.storage.from("video-assets").getPublicUrl(filePath);
+    const imageUrl = await saveSceneImage(videoId, sceneId, Buffer.from(b64Json, "base64"));
 
     // usage приходит у gpt-image-1: токены для сверки с официальной таблицей за штуку;
     // при референсе входная картинка оплачивается отдельно (image input).
@@ -138,7 +124,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       sceneId,
-      imageUrl: publicUrlData.publicUrl,
+      imageUrl,
       model: IMAGE_MODEL,
       quality: IMAGE_QUALITY,
       size,
@@ -146,7 +132,7 @@ export async function POST(req: NextRequest) {
       usage,
     });
   } catch (err: any) {
-    await logPipelineError({ stage: "image", videoId: loggedVideoId, message: err?.message || String(err) });
+    logPipelineError({ stage: "image", videoId: loggedVideoId, message: err?.message || String(err) });
     return NextResponse.json({ error: err.message || "Ошибка при генерации изображения" }, { status: 500 });
   }
 }

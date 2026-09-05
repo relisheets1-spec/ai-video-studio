@@ -1,4 +1,4 @@
-import { supabaseAdmin } from "./supabase";
+import { getVideo, updateVideo } from "./videos";
 
 export type PipelineStage = "llm" | "tts" | "image" | "render" | "auth";
 
@@ -11,37 +11,24 @@ export const STAGE_LABELS: Record<PipelineStage, string> = {
 };
 
 /**
- * Логирование отказов пайплайна.
- *
- * До этого все пути отказа делали только console.error: поля status="failed"
- * и error_message в video_generations не писались НИ РАЗУ, поэтому упавшая
- * генерация навсегда оставалась в статусе generating_script, и в админке
- * такую запись было не отличить от идущей прямо сейчас.
- *
- * Пишем в саму запись video_generations: этап кодируем префиксом [stage]
- * в error_message, по нему админка фильтрует. Таблица pipeline_errors
- * (миграция 0001) есть, но отдельный журнал пока не нужен.
+ * Логирование отказов пайплайна: этап кодируется префиксом [stage] в
+ * error_message, по нему админка фильтрует журнал. Без этого упавшая
+ * генерация навсегда оставалась бы в статусе generating_script и в панели
+ * её было бы не отличить от идущей прямо сейчас.
  */
-export async function logPipelineError(opts: {
+export function logPipelineError(opts: {
   stage: PipelineStage;
   videoId?: string | null;
   message: string;
   httpStatus?: number;
-}): Promise<void> {
+}): void {
   const line = `[${opts.stage}]${opts.httpStatus ? ` [${opts.httpStatus}]` : ""} ${opts.message}`;
   console.error("PipelineError", line, opts.videoId ? `video=${opts.videoId}` : "");
 
   if (!opts.videoId) return;
-
   try {
-    await supabaseAdmin
-      .from("video_generations")
-      .update({
-        status: "failed",
-        error_message: line.slice(0, 1000),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", opts.videoId);
+    if (!getVideo(opts.videoId)) return;
+    updateVideo(opts.videoId, { status: "failed", error_message: line.slice(0, 1000) });
   } catch (err) {
     // Логирование не должно ронять запрос поверх уже случившейся ошибки.
     console.error("logPipelineError failed to persist:", err);

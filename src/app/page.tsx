@@ -7,19 +7,17 @@ import { AuthGate, type AuthNotice } from "@/components/AuthGate";
 import { Spinner } from "@/components/ui";
 import type { StudioUser } from "@/lib/types";
 import {
-  authFetch,
-  clearStudioSession,
-  getStudioToken,
-  purgeLegacyStorage,
-  setStoredUser,
+  fetchSession,
+  logout,
   SESSION_LOST_EVENT,
   type SessionLostDetail,
 } from "@/lib/client/session";
 
 function noticeFor(detail: SessionLostDetail | undefined): AuthNotice {
   const status = detail?.status;
-  if (status === "pending") return { tone: "warn", text: detail?.error || "Заявка ожидает одобрения администратора." };
-  if (status === "frozen") return { tone: "warn", text: detail?.error || "Аккаунт временно заморожен." };
+  if (status === "pending" || status === "invited") {
+    return { tone: "warn", text: detail?.error || "Заявка ожидает одобрения администратора." };
+  }
   if (status === "rejected" || status === "blocked") {
     return { tone: "danger", text: detail?.error || "Доступ закрыт администратором." };
   }
@@ -31,29 +29,14 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<AuthNotice | null>(null);
 
-  // Сессия подтверждается сервером: токен в localStorage сам по себе ничего не значит.
+  // Сессию подтверждает сервер: cookie сама по себе ничего не значит,
+  // статус и остаток генераций перечитываются на каждом запросе.
   const refreshSession = useCallback(async () => {
-    if (!getStudioToken()) {
-      setUser(null);
-      return;
-    }
-    try {
-      const res = await authFetch("/api/auth/me");
-      if (res.ok) {
-        const data = await res.json();
-        if (data.user) {
-          setUser(data.user);
-          setStoredUser(data.user);
-        }
-      }
-      // 401/403 обрабатывает authFetch: чистит сессию и шлёт событие.
-    } catch (e) {
-      console.error("Session refresh error:", e);
-    }
+    const fresh = await fetchSession();
+    setUser(fresh);
   }, []);
 
   useEffect(() => {
-    purgeLegacyStorage();
     refreshSession().finally(() => setLoading(false));
 
     const onLost = (e: Event) => {
@@ -61,7 +44,7 @@ export default function HomePage() {
       setNotice(noticeFor((e as CustomEvent<SessionLostDetail>).detail));
     };
     const onFocus = () => {
-      if (getStudioToken()) refreshSession();
+      refreshSession();
     };
 
     window.addEventListener(SESSION_LOST_EVENT, onLost);
@@ -72,8 +55,8 @@ export default function HomePage() {
     };
   }, [refreshSession]);
 
-  const handleLogout = () => {
-    clearStudioSession();
+  const handleLogout = async () => {
+    await logout();
     setUser(null);
     setNotice(null);
   };
@@ -101,13 +84,7 @@ export default function HomePage() {
               }}
             />
           ) : (
-            <VideoStudio
-              user={user}
-              onUserUpdate={(updated) => {
-                setUser(updated);
-                setStoredUser(updated);
-              }}
-            />
+            <VideoStudio user={user} onUserUpdate={setUser} />
           )}
         </div>
       </main>

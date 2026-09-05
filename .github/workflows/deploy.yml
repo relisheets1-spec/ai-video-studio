@@ -1,0 +1,73 @@
+name: Сборка и деплой
+
+# Сборка идёт здесь, а не на сервере: next build требует 1,5-2 ГБ,
+# а на VPS всего 1 ГБ. На сервер уезжает готовый standalone-выпуск.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Проверка типов
+        run: npm run typecheck
+
+      - name: Сборка
+        run: npm run build
+
+      - name: Сборка выпуска
+        run: |
+          set -euo pipefail
+          rm -rf release && mkdir -p release
+          cp -r .next/standalone/. release/
+          mkdir -p release/.next
+          cp -r .next/static release/.next/static
+          cp -r public release/public
+          mkdir -p release/scripts
+          cp scripts/cleanup.mjs release/scripts/cleanup.mjs
+          # nodemailer помечен внешним пакетом, трассировка его не забирает.
+          mkdir -p release/node_modules
+          cp -r node_modules/nodemailer release/node_modules/nodemailer
+          tar czf studio-${GITHUB_SHA}.tar.gz -C release .
+          ls -lh studio-${GITHUB_SHA}.tar.gz
+
+      - name: Деплой по SSH
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SSH_PORT: ${{ secrets.SSH_PORT }}
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+        run: |
+          set -euo pipefail
+          # Пока сервер не заказан, секретов нет — сборка всё равно зелёная.
+          if [ -z "$SSH_HOST" ]; then
+            echo "Секрет SSH_HOST не задан — деплой пропущен, собран только выпуск."
+            exit 0
+          fi
+          PORT="${SSH_PORT:-22}"
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          SSH="ssh -i ~/.ssh/deploy_key -p $PORT ${SSH_USER}@${SSH_HOST}"
+          scp -i ~/.ssh/deploy_key -P "$PORT" \
+            "studio-${GITHUB_SHA}.tar.gz" deploy/release.sh \
+            "${SSH_USER}@${SSH_HOST}:/tmp/"
+          $SSH "bash /tmp/release.sh /tmp/studio-${GITHUB_SHA}.tar.gz ${GITHUB_SHA}"

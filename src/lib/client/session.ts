@@ -3,14 +3,12 @@
 import type { StudioUser } from "@/lib/types";
 
 /**
- * Сессия студии в браузере: подписанный токен + кэш профиля.
- * Ключи с суффиксом v2 — чтобы старые неподписанные сессии не подхватились.
+ * Сессия студии в браузере.
+ *
+ * Токена в localStorage больше нет: сессия живёт в HttpOnly-cookie, которую
+ * ставит сервер, а страница просто спрашивает /api/auth/session. Из хранилища
+ * браузера её не украсть скриптом, и «выйти» тоже решает сервер.
  */
-
-export const STUDIO_TOKEN_KEY = "studio_session_v2";
-export const STUDIO_USER_KEY = "studio_user_v2";
-
-const LEGACY_KEYS = ["ai_video_auth_token", "ai_video_user", "elevenlabs_user_key", "ai_video_admin_token"];
 
 export const SESSION_LOST_EVENT = "studio:session-lost";
 
@@ -19,73 +17,25 @@ export interface SessionLostDetail {
   error?: string;
 }
 
-function storage(): Storage | null {
-  try {
-    return typeof window !== "undefined" ? window.localStorage : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Убирает сессии и ключи прежней схемы доступа. */
-export function purgeLegacyStorage(): void {
-  const s = storage();
-  if (!s) return;
-  for (const key of LEGACY_KEYS) s.removeItem(key);
-}
-
-export function getStudioToken(): string | null {
-  return storage()?.getItem(STUDIO_TOKEN_KEY) ?? null;
-}
-
-export function getStoredUser(): StudioUser | null {
-  try {
-    const raw = storage()?.getItem(STUDIO_USER_KEY);
-    return raw ? (JSON.parse(raw) as StudioUser) : null;
-  } catch {
-    return null;
-  }
-}
-
-export function setStudioSession(token: string, user: StudioUser): void {
-  const s = storage();
-  if (!s) return;
-  s.setItem(STUDIO_TOKEN_KEY, token);
-  s.setItem(STUDIO_USER_KEY, JSON.stringify(user));
-}
-
-export function setStoredUser(user: StudioUser): void {
-  storage()?.setItem(STUDIO_USER_KEY, JSON.stringify(user));
-}
-
-export function clearStudioSession(): void {
-  const s = storage();
-  if (!s) return;
-  s.removeItem(STUDIO_TOKEN_KEY);
-  s.removeItem(STUDIO_USER_KEY);
-}
-
 function dispatchSessionLost(detail: SessionLostDetail): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent<SessionLostDetail>(SESSION_LOST_EVENT, { detail }));
 }
 
 /** Статусы, при которых сессия студии теряет смысл. */
-const LOST_STATUSES = new Set(["pending", "rejected", "frozen", "blocked", "invited"]);
+const LOST_STATUSES = new Set(["pending", "invited", "rejected", "blocked"]);
 
 /**
- * fetch с Bearer-токеном. При 401 или 403 со статусом аккаунта сессия
- * сбрасывается, а страница узнаёт об этом через событие.
+ * fetch с cookie сессии. При 401 или 403 со статусом аккаунта страница
+ * узнаёт об этом через событие и возвращается к форме входа.
  */
 export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
-  const token = getStudioToken();
   const headers = new Headers(init.headers || {});
-  if (token) headers.set("Authorization", `Bearer ${token}`);
   // FormData (загрузка референса) должна уйти как multipart — браузер сам ставит boundary.
   const isForm = typeof FormData !== "undefined" && init.body instanceof FormData;
   if (init.body && !isForm && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
 
-  const res = await fetch(input, { ...init, headers });
+  const res = await fetch(input, { ...init, headers, credentials: "same-origin" });
 
   if (res.status === 401 || res.status === 403) {
     let data: any = null;
@@ -93,10 +43,29 @@ export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}
       data = await res.clone().json();
     } catch {}
     if (res.status === 401 || (data && LOST_STATUSES.has(String(data.status)))) {
-      clearStudioSession();
       dispatchSessionLost({ status: data?.status, error: data?.error });
     }
   }
 
   return res;
+}
+
+/** Профиль по cookie. null — сессии нет. */
+export async function fetchSession(): Promise<StudioUser | null> {
+  try {
+    const res = await fetch("/api/auth/session", { credentials: "same-origin" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.user ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export async function logout(): Promise<void> {
+  try {
+    await fetch("/api/auth/session", { method: "DELETE", credentials: "same-origin" });
+  } catch {
+    // Даже если запрос не дошёл, страница всё равно вернётся к форме входа.
+  }
 }

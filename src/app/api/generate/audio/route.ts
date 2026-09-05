@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
 import { normalizeLanguage } from "@/lib/content/languages";
 import { logPipelineError } from "@/lib/pipeline-log";
 import { requireUser } from "@/lib/session";
@@ -7,6 +6,9 @@ import { decryptSecret } from "@/lib/crypto";
 import { MAX_SCENES } from "@/lib/plan";
 import { synthesize, type SynthResult } from "@/lib/elevenlabs";
 import { modelForLanguage, resolveVoice, settingsForModel } from "@/lib/content/voices";
+import { saveSceneAudio } from "@/lib/storage";
+import { getOwnedVideo } from "@/lib/videos";
+import { ELEVENLABS_API_KEY } from "@/lib/env";
 
 /** Сегментация держит кадр в пределах ~700 символов; это страховочный потолок. */
 const MAX_NARRATION_CHARS = 1500;
@@ -45,12 +47,8 @@ export async function POST(req: NextRequest) {
     }
     loggedVideoId = typeof videoId === "string" ? videoId : null;
 
-    const { data: video, error: videoErr } = await supabaseAdmin
-      .from("video_generations")
-      .select("id, user_id, created_at")
-      .eq("id", videoId)
-      .single();
-    if (videoErr || !video || video.user_id !== user.id) {
+    const video = getOwnedVideo(videoId, user.id);
+    if (!video) {
       return NextResponse.json({ error: "Доступ запрещен: чужое или неизвестное видео" }, { status: 403 });
     }
     if (Date.now() - new Date(video.created_at).getTime() > 2 * 60 * 60 * 1000) {
@@ -69,7 +67,7 @@ export async function POST(req: NextRequest) {
 
     // Ключ из аккаунта пользователя; общий ключ окружения — только запасной.
     const userKey = decryptSecret(user.elevenlabs_key_enc);
-    const envKey = process.env.ELEVENLABS_API_KEY?.trim() || "";
+    const envKey = ELEVENLABS_API_KEY;
 
     let buffer: Buffer | null = null;
     let requestId: string | null = null;
@@ -118,25 +116,17 @@ export async function POST(req: NextRequest) {
           : lastError
             ? `ElevenLabs вернул ошибку${lastError.status ? ` ${lastError.status}` : ""}: ${describeElevenError(lastError.body)}`
             : "ElevenLabs не ответил.";
-      await logPipelineError({ stage: "tts", videoId: loggedVideoId, message: `scene ${sceneId}: ${reason}` });
+      logPipelineError({ stage: "tts", videoId: loggedVideoId, message: `scene ${sceneId}: ${reason}` });
       return NextResponse.json({ error: `Озвучка кадра ${sceneId} не удалась. ${reason}`, keyRejected }, { status: 502 });
     }
 
-    const filePath = `audio/${videoId}/scene_${sceneId}.mp3`;
-    const { error: uploadError } = await supabaseAdmin.storage
-      .from("video-assets")
-      .upload(filePath, buffer, { contentType: "audio/mpeg", upsert: true });
-    if (uploadError) {
-      console.error("Storage upload error:", uploadError);
-      return NextResponse.json({ error: uploadError.message }, { status: 500 });
-    }
-    const { data: publicUrlData } = supabaseAdmin.storage.from("video-assets").getPublicUrl(filePath);
+    const audioUrl = await saveSceneAudio(videoId, sceneId, buffer);
 
     const estimatedSeconds = Math.max(4, Math.round(cleanNarration.length / 13));
 
     return NextResponse.json({
       sceneId,
-      audioUrl: publicUrlData.publicUrl,
+      audioUrl,
       estimatedDuration: estimatedSeconds,
       requestId,
       keyRejected,
@@ -146,7 +136,7 @@ export async function POST(req: NextRequest) {
       characters: cleanNarration.length,
     });
   } catch (err: any) {
-    await logPipelineError({ stage: "tts", videoId: loggedVideoId, message: err?.message || String(err) });
+    logPipelineError({ stage: "tts", videoId: loggedVideoId, message: err?.message || String(err) });
     return NextResponse.json({ error: err.message || "Ошибка при генерации аудио" }, { status: 500 });
   }
 }

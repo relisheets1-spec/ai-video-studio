@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import { supabaseAdmin } from "@/lib/supabase";
 import { getClientIp, checkOpenAiRateLimit, sanitizeScriptInput } from "@/lib/security";
 import { planFromMinutes } from "@/lib/plan";
 import { buildBlueprintPrompt, buildNarrationPrompt, buildRepairPrompt, type Blueprint } from "@/lib/script/prompts";
@@ -11,9 +10,8 @@ import { fetchSubscription } from "@/lib/elevenlabs";
 import { LlmUsage } from "@/lib/llm-usage";
 import { NARRATION_MODEL, SCRIPT_MODEL as MODEL, VISION_MODEL, scriptChat } from "@/lib/script/model";
 import { isReferenceAnalysis, type ReferenceAnalysis } from "@/lib/reference";
-
-/** Vercel fluid compute: до 300 с. Сценарий на 15 минут идёт двумя этапами. */
-export const maxDuration = 300;
+import { isOwnReference } from "@/lib/storage";
+import { createVideo, updateVideo } from "@/lib/videos";
 
 /** Референс принимаем только из нашего хранилища и только из папки этого пользователя. */
 function parseReference(
@@ -22,15 +20,7 @@ function parseReference(
 ): { url: string; analysis: ReferenceAnalysis; usage: { prompt_tokens: number; completion_tokens: number } } | null {
   if (!raw || typeof raw !== "object") return null;
   const url = typeof raw.url === "string" ? raw.url : "";
-  if (!url || url.length > 400) return null;
-  try {
-    const u = new URL(url);
-    const base = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || "");
-    if (u.host !== base.host) return null;
-    if (!u.pathname.startsWith(`/storage/v1/object/public/video-assets/refs/${userId}/`)) return null;
-  } catch {
-    return null;
-  }
+  if (!url || url.length > 400 || !isOwnReference(url, userId)) return null;
   if (!isReferenceAnalysis(raw.analysis)) return null;
   const a = raw.analysis as ReferenceAnalysis;
   return {
@@ -94,28 +84,16 @@ export async function POST(req: NextRequest) {
     const userKey = decryptSecret(user.elevenlabs_key_enc);
     const subscription = userKey ? await fetchSubscription(userKey) : null;
 
-    const { data: videoRecord, error: insertError } = await supabaseAdmin
-      .from("video_generations")
-      .insert({
-        user_id: user.id,
-        topic,
-        style,
-        voice,
-        status: "generating_script",
-        target_duration_minutes: Math.round(plan.minutes),
-        scenes: [],
-        cost: null,
-        draft: null,
-        reference_url: reference?.url ?? null,
-        reference_analysis: reference?.analysis ?? null,
-      })
-      .select("id")
-      .single();
-
-    if (insertError) {
-      return NextResponse.json({ error: insertError.message }, { status: 500 });
-    }
-    createdVideoId = videoRecord.id;
+    createdVideoId = createVideo({
+      userId: user.id,
+      topic,
+      genre,
+      style,
+      voice,
+      targetMinutes: plan.minutes,
+      referenceUrl: reference?.url ?? null,
+      referenceAnalysis: reference?.analysis ?? null,
+    });
 
     // --- Проход 1: план ---
     const blueprintPrompt = buildBlueprintPrompt({ genre, language, plan, topic, reference: reference?.analysis ?? null });
@@ -202,27 +180,21 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    await supabaseAdmin
-      .from("video_generations")
-      .update({ draft, cost })
-      .eq("id", videoRecord.id);
+    updateVideo(createdVideoId, { draft, cost });
 
     return NextResponse.json({
-      videoId: videoRecord.id,
+      videoId: createdVideoId,
       title: blueprint.title || topic,
       stage: "draft",
       words: countWords(narration),
       plannedScenes: plan.scenesCount,
     });
   } catch (err: any) {
-    await logPipelineError({ stage: "llm", videoId: createdVideoId, message: err?.message || String(err) });
+    logPipelineError({ stage: "llm", videoId: createdVideoId, message: err?.message || String(err) });
     if (createdVideoId) {
       // Потраченные токены сохраняем и для упавшей генерации.
       try {
-        await supabaseAdmin
-          .from("video_generations")
-          .update({ cost: { version: 1, startedAt: null, llm: usage.toJSON() } })
-          .eq("id", createdVideoId);
+        updateVideo(createdVideoId, { cost: { version: 1, startedAt: null, llm: usage.toJSON() } });
       } catch {}
     }
     return NextResponse.json({ error: err.message || "Ошибка при генерации сценария" }, { status: 500 });

@@ -35,7 +35,7 @@ export function isReferenceAnalysis(v: unknown): v is ReferenceAnalysis {
   );
 }
 
-export async function analyzeReference(imageUrl: string): Promise<{ analysis: ReferenceAnalysis; usage: ReferenceUsage }> {
+export async function analyzeReference(imageDataUrl: string): Promise<{ analysis: ReferenceAnalysis; usage: ReferenceUsage }> {
   const res = await openai.chat.completions.create({
     model: VISION_MODEL,
     temperature: 0.2,
@@ -57,7 +57,7 @@ export async function analyzeReference(imageUrl: string): Promise<{ analysis: Re
         role: "user",
         content: [
           { type: "text", text: "Describe this reference image." },
-          { type: "image_url", image_url: { url: imageUrl, detail: "high" } },
+          { type: "image_url", image_url: { url: imageDataUrl, detail: "high" } },
         ],
       },
     ],

@@ -1,38 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
-import { addAdmin, listAdmins, normalizeEmail, primaryAdminEmail, removeAdmin } from "@/lib/admins";
+import { addAdmin, listAdmins, removeAdmin } from "@/lib/admins";
+import { ADMIN_EMAILS, normalizeEmail } from "@/lib/env";
 
-/** Список администраторов — видят все админы. */
+/** Список администраторов. */
 export async function GET(req: NextRequest) {
   const auth = await requireAdmin(req);
   if ("response" in auth) return auth.response;
-  return NextResponse.json({ admins: await listAdmins(), primaryEmail: primaryAdminEmail() });
+  return NextResponse.json({ admins: listAdmins(), me: auth.admin.email, primaryEmails: ADMIN_EMAILS });
 }
 
-/** Назначить администратора по почте — только основной. */
+/** Добавить администратора по почте. Вход у него будет по коду с этой почты. */
 export async function POST(req: NextRequest) {
-  const auth = await requireAdmin(req, { primaryOnly: true });
+  const auth = await requireAdmin(req);
   if ("response" in auth) return auth.response;
 
   const body = await req.json().catch(() => ({}));
   const email = normalizeEmail(body?.email);
   if (!email) return NextResponse.json({ error: "Укажите корректную почту" }, { status: 400 });
 
-  const result = await addAdmin(email, auth.admin.email);
+  const result = addAdmin(email, auth.admin.email);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
-  return NextResponse.json({ success: true, admins: await listAdmins() });
+  return NextResponse.json({ success: true, admins: listAdmins() });
 }
 
-/** Снять администратора — только основной; основного снять нельзя. */
+/** Снять администратора. Себя и почты из ADMIN_EMAILS снять нельзя. */
 export async function DELETE(req: NextRequest) {
-  const auth = await requireAdmin(req, { primaryOnly: true });
+  const auth = await requireAdmin(req);
   if ("response" in auth) return auth.response;
 
-  const { searchParams } = new URL(req.url);
-  const email = normalizeEmail(searchParams.get("email"));
+  const email = normalizeEmail(new URL(req.url).searchParams.get("email"));
   if (!email) return NextResponse.json({ error: "Укажите почту" }, { status: 400 });
 
-  const result = await removeAdmin(email);
+  const result = removeAdmin(email, auth.admin.email);
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status });
-  return NextResponse.json({ success: true, admins: await listAdmins() });
+  return NextResponse.json({ success: true, admins: listAdmins() });
 }
