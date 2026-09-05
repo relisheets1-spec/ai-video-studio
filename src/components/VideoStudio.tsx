@@ -610,7 +610,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 style={{
                   aspectRatio: aspectRatioCss(orientation),
                   ...(orientation === "portrait"
-                    ? { height: "min(70vh, 620px)", width: "auto" }
+                    ? { width: "min(100%, calc(min(70vh, 620px) * 9 / 16))", height: "auto" }
                     : { width: "100%", height: "auto" }),
                   maxWidth: "100%",
                 }}

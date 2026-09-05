@@ -597,14 +597,19 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
           className="relative rounded-2xl overflow-hidden bg-stage border border-white/10 shadow-2xl group"
           style={{
             aspectRatio: frameAspect,
-            // В портрете высоту задаём явно, а ширину выводит aspect-ratio.
-            // С width:100% пропорция проигрывала ширине, и кадр 9:16
-            // превращался в почти квадратный обрезок.
+            // Ширина всегда ведущая, высоту выводит aspect-ratio — иначе
+            // пропорция ломается, как только вмешивается ограничение:
+            // при width:100% кадр 9:16 расплющивался в почти квадрат, а при
+            // явной высоте ширину подрезали отступы родителя.
             ...(frameOrientation === "portrait"
-              ? { height: isFullscreen ? "100%" : "min(70vh, 620px)", width: "auto" }
+              ? {
+                  width: isFullscreen
+                    ? "min(100%, calc(100vh * 9 / 16))"
+                    : "min(100%, calc(min(70vh, 620px) * 9 / 16))",
+                  height: "auto",
+                }
               : { width: "100%", height: "auto" }),
             maxWidth: "100%",
-            maxHeight: isFullscreen ? "100%" : undefined,
             marginInline: "auto",
           }}
         >
