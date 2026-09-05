@@ -12,6 +12,7 @@ export interface WebCodecsParams {
   codec: string;
   sampleRate: number;
   layout: SubtitleLayout;
+  subtitleColor: string;
   cancelRef: { current: boolean };
   onProgress: (percent: number) => void;
   onStatus: (text: string) => void;
@@ -160,6 +161,7 @@ export async function encodeWithWebCodecs(p: WebCodecsParams): Promise<Blob | nu
         durationSec,
         cues,
         cueBoxes,
+        subtitleColor: p.subtitleColor,
       });
 
       const timestampUs = Math.round(globalVideoFrames * (1_000_000 / fps));

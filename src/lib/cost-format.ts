@@ -70,7 +70,15 @@ export function costRows(cost: VideoCost): CostRow[] {
     quantity: `${formatInt(cost.images.count)} шт.${cost.images.outputTokens ? ` (${formatInt(cost.images.outputTokens)} токенов)` : ""}`,
     price: `${formatUsd(cost.images.unitUsd, 3)} за шт.`,
     total: formatUsd(cost.images.usd, 3),
-    note: cost.images.usdByTokens !== null ? `по токенам ${formatUsd(cost.images.usdByTokens, 4)}` : undefined,
+    note:
+      [
+        cost.images.withReference > 0
+          ? `с референсом: ${cost.images.withReference} шт., входная картинка ${formatInt(cost.images.referenceInputTokens)} токенов = ${formatUsd(cost.images.referenceUsd, 4)}`
+          : null,
+        cost.images.usdByTokens !== null ? `по токенам ${formatUsd(cost.images.usdByTokens, 4)}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ") || undefined,
   });
 
   if (cost.tts.credits > 0) {

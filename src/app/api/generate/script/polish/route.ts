@@ -16,10 +16,12 @@ import {
   assignBeats,
   countMarkers,
   countWords,
+  joinChunks,
   rhythmFailures,
   rhythmPenalty,
   rhythmStats,
   segmentNarration,
+  splitIntoChunks,
 } from "@/lib/script/segment";
 import { logPipelineError } from "@/lib/pipeline-log";
 import { requireUser } from "@/lib/session";
@@ -90,76 +92,91 @@ export async function POST(req: NextRequest) {
     usage = new LlmUsage(MODEL, draft.llm || row.cost?.llm || null);
     let narration: string = draft.narration;
 
-    // --- Редактор: повторы, служебные связки, длинные предложения, перебор объёма ---
+    // --- Редактор: повторы, служебные связки, длинные предложения, перебор объёма.
+    // Кусками по ~700 слов: на длинном тексте модель обрывала ответ. ---
     const beforeEdit = countWords(narration);
-    if (beforeEdit >= plan.totalWords * 0.85 && beforeEdit <= plan.totalWords * 1.3) {
-      const editor = buildEditorPrompt({ language, maxWords: plan.totalWords });
-      try {
-        const editedRes = await openai.chat.completions.create({
-          model: MODEL,
-          temperature: 0.3,
-          messages: [
-            { role: "system", content: editor.system },
-            { role: "user", content: editor.userPrefix + narration },
-          ],
-        });
-        usage.add("editor", editedRes.usage);
-        const edited = editedRes.choices[0].message.content || "";
-        const editedWords = countWords(edited);
-        const markersKept = countMarkers(edited) === countMarkers(narration);
-        const upper = Math.max(beforeEdit * 1.05, plan.totalWords);
-        if (editedWords >= beforeEdit * 0.9 && editedWords <= upper && markersKept) {
-          console.info(`[editor] ${beforeEdit} -> ${editedWords} words, markers kept`);
-          narration = edited;
-        } else {
-          console.warn(
-            `[editor] rejected: ${beforeEdit} -> ${editedWords} words, markers ${countMarkers(narration)} -> ${countMarkers(edited)}`
-          );
+    if (beforeEdit >= plan.totalWords * 0.5) {
+      const chunks = splitIntoChunks(narration, 700);
+      const perChunkMax = Math.ceil(plan.totalWords / Math.max(1, chunks.length));
+      const editor = buildEditorPrompt({ language, maxWords: perChunkMax });
+      const edited: string[] = [];
+      let accepted = 0;
+      for (const chunk of chunks) {
+        const chunkWords = countWords(chunk);
+        try {
+          const editedRes = await openai.chat.completions.create({
+            model: MODEL,
+            temperature: 0.3,
+            messages: [
+              { role: "system", content: editor.system },
+              { role: "user", content: editor.userPrefix + chunk },
+            ],
+          });
+          usage.add("editor", editedRes.usage);
+          const candidate = (editedRes.choices[0].message.content || "").trim();
+          const candidateWords = countWords(candidate);
+          const markersKept = countMarkers(candidate) === countMarkers(chunk);
+          const upper = Math.max(chunkWords * 1.05, perChunkMax);
+          if (candidateWords >= chunkWords * 0.9 && candidateWords <= upper && markersKept) {
+            edited.push(candidate);
+            accepted++;
+          } else {
+            edited.push(chunk);
+          }
+        } catch (editErr) {
+          console.warn("[editor] chunk failed, keeping original:", editErr);
+          edited.push(chunk);
         }
-      } catch (editErr) {
-        console.warn("[editor] failed, keeping narration:", editErr);
       }
+      narration = joinChunks(edited);
+      console.info(`[editor] chunks=${chunks.length} accepted=${accepted} words ${beforeEdit} -> ${countWords(narration)}`);
     }
 
-    // --- Ритм: только если статистика не прошла пороги ---
+    // --- Ритм: только для кусков, где статистика не прошла пороги ---
     const statsA = rhythmStats(narration);
-    const failures = rhythmFailures(statsA, language);
-    console.info(`[rhythm] after editor: ${JSON.stringify(statsA)} failures=${JSON.stringify(failures)}`);
-    if (failures.length > 0) {
-      const wordsA = countWords(narration);
-      const prompt = buildRhythmRepairPrompt({
-        language,
-        words: wordsA,
-        markers: countMarkers(narration),
-        stats: statsA,
-      });
-      try {
-        const res = await openai.chat.completions.create({
-          model: MODEL,
-          temperature: 0.4,
-          messages: [
-            { role: "system", content: prompt.system },
-            { role: "user", content: prompt.user + narration },
-          ],
-        });
-        usage.add("rhythm", res.usage);
-        const candidate = res.choices[0].message.content || "";
-        const wordsB = countWords(candidate);
-        const statsB = rhythmStats(candidate);
-        const markersKept = countMarkers(candidate) === countMarkers(narration);
-        const withinVolume = Math.abs(wordsB - wordsA) <= wordsA * 0.08;
-        const better = rhythmPenalty(statsB, language) < rhythmPenalty(statsA, language);
-        if (markersKept && withinVolume && better) {
-          narration = candidate;
-          console.info(`[rhythm] repair accepted: ${JSON.stringify(statsB)}`);
-        } else {
-          console.warn(
-            `[rhythm] repair rejected: markers=${markersKept} volume=${withinVolume} better=${better} stats=${JSON.stringify(statsB)}`
-          );
+    console.info(`[rhythm] after editor: ${JSON.stringify(statsA)} failures=${JSON.stringify(rhythmFailures(statsA, language))}`);
+    if (rhythmFailures(statsA, language).length > 0) {
+      const chunks = splitIntoChunks(narration, 700);
+      const fixed: string[] = [];
+      let accepted = 0;
+      for (const chunk of chunks) {
+        const chunkStats = rhythmStats(chunk);
+        if (rhythmFailures(chunkStats, language).length === 0) {
+          fixed.push(chunk);
+          continue;
         }
-      } catch (rhythmErr) {
-        console.warn("[rhythm] pass failed, keeping narration:", rhythmErr);
+        const wordsA = countWords(chunk);
+        const prompt = buildRhythmRepairPrompt({ language, words: wordsA, markers: countMarkers(chunk), stats: chunkStats });
+        try {
+          const res = await openai.chat.completions.create({
+            model: MODEL,
+            temperature: 0.4,
+            messages: [
+              { role: "system", content: prompt.system },
+              { role: "user", content: prompt.user + chunk },
+            ],
+          });
+          usage.add("rhythm", res.usage);
+          const candidate = (res.choices[0].message.content || "").trim();
+          const wordsB = countWords(candidate);
+          const statsB = rhythmStats(candidate);
+          const markersKept = countMarkers(candidate) === countMarkers(chunk);
+          const withinVolume = Math.abs(wordsB - wordsA) <= wordsA * 0.08;
+          const better = rhythmPenalty(statsB, language) < rhythmPenalty(chunkStats, language);
+          if (markersKept && withinVolume && better) {
+            fixed.push(candidate);
+            accepted++;
+          } else {
+            console.warn(`[rhythm] chunk rejected: markers=${markersKept} volume=${withinVolume} better=${better}`);
+            fixed.push(chunk);
+          }
+        } catch (rhythmErr) {
+          console.warn("[rhythm] chunk failed, keeping original:", rhythmErr);
+          fixed.push(chunk);
+        }
       }
+      narration = joinChunks(fixed);
+      console.info(`[rhythm] chunks=${chunks.length} accepted=${accepted} after: ${JSON.stringify(rhythmStats(narration))}`);
     }
 
     // --- Нарезка на кадры: не больше плана, не меньше минимума ---

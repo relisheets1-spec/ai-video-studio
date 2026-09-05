@@ -30,11 +30,15 @@ import {
   estimateSceneSeconds,
   fitCuesToLines,
   wrapLines,
-  SUBTITLE_BG,
+  subtitleHex,
+  SUBTITLE_OUTLINE,
   SUBTITLE_SHADOW,
   SUBTITLE_FONT_STACK,
   SUBTITLE_FONT_WEIGHT,
+  type SubtitleColorId,
 } from "@/lib/subtitles";
+import { getSubtitleColor, setSubtitleColor, SUBTITLE_STYLE_EVENT } from "@/lib/client/subtitle-style";
+import { SubtitleColorPicker } from "./SubtitleColorPicker";
 
 interface VideoPlayerProps {
   title: string;
@@ -54,6 +58,8 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [showSubtitles, setShowSubtitles] = useState(true);
+  const [subtitleColor, setSubtitleColorState] = useState<SubtitleColorId>(() => getSubtitleColor());
+  const [showColorPicker, setShowColorPicker] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isBuffering, setIsBuffering] = useState(false);
   const [sceneElapsed, setSceneElapsed] = useState(0);
@@ -122,6 +128,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
       }
     });
   }, [scenes]);
+
+  // Цвет субтитров общий с экспортом: меняется здесь — меняется и там.
+  useEffect(() => {
+    const onStyle = () => setSubtitleColorState(getSubtitleColor());
+    window.addEventListener(SUBTITLE_STYLE_EVENT, onStyle);
+    return () => window.removeEventListener(SUBTITLE_STYLE_EVENT, onStyle);
+  }, []);
 
   // Кроссфейд: при смене кадра предыдущий остаётся под новым на XFADE_MS.
   useEffect(() => {
@@ -697,6 +710,40 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
             <ClosedCaptioning size={18} weight="bold" />
           </button>
 
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowColorPicker((v) => !v)}
+              className="p-2 rounded-xl bg-white/5 hover:bg-white/15 transition-all cursor-pointer flex items-center justify-center"
+              title="Цвет субтитров"
+              aria-label="Цвет субтитров"
+            >
+              <span
+                className="block w-[18px] h-[18px] rounded-full border-2 border-black/70"
+                style={{ backgroundColor: subtitleHex(subtitleColor) }}
+              />
+            </button>
+            {showColorPicker && (
+              <div
+                className={`absolute z-40 p-2.5 rounded-xl bg-black/90 border border-white/15 shadow-2xl left-1/2 -translate-x-1/2 ${
+                  compact ? "top-full mt-2" : "bottom-full mb-2"
+                }`}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <SubtitleColorPicker
+                  size="sm"
+                  value={subtitleColor}
+                  onChange={(id) => {
+                    setSubtitleColorState(id);
+                    setSubtitleColor(id);
+                    setShowColorPicker(false);
+                    if (!showSubtitles) setShowSubtitles(true);
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
           {!compact && (
             <span className="text-xs font-mono font-bold text-zinc-300 ml-2 hidden sm:inline">
               {formatTime(overallElapsed)} / {formatTime(totalDuration)}
@@ -850,19 +897,21 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
                   maxWidth: subtitleLayout.maxCardW,
                   paddingInline: subtitleLayout.padX,
                   paddingBlock: subtitleLayout.padY,
-                  borderRadius: subtitleLayout.radius,
-                  background: SUBTITLE_BG,
                 }}
               >
                 {subtitleLines.map((line, i) => (
                   <span
                     key={i}
-                    className="block text-white whitespace-pre"
+                    className="block whitespace-pre"
                     style={{
                       fontFamily: SUBTITLE_FONT_STACK,
                       fontWeight: SUBTITLE_FONT_WEIGHT,
                       fontSize: subtitleLayout.font,
                       lineHeight: `${subtitleLayout.lineHeight}px`,
+                      color: subtitleHex(subtitleColor),
+                      // Чёрная обводка вместо подложки; paint-order рисует её ПОД заливкой.
+                      WebkitTextStroke: `${subtitleLayout.strokeW * 2}px ${SUBTITLE_OUTLINE}`,
+                      paintOrder: "stroke fill",
                       textShadow: `0 ${subtitleLayout.shadowOffsetY}px ${subtitleLayout.shadowBlur}px ${SUBTITLE_SHADOW}`,
                     }}
                   >

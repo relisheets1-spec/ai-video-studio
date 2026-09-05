@@ -127,11 +127,35 @@ export function rhythmRule(language: ContentLanguage): string {
 // Проход 1 — план истории
 // ---------------------------------------------------------------------------
 
+/** Референс пользователя: кто/что на картинке и в каком стиле (по-английски). */
+export interface ReferenceForPrompt {
+  subjectPrompt: string;
+  stylePrompt: string;
+  palette?: string;
+  kind?: string;
+}
+
+function referenceBlockRu(ref: ReferenceForPrompt | null | undefined): string {
+  if (!ref) return "";
+  return (
+    "\n\nРЕФЕРЕНС ПОЛЬЗОВАТЕЛЯ (обязателен): главный герой или объект истории задан картинкой. " +
+    "Вот что на ней, по-английски: «" +
+    ref.subjectPrompt +
+    "». Стиль картинки: «" +
+    ref.stylePrompt +
+    "». Сделай этого героя/объект центром истории; characters[0].appearance — дословно это описание " +
+    "(можно добавить одежду и возраст, если они не противоречат); world.palette — палитра референса" +
+    (ref.palette ? " («" + ref.palette + "»)" : "") +
+    ".\n"
+  );
+}
+
 export function buildBlueprintPrompt(opts: {
   genre: GenreId;
   language: ContentLanguage;
   plan: GenerationPlan;
   topic: string;
+  reference?: ReferenceForPrompt | null;
 }): { system: string; user: string } {
   const genre = GENRES[opts.genre];
   const twistLine = genre.wantsTwist
@@ -160,7 +184,9 @@ export function buildBlueprintPrompt(opts: {
     "- beats: 5-8 битов по порядку. У каждого location — ОДНО конкретное место НА АНГЛИЙСКОМ (соседние биты могут делить место), " +
     "timeOfDay — dawn / day / dusk / night. Внутри бита место и время суток не меняются.\n" +
     twistLine +
-    "\n- ending: чем именно заканчивается история. Без морали в лоб.\n\n" +
+    "\n- ending: чем именно заканчивается история. Без морали в лоб." +
+    referenceBlockRu(opts.reference) +
+    "\n\n" +
     'Ответь строго JSON: {"title":"...","logline":"...","throughline":"...",' +
     '"world":{"setting":"...","era":"...","palette":"...","motifs":["..."]},' +
     '"characters":[{"name":"...","role":"...","appearance":"..."}],' +
@@ -186,15 +212,29 @@ export function buildBlueprintPrompt(opts: {
 // Проход 2 — непрерывный монолог. Здесь решается главная задача ТЗ.
 // ---------------------------------------------------------------------------
 
+/** Часть монолога для длинных фильмов: модель обрывает вывод около 1200 слов. */
+export interface NarrationPart {
+  index: number;
+  total: number;
+  /** Слов в этой части. */
+  words: number;
+  /** Маркеров ||| внутри этой части. */
+  markers: number;
+  /** Хвост предыдущей части — продолжать ровно отсюда. */
+  previousTail: string;
+}
+
 export function buildNarrationPrompt(opts: {
   genre: GenreId;
   language: ContentLanguage;
   plan: GenerationPlan;
   blueprint: Blueprint;
+  part?: NarrationPart | null;
 }): { system: string; user: string } {
   const genre = GENRES[opts.genre];
   const { plan } = opts;
-  const markerCount = Math.max(0, plan.scenesCount - 1);
+  const part = opts.part && opts.part.total > 1 ? opts.part : null;
+  const markerCount = part ? part.markers : Math.max(0, plan.scenesCount - 1);
   const wpm = Math.round(plan.totalWords / Math.max(1, plan.minutes));
 
   const system =
@@ -250,15 +290,45 @@ export function buildNarrationPrompt(opts: {
     "Ответ — только текст монолога с маркерами. Никаких пояснений до и после.";
 
   const beats = beatsSummary(opts.blueprint?.beats);
-  const user =
+  let user =
     "ЗАЯВКА НА ИСТОРИЮ:\n" +
     JSON.stringify(opts.blueprint, null, 1) +
-    (beats ? "\n\nБИТЫ ПО ПОРЯДКУ (место и доля объёма):\n" + beats : "") +
-    "\n\nИди по битам по порядку и соблюдай доли объёма. Пиши монолог ровно на " +
-    plan.totalWords +
-    " слов и расставь ровно " +
-    markerCount +
-    " маркеров |||";
+    (beats ? "\n\nБИТЫ ПО ПОРЯДКУ (место и доля объёма):\n" + beats : "");
+
+  if (part) {
+    const from = Math.round(((part.index - 1) / part.total) * 100);
+    const to = Math.round((part.index / part.total) * 100);
+    user +=
+      "\n\nМОНОЛОГ ПИШЕТСЯ ЧАСТЯМИ. Сейчас — ЧАСТЬ " +
+      part.index +
+      " ИЗ " +
+      part.total +
+      ": она покрывает примерно " +
+      from +
+      "–" +
+      to +
+      "% истории по битам. Объём ИМЕННО ЭТОЙ ЧАСТИ — " +
+      part.words +
+      " слов (не всего монолога), внутри неё ровно " +
+      part.markers +
+      " маркеров |||." +
+      (part.index > 1
+        ? "\nПредыдущая часть закончилась так: «…" +
+          part.previousTail +
+          "». Продолжай ровно с этого места, без повторов, без вступлений и без пересказа сказанного."
+        : "\nЭто начало истории: хук в первых двух предложениях.") +
+      (part.index < part.total
+        ? "\nЭто НЕ конец: не завершай историю, не пиши послевкусие, остановись на живом месте, откуда легко продолжить."
+        : "\nЭто последняя часть: доведи историю до финала и послевкусия.") +
+      "\nОтвет — только текст этой части с маркерами.";
+  } else {
+    user +=
+      "\n\nИди по битам по порядку и соблюдай доли объёма. Пиши монолог ровно на " +
+      plan.askWords +
+      " слов и расставь ровно " +
+      markerCount +
+      " маркеров |||";
+  }
 
   return { system, user };
 }
@@ -391,11 +461,22 @@ export function buildVisualsPrompt(opts: {
   orientation: Orientation;
   /** Индекс бита для каждого фрагмента (см. assignBeats). */
   fragmentBeats: number[];
+  reference?: ReferenceForPrompt | null;
 }): { system: string; user: string } {
   const cast = (opts.blueprint?.characters || [])
     .map((c) => "- " + (c?.name || "") + ": " + (c?.appearance || ""))
     .filter((line) => line.length > 4)
     .join("\n");
+
+  const referenceBlock = opts.reference
+    ? "\n\nREFERENCE IMAGE (mandatory — every frame is generated FROM this image):\n" +
+      "- subject: " +
+      opts.reference.subjectPrompt +
+      "\n- visual style: " +
+      opts.reference.stylePrompt +
+      "\nEvery prompt must feature this subject, described each time as 'the reference character' plus the subject line above verbatim, " +
+      "and must be drawn in the reference's visual style — this overrides the Style line and the WORLD palette. Never redesign the subject."
+    : "";
 
   const world = opts.blueprint?.world || {};
   const worldBlock =
@@ -415,6 +496,7 @@ export function buildVisualsPrompt(opts: {
     worldBlock +
     "\n\nCAST (reuse these descriptions verbatim so the same person looks identical in every frame):\n" +
     (cast || "(no recurring characters)") +
+    referenceBlock +
     "\n\nRULES:\n" +
     "1. Each prompt MUST depict what its own fragment is about. No stray wolves, forests or crowds the text never mentions.\n" +
     "2. Always state: the subject and their action, period-accurate clothing and setting, the camera angle, and the lighting.\n" +

@@ -22,7 +22,9 @@ import {
   type ExportResolution,
   type Orientation,
 } from "@/lib/orientation";
-import { computeSubtitleLayout } from "@/lib/subtitles";
+import { computeSubtitleLayout, subtitleHex, type SubtitleColorId } from "@/lib/subtitles";
+import { getSubtitleColor, setSubtitleColor, SUBTITLE_STYLE_EVENT } from "@/lib/client/subtitle-style";
+import { SubtitleColorPicker } from "./SubtitleColorPicker";
 import { detectExportEngine, type EngineInfo } from "@/lib/export/capabilities";
 import { loadAssets } from "@/lib/export/render";
 import { describeEncoderError, encodeWithWebCodecs } from "@/lib/export/webcodecs";
@@ -62,6 +64,13 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, def
   const [exportOrientation, setExportOrientation] = useState<Orientation>(sourceOrientation);
   const [resolution, setResolution] = useState<ExportResolution>(guessResolution);
   const [engine, setEngine] = useState<EngineInfo | null>(null);
+  const [subtitleColor, setSubtitleColorState] = useState<SubtitleColorId>(() => getSubtitleColor());
+
+  useEffect(() => {
+    const onStyle = () => setSubtitleColorState(getSubtitleColor());
+    window.addEventListener(SUBTITLE_STYLE_EVENT, onStyle);
+    return () => window.removeEventListener(SUBTITLE_STYLE_EVENT, onStyle);
+  }, []);
 
   const cancelRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -127,6 +136,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, def
           codec: engine.codec,
           sampleRate: AUDIO_SAMPLE_RATE,
           layout,
+          subtitleColor: subtitleHex(subtitleColor),
           cancelRef,
           onProgress,
           onStatus,
@@ -145,6 +155,7 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, def
           bitrate,
           mime: engine.mime,
           layout,
+          subtitleColor: subtitleHex(subtitleColor),
           canvas: canvasRef.current,
           audioCtx,
           cancelRef,
@@ -230,14 +241,18 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, def
                   <FrameCorners size={20} className="shrink-0" />
                   <span className="min-w-0">
                     <span className="block text-[13px] font-semibold leading-tight">Горизонтальный 16:9</span>
-                    <span className="block text-[11px] text-zinc-400 mt-0.5">YouTube</span>
+                    <span className="block text-[11px] text-zinc-400 mt-0.5">
+                      YouTube{sourceOrientation === "portrait" ? " · с обрезкой" : " · как снято"}
+                    </span>
                   </span>
                 </button>
                 <button type="button" className={optionBtn(exportOrientation === "portrait")} onClick={() => setExportOrientation("portrait")}>
                   <DeviceMobile size={20} className="shrink-0" />
                   <span className="min-w-0">
                     <span className="block text-[13px] font-semibold leading-tight">Вертикальный 9:16</span>
-                    <span className="block text-[11px] text-zinc-400 mt-0.5">Reels · Shorts · TikTok</span>
+                    <span className="block text-[11px] text-zinc-400 mt-0.5">
+                      Reels · Shorts · TikTok{sourceOrientation === "landscape" ? " · с обрезкой" : " · как снято"}
+                    </span>
                   </span>
                 </button>
               </div>
@@ -248,6 +263,20 @@ export const VideoExporter: React.FC<VideoExporterProps> = ({ title, scenes, def
                     : "Кадры фильма вертикальные — при экспорте 16:9 картинка будет обрезана сверху и снизу."}
                 </p>
               )}
+            </div>
+
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500 mb-2">Цвет субтитров</div>
+              <div className="flex items-center gap-3 p-3 rounded-xl border border-white/15 bg-white/[0.04]">
+                <SubtitleColorPicker
+                  value={subtitleColor}
+                  onChange={(id) => {
+                    setSubtitleColorState(id);
+                    setSubtitleColor(id);
+                  }}
+                />
+                <span className="text-[11px] text-zinc-400">чёрная обводка, без подложки</span>
+              </div>
             </div>
 
             <div>

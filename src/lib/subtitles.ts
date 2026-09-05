@@ -23,10 +23,32 @@ export const SUBTITLE_FONT_STACK =
 /** Вес 700 в обоих рендерерах: DOM просил 800, а Inter грузится только до 700 — был синтетический жирный. */
 export const SUBTITLE_FONT_WEIGHT = 700;
 
-/** Полупрозрачная подложка по ТЗ. */
-export const SUBTITLE_BG = "rgba(0, 0, 0, 0.5)";
+/**
+ * Подложки больше нет: текст читается за счёт чёрной обводки. Цвет — один из
+ * шести пресетов, выбирается пользователем и одинаково применяется в плеере и в MP4.
+ */
+export const SUBTITLE_COLORS = [
+  { id: "white", label: "Белый", hex: "#FFFFFF" },
+  { id: "yellow", label: "Жёлтый", hex: "#FFE14D" },
+  { id: "red", label: "Красный", hex: "#FF5A5A" },
+  { id: "blue", label: "Синий", hex: "#5AA9FF" },
+  { id: "purple", label: "Фиолетовый", hex: "#C08BFF" },
+  { id: "green", label: "Зелёный", hex: "#7CE07C" },
+] as const;
+export type SubtitleColorId = (typeof SUBTITLE_COLORS)[number]["id"];
+export const DEFAULT_SUBTITLE_COLOR: SubtitleColorId = "white";
+
+export function normalizeSubtitleColor(value: unknown): SubtitleColorId {
+  return SUBTITLE_COLORS.some((c) => c.id === value) ? (value as SubtitleColorId) : DEFAULT_SUBTITLE_COLOR;
+}
+
+export function subtitleHex(id: SubtitleColorId): string {
+  return SUBTITLE_COLORS.find((c) => c.id === id)?.hex ?? "#FFFFFF";
+}
+
+export const SUBTITLE_OUTLINE = "#000000";
 export const SUBTITLE_FG = "#FFFFFF";
-export const SUBTITLE_SHADOW = "rgba(0, 0, 0, 0.75)";
+export const SUBTITLE_SHADOW = "rgba(0, 0, 0, 0.6)";
 
 export interface Cue {
   text: string;
@@ -154,6 +176,8 @@ export interface SubtitleLayout {
   maxTextW: number;
   shadowBlur: number;
   shadowOffsetY: number;
+  /** Толщина чёрной обводки (половина lineWidth холста). */
+  strokeW: number;
   /** Высота нижней затемняющей шторки. */
   scrimH: number;
   /** Готовая строка для ctx.font и CSS font. */
@@ -162,9 +186,9 @@ export interface SubtitleLayout {
 
 /**
  * Опорная величина — КОРОТКАЯ сторона кадра, не высота.
- * На 1080x1920 4.5% от высоты дало бы шрифт 86px при ширине кадра 1080 —
+ * На 1080x1920 5% от высоты дало бы шрифт 96px при ширине кадра 1080 —
  * каждая реплика ушла бы в четыре строки. От короткой стороны получается
- * одинаковый кегль в обеих ориентациях, как принято в вертикальном видео.
+ * близкий кегль в обеих ориентациях, как принято в вертикальном видео.
  */
 export function computeSubtitleLayout(
   frameW: number,
@@ -178,9 +202,10 @@ export function computeSubtitleLayout(
   // короче шторка. Экспортёр этот флаг не передаёт, поэтому MP4 не меняется.
   const compact = !!opts?.compact;
 
-  const font = Math.max(opts?.minFontPx ?? 1, Math.round(S * 0.045));
+  // 16:9 — 5.2% короткой стороны (YouTube смотрят издалека), 9:16 — 5.0%.
+  const font = Math.max(opts?.minFontPx ?? 1, Math.round(S * (W >= H ? 0.052 : 0.05)));
   const padX = Math.round(font * 0.7);
-  const maxCardW = Math.round(W * (compact ? 0.94 : W >= H ? 0.72 : 0.88));
+  const maxCardW = Math.round(W * (compact ? 0.94 : W >= H ? 0.78 : 0.9));
 
   return {
     font,
@@ -193,7 +218,8 @@ export function computeSubtitleLayout(
     maxTextW: Math.max(1, maxCardW - padX * 2),
     shadowBlur: font * 0.16,
     shadowOffsetY: font * 0.03,
-    scrimH: Math.round(H * (compact ? 0.22 : 0.34)),
+    strokeW: Math.max(1.5, Math.round(font * 0.09 * 10) / 10),
+    scrimH: Math.round(H * (compact ? 0.18 : 0.26)),
     fontCss: `${SUBTITLE_FONT_WEIGHT} ${font}px ${SUBTITLE_FONT_STACK}`,
   };
 }

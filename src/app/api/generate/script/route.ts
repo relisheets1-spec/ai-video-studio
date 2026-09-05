@@ -4,7 +4,7 @@ import { openai } from "@/lib/openai";
 import { getClientIp, checkOpenAiRateLimit, sanitizeScriptInput } from "@/lib/security";
 import { planFromMinutes } from "@/lib/plan";
 import { buildBlueprintPrompt, buildNarrationPrompt, buildRepairPrompt, type Blueprint } from "@/lib/script/prompts";
-import { countWords, rhythmFailures, rhythmStats } from "@/lib/script/segment";
+import { countMarkers, countWords, joinChunks, narrationParts, rhythmFailures, rhythmStats } from "@/lib/script/segment";
 import { logPipelineError } from "@/lib/pipeline-log";
 import { requireUser } from "@/lib/session";
 import { decryptSecret } from "@/lib/crypto";
@@ -100,23 +100,42 @@ export async function POST(req: NextRequest) {
     if (!Array.isArray(blueprint.beats)) blueprint.beats = [];
     if (!Array.isArray(blueprint.characters)) blueprint.characters = [];
 
-    // --- Проход 2: монолог ---
-    const narrationPrompt = buildNarrationPrompt({ genre, language, plan, blueprint });
-    const narrationMessages: any[] = [
-      { role: "system", content: narrationPrompt.system },
-      { role: "user", content: narrationPrompt.user },
-    ];
-    const narrationRes = await openai.chat.completions.create({
-      model: MODEL,
-      temperature: 0.85,
-      messages: narrationMessages,
-    });
-    usage.add("narration", narrationRes.usage);
-    let narration = narrationRes.choices[0].message.content || "";
+    // --- Проход 2: монолог. Длинные фильмы пишутся частями: модель обрывает
+    // вывод около 1200 слов, и 15-минутный ролик выходил на 10 минут. ---
+    const totalParts = narrationParts(plan.askWords);
+    const totalMarkers = Math.max(0, plan.scenesCount - 1);
+    const pieces: string[] = [];
+    let narrationMessages: any[] = [];
+
+    for (let k = 1; k <= totalParts; k++) {
+      const partWords = Math.round(plan.askWords / totalParts);
+      // Маркеры делим между частями; стыки частей тоже станут маркерами.
+      const innerMarkers = Math.max(0, Math.round((totalMarkers - (totalParts - 1)) / totalParts));
+      const previousTail = pieces.length ? pieces[pieces.length - 1].split(/\s+/).slice(-120).join(" ") : "";
+      const narrationPrompt = buildNarrationPrompt({
+        genre,
+        language,
+        plan,
+        blueprint,
+        part: totalParts > 1 ? { index: k, total: totalParts, words: partWords, markers: innerMarkers, previousTail } : null,
+      });
+      narrationMessages = [
+        { role: "system", content: narrationPrompt.system },
+        { role: "user", content: narrationPrompt.user },
+      ];
+      const res = await openai.chat.completions.create({
+        model: MODEL,
+        temperature: 0.85,
+        messages: narrationMessages,
+      });
+      usage.add(totalParts > 1 ? `narration-${k}` : "narration", res.usage);
+      pieces.push((res.choices[0].message.content || "").trim());
+    }
+    let narration = joinChunks(pieces);
 
     // Недобор — единственная причина ремонта; перебор режет редактор.
     const written = countWords(narration);
-    if (written < plan.totalWords * 0.85) {
+    if (totalParts === 1 && written < plan.totalWords * 0.85) {
       narrationMessages.push({ role: "assistant", content: narration });
       narrationMessages.push({ role: "user", content: buildRepairPrompt(plan.askWords - written, plan.totalWords) });
       const repaired = await openai.chat.completions.create({
@@ -128,6 +147,7 @@ export async function POST(req: NextRequest) {
       const repairedText = repaired.choices[0].message.content || "";
       if (countWords(repairedText) > written) narration = repairedText;
     }
+    console.info(`[narration] parts=${totalParts} words=${countWords(narration)} target=${plan.askWords} markers=${countMarkers(narration)}`);
 
     const stats = rhythmStats(narration);
     console.info(

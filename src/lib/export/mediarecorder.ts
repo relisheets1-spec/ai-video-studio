@@ -11,6 +11,7 @@ export interface RecorderParams {
   bitrate: number;
   mime: string;
   layout: SubtitleLayout;
+  subtitleColor: string;
   /** Холст должен быть смонтирован и виден: Safari не отдаёт кадры с отсоединённого. */
   canvas: HTMLCanvasElement;
   audioCtx: AudioContext;
@@ -68,6 +69,7 @@ export async function recordRealtime(p: RecorderParams): Promise<{ blob: Blob; e
     durationSec: assets[0].durationSec,
     cues: prepared[0].cues,
     cueBoxes: prepared[0].cueBoxes,
+    subtitleColor: p.subtitleColor,
   });
 
   recorder.start(1000);

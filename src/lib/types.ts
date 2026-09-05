@@ -82,6 +82,9 @@ export interface VideoGeneration {
   error_message?: string | null;
   /** Фактическая стоимость (с сентября 2026); у старых видео отсутствует. */
   cost?: VideoCost | null;
+  /** Референс персонажа/объекта, если фильм делался по картинке пользователя. */
+  reference_url?: string | null;
+  reference_analysis?: { summary?: string; subjectPrompt?: string; stylePrompt?: string } | null;
   created_at: string;
   updated_at: string;
 }

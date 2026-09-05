@@ -16,6 +16,8 @@ import {
   CaretDown,
   CaretUp,
   Receipt,
+  ImageSquare,
+  X,
 } from "@phosphor-icons/react";
 import { Scene, StudioUser, VideoGeneration, VoiceOption } from "@/lib/types";
 import { aspectRatioCss, normalizeOrientation, type Orientation } from "@/lib/orientation";
@@ -105,6 +107,35 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   const [pastVideos, setPastVideos] = useState<VideoGeneration[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [costFor, setCostFor] = useState<{ title: string; cost: VideoCost } | null>(null);
+  // Референс персонажа/объекта (необязательно): картинка пользователя → все кадры по ней.
+  const [reference, setReference] = useState<{
+    url: string;
+    preview: string;
+    analysis: { summary: string; subjectPrompt: string; stylePrompt: string; palette: string; kind: string };
+    usage: { inputTokens: number; outputTokens: number };
+  } | null>(null);
+  const [referenceUploading, setReferenceUploading] = useState(false);
+  const [referenceError, setReferenceError] = useState<string | null>(null);
+  const referenceInputRef = useRef<HTMLInputElement | null>(null);
+
+  const handleReferenceFile = async (file: File | null) => {
+    if (!file) return;
+    setReferenceError(null);
+    setReferenceUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await authFetch("/api/generate/reference", { method: "POST", body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Не удалось загрузить референс");
+      setReference({ url: data.url, preview: URL.createObjectURL(file), analysis: data.analysis, usage: data.usage });
+    } catch (err: any) {
+      setReferenceError(err.message);
+    } finally {
+      setReferenceUploading(false);
+      if (referenceInputRef.current) referenceInputRef.current.value = "";
+    }
+  };
   const [balance, setBalance] = useState<{ used: number; limit: number; remaining: number } | null>(null);
 
   const previewRef = useRef<HTMLElement | null>(null);
@@ -228,6 +259,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
           language,
           targetMinutes,
           orientation,
+          reference: reference ? { url: reference.url, analysis: reference.analysis, usage: reference.usage } : null,
         }),
       });
       const scriptData = await scriptRes.json();
@@ -328,6 +360,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
               model: imgData.model || "gpt-image-1-mini",
               quality: imgData.quality || "medium",
               size: imgData.size || (orientation === "portrait" ? "1024x1536" : "1536x1024"),
+              withReference: !!imgData.withReference,
               usage: imgData.usage || null,
             });
             doneCount++;
@@ -364,6 +397,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       fetchHistory();
       fetchBalance();
       setTopic("");
+      setReference(null);
 
       // На телефоне плеер над формой — подводим к нему.
       if (typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches) {
@@ -457,6 +491,30 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
           className="lg:col-span-7 flex flex-col gap-5 min-w-0"
         >
           <Tile
+            title="Формат кадра"
+            icon={<FrameCorners size={20} />}
+            hint="Выбирается до генерации: картинки рисуются сразу в этом формате."
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <SelectCard
+                layout="horizontal"
+                selected={orientation === "landscape"}
+                onClick={() => setOrientation("landscape")}
+                icon={<FrameCorners size={20} />}
+                title="Горизонтальный 16:9"
+                meta="YouTube · 1920×1080"
+              />
+              <SelectCard
+                layout="horizontal"
+                selected={orientation === "portrait"}
+                onClick={() => setOrientation("portrait")}
+                icon={<DeviceMobile size={20} />}
+                title="Вертикальный 9:16"
+                meta="Reels · Shorts · TikTok · 1080×1920"
+              />
+            </div>
+          </Tile>
+          <Tile
             title="Сюжет"
             icon={<TextAa size={20} />}
             action={
@@ -489,6 +547,61 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                   {t.label}
                 </button>
               ))}
+            </div>
+
+            {/* Референс: картинка героя/объекта, по которой рисуются все кадры */}
+            <div className="mt-4 pt-4 border-t border-hairline">
+              <input
+                ref={referenceInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(e) => handleReferenceFile(e.target.files?.[0] || null)}
+              />
+              {reference ? (
+                <div className="flex items-start gap-3">
+                  <img
+                    src={reference.preview}
+                    alt="Референс"
+                    className="w-16 h-16 rounded-control object-cover border border-hairline shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <Badge tone="accent">Референс</Badge>
+                      <span className="text-[12px] text-faint">все кадры — по этой картинке</span>
+                    </div>
+                    <p className="text-[13px] text-ink mt-1 leading-snug">{reference.analysis.summary}</p>
+                    <p className="text-[12px] text-muted mt-0.5 leading-snug line-clamp-2">{reference.analysis.stylePrompt}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReference(null)}
+                    disabled={isGenerating}
+                    title="Убрать референс"
+                    className="grid place-items-center w-8 h-8 rounded-full border border-hairline text-muted hover:text-danger-text shrink-0 cursor-pointer"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    icon={<ImageSquare size={16} />}
+                    loading={referenceUploading}
+                    disabled={isGenerating}
+                    onClick={() => referenceInputRef.current?.click()}
+                  >
+                    {referenceUploading ? "Распознаю..." : "Референс персонажа (необязательно)"}
+                  </Button>
+                  <span className="text-[12px] text-muted leading-snug">
+                    Фото человека, животного, робота, предмета или рисунок: ИИ поймёт, кто это и в каком стиле, и все кадры сделает по нему.
+                  </span>
+                </div>
+              )}
+              {referenceError && <p className="text-[12.5px] text-danger-text mt-2">{referenceError}</p>}
             </div>
           </Tile>
 
@@ -586,26 +699,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             </Tile>
           </div>
 
-          <Tile title="Формат кадра" icon={<FrameCorners size={20} />}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-              <SelectCard
-                layout="horizontal"
-                selected={orientation === "landscape"}
-                onClick={() => setOrientation("landscape")}
-                icon={<FrameCorners size={20} />}
-                title="Горизонтальный 16:9"
-                meta="YouTube · 1920×1080"
-              />
-              <SelectCard
-                layout="horizontal"
-                selected={orientation === "portrait"}
-                onClick={() => setOrientation("portrait")}
-                icon={<DeviceMobile size={20} />}
-                title="Вертикальный 9:16"
-                meta="Reels · Shorts · TikTok · 1080×1920"
-              />
-            </div>
-          </Tile>
         </form>
 
         {/* ================= ПРАВО: монитор и архив ================= */}

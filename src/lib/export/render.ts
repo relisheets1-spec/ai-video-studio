@@ -3,8 +3,8 @@ import {
   estimateSceneSeconds,
   wrapLines,
   cueIndexAt,
-  SUBTITLE_BG,
   SUBTITLE_FG,
+  SUBTITLE_OUTLINE,
   SUBTITLE_SHADOW,
   type Cue,
   type SubtitleLayout,
@@ -137,6 +137,8 @@ export interface FrameParams {
   durationSec: number;
   cues: Cue[];
   cueBoxes: CueBox[];
+  /** Цвет текста субтитров (hex); обводка всегда чёрная. */
+  subtitleColor?: string;
 }
 
 export function drawSceneFrame(ctx: CanvasRenderingContext2D, p: FrameParams): void {
@@ -169,27 +171,27 @@ export function drawSceneFrame(ctx: CanvasRenderingContext2D, p: FrameParams): v
   const box = activeCue >= 0 ? p.cueBoxes[activeCue] : null;
   if (!box || box.lines.length === 0) return;
 
+  // Подложки нет: цветной текст с чёрной обводкой, как на YouTube.
   ctx.save();
-  // Подложка без обводки: 1.5px stroke по roundRect давал рваные скругления.
-  ctx.fillStyle = SUBTITLE_BG;
-  ctx.beginPath();
-  if ((ctx as any).roundRect) {
-    (ctx as any).roundRect(box.cardX, box.cardY, box.cardW, box.cardH, layout.radius);
-  } else {
-    ctx.rect(box.cardX, box.cardY, box.cardW, box.cardH);
-  }
-  ctx.fill();
-
   ctx.font = layout.fontCss;
-  ctx.fillStyle = SUBTITLE_FG;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.shadowColor = SUBTITLE_SHADOW;
-  ctx.shadowBlur = layout.shadowBlur;
-  ctx.shadowOffsetY = layout.shadowOffsetY;
+  ctx.lineJoin = "round";
+  ctx.miterLimit = 2;
+  ctx.lineWidth = layout.strokeW * 2;
+  ctx.strokeStyle = SUBTITLE_OUTLINE;
+  const fill = p.subtitleColor || SUBTITLE_FG;
 
   for (let lIdx = 0; lIdx < box.lines.length; lIdx++) {
     const baselineY = box.cardY + layout.padY + layout.lineHeight * (lIdx + 0.5);
+    ctx.shadowColor = SUBTITLE_SHADOW;
+    ctx.shadowBlur = layout.shadowBlur;
+    ctx.shadowOffsetY = layout.shadowOffsetY;
+    ctx.strokeText(box.lines[lIdx], W / 2, baselineY);
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.fillStyle = fill;
     ctx.fillText(box.lines[lIdx], W / 2, baselineY);
   }
   ctx.restore();

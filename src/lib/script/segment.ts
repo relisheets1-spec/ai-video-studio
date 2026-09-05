@@ -185,6 +185,45 @@ export function assignBeats(fragments: string[], beats: Array<{ share?: number }
 }
 
 // ---------------------------------------------------------------------------
+// Части текста для длинных фильмов: модель обрывает вывод около 1200 слов,
+// поэтому монолог, редактура и ритм идут кусками по границам маркеров |||.
+// ---------------------------------------------------------------------------
+
+/** Режет текст по маркерам на куски не длиннее maxWords слов (границы куска = маркеры). */
+export function splitIntoChunks(text: string, maxWords: number): string[] {
+  const blocks = text
+    .split(/\s*\|\|\|\s*/g)
+    .map((b) => b.trim())
+    .filter(Boolean);
+  if (blocks.length <= 1) return blocks;
+  const chunks: string[][] = [];
+  let current: string[] = [];
+  let words = 0;
+  for (const block of blocks) {
+    const w = countWords(block);
+    if (current.length > 0 && words + w > maxWords) {
+      chunks.push(current);
+      current = [];
+      words = 0;
+    }
+    current.push(block);
+    words += w;
+  }
+  if (current.length) chunks.push(current);
+  return chunks.map((c) => c.join("\n|||\n"));
+}
+
+/** Обратная операция: куски были разрезаны по маркерам, значит стык — тоже маркер. */
+export function joinChunks(chunks: string[]): string {
+  return chunks.join("\n|||\n");
+}
+
+/** Сколько частей писать: по ~650 слов на вызов. */
+export function narrationParts(askWords: number): number {
+  return Math.max(1, Math.ceil(askWords / 650));
+}
+
+// ---------------------------------------------------------------------------
 // Ритм предложений: измерение для промпта и для прохода «ритм»
 // ---------------------------------------------------------------------------
 

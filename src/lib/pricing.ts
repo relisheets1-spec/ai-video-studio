@@ -178,7 +178,9 @@ export interface ImageFrameUsage {
   model: string;
   quality: string;
   size: string;
-  usage: { inputTokens: number; outputTokens: number; totalTokens: number } | null;
+  /** Кадр сделан через images/edits с референсом: входная картинка оплачивается токенами. */
+  withReference?: boolean;
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number; imageInputTokens?: number } | null;
 }
 
 export interface VideoCost {
@@ -198,6 +200,10 @@ export interface VideoCost {
     usd: number;
     usdByTokens: number | null;
     missingUsage: number;
+    /** Кадров с референсом и доплата за входную картинку (image input $2.50/1M). */
+    withReference: number;
+    referenceInputTokens: number;
+    referenceUsd: number;
   };
   tts: {
     provider: "elevenlabs" | "openai" | "mixed" | "none";
@@ -251,14 +257,22 @@ export function computeVideoCost(input: CostInput): VideoCost {
   let imgIn = 0;
   let imgOut = 0;
   let missingUsage = 0;
+  let withReference = 0;
+  let referenceInputTokens = 0;
   for (const im of input.images) {
     if (im.usage) {
       imgIn += im.usage.inputTokens || 0;
       imgOut += im.usage.outputTokens || 0;
+      if (im.withReference) {
+        // Входная картинка референса: image_tokens из input_tokens_details, иначе все входные токены.
+        referenceInputTokens += im.usage.imageInputTokens ?? im.usage.inputTokens ?? 0;
+      }
     } else {
       missingUsage++;
     }
+    if (im.withReference) withReference++;
   }
+  const referenceUsd = round4((referenceInputTokens / 1e6) * IMAGE_PRICES["gpt-image-1-mini"].tokens.imageInPerM);
   const images: VideoCost["images"] = {
     model: imgModel,
     quality: imgQuality,
@@ -267,9 +281,12 @@ export function computeVideoCost(input: CostInput): VideoCost {
     unitUsd,
     inputTokens: imgIn,
     outputTokens: imgOut,
-    usd: round4(input.images.length * unitUsd),
+    usd: round4(input.images.length * unitUsd + referenceUsd),
     usdByTokens: missingUsage === input.images.length ? null : usdForImageTokens(imgIn, imgOut),
     missingUsage,
+    withReference,
+    referenceInputTokens,
+    referenceUsd,
   };
 
   // Озвучка
