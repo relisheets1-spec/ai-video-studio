@@ -69,19 +69,26 @@ https. Скрипт идемпотентный и делает всё сразу
 3. для домена — origin-сертификат Cloudflare в `/etc/ssl/cloudflare/origin.pem`
    и `origin.key`, затем повторный запуск скрипта с доменом.
 
-**Почта сейчас — Resend** под аккаунтом `reli.sheets1@gmail.com`
-(вход на resend.com через Google, ключ в `/etc/studio.env` и в `.env.local`).
-Отправитель `onboarding@resend.dev`. Пока в Resend не добавлен свой домен,
-письма доходят **только на адрес владельца** — коды входа и приглашения
-другим пользователям Resend отклонит. Как только домен появится: Resend →
-Domains → Add domain, три DNS-записи в Cloudflare, затем в `/etc/studio.env`
-`MAIL_FROM=AI Video Studio <no-reply@<домен>>` и `systemctl restart studio`.
+**Почта — Resend**, аккаунт под Google-логином `reli.sheets1@gmail.com`,
+домен `innovasantehservis.kz` подтверждён (DKIM `resend._domainkey`, CNAME
+`rsend` и `send` на forge.rmta.net, `_dmarc`). Отправитель
+`no-reply@innovasantehservis.kz`, ключ в `/etc/studio.env` и `.env.local`.
+Лимит бесплатного тарифа — 3 000 писем в месяц.
 
-Gmail первое письмо положил в «Спам»; в ящике владельца стоит фильтр
-«от onboarding@resend.dev — никогда не в спам». Если `RESEND_API_KEY` пуст,
-коды пишутся в журнал: `journalctl -u studio -n 50 | grep -A1 'mail:log'`.
+Если `RESEND_API_KEY` пуст, коды пишутся в журнал:
+`journalctl -u studio -n 50 | grep -A1 'mail:log'`.
 
-## 3. Cloudflare
+**Домен и TLS сейчас.** DNS-зона домена живёт в Plesk хостинга ps.kz
+(srv-plesk54.ps.kz, «Сайты и домены → innovasantehservis.kz → DNS»), публичные
+NS — ns1–3.ps.kz. `A @ → 89.207.249.30`, `www` — CNAME на корень. Сервер
+работает в режиме `EDGE=direct`: сертификат Let's Encrypt (certbot, продление
+таймером, после продления nginx перечитывает сертификат), 80/443 открыты для
+всех. Cloudflare перед сервером пока не включён — его мастер «Add a site»
+не завершал создание зоны; включить можно позже: перенести NS на Cloudflare,
+положить origin-сертификат и запустить `bash /root/deploy/server-setup.sh
+innovasantehservis.kz` без `EDGE=direct`.
+
+## 3. Cloudflare (опционально, пока не включён)
 
 1. Домен в Cloudflare, запись `A` на IP сервера, **оранжевое облако** (proxy).
 2. SSL/TLS → режим **Full (strict)**, выпустить **Origin Certificate** (15 лет)
