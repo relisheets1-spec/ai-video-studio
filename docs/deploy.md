@@ -69,11 +69,17 @@ https. Скрипт идемпотентный и делает всё сразу
 3. для домена — origin-сертификат Cloudflare в `/etc/ssl/cloudflare/origin.pem`
    и `origin.key`, затем повторный запуск скрипта с доменом.
 
-Пока почта не настроена (`RESEND_API_KEY` пуст), коды входа пишутся в журнал:
+**Почта сейчас — Resend** под аккаунтом `reli.sheets1@gmail.com`
+(вход на resend.com через Google, ключ в `/etc/studio.env` и в `.env.local`).
+Отправитель `onboarding@resend.dev`. Пока в Resend не добавлен свой домен,
+письма доходят **только на адрес владельца** — коды входа и приглашения
+другим пользователям Resend отклонит. Как только домен появится: Resend →
+Domains → Add domain, три DNS-записи в Cloudflare, затем в `/etc/studio.env`
+`MAIL_FROM=AI Video Studio <no-reply@<домен>>` и `systemctl restart studio`.
 
-```bash
-journalctl -u studio -n 50 | grep -A1 'mail:log'
-```
+Gmail первое письмо положил в «Спам»; в ящике владельца стоит фильтр
+«от onboarding@resend.dev — никогда не в спам». Если `RESEND_API_KEY` пуст,
+коды пишутся в журнал: `journalctl -u studio -n 50 | grep -A1 'mail:log'`.
 
 ## 3. Cloudflare
 
