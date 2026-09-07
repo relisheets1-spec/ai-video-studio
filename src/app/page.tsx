@@ -58,6 +58,27 @@ export default function HomePage() {
     };
   }, [refreshSession]);
 
+  // Push с сервера: администратор отозвал доступ — вкладка сразу уходит на форму входа.
+  useEffect(() => {
+    if (!user) return;
+    const es = new EventSource("/api/auth/watch");
+    es.addEventListener("kick", () => {
+      es.close();
+      setUser(null);
+      setNotice({ tone: "danger", text: "Доступ отозван администратором." });
+    });
+    es.onerror = () => {
+      // Сессии уже нет (401 на переподключении) — не долбить сервер.
+      fetchSession().then((fresh) => {
+        if (!fresh) {
+          es.close();
+          setUser(null);
+        }
+      });
+    };
+    return () => es.close();
+  }, [user?.id]);
+
   const handleLogout = async () => {
     await logout();
     setUser(null);

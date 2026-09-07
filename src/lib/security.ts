@@ -56,12 +56,11 @@ export function checkOpenAiRateLimit(ip: string): { allowed: boolean; error?: st
 // Попытки входа — в базе: переживают перезапуск процесса
 // ---------------------------------------------------------------------------
 
-export type AttemptKind = "login" | "admin" | "site";
+export type AttemptKind = "login" | "admin";
 
 const ATTEMPT_LIMITS: Record<AttemptKind, { max: number; windowMs: number; label: string }> = {
   login: { max: 20, windowMs: 60 * 60 * 1000, label: "20 попыток за час" },
   admin: { max: 10, windowMs: 60 * 60 * 1000, label: "10 попыток за час" },
-  site: { max: 20, windowMs: 60 * 60 * 1000, label: "20 попыток за час" },
 };
 
 /** Стоп-кран для входа администратора: столько неудач со ВСЕХ адресов за час — и вход закрыт на час. */

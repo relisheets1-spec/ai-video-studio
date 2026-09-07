@@ -12,6 +12,9 @@ import {
   ArrowCounterClockwise,
   Lightning,
   Hourglass,
+  YoutubeLogo,
+  TiktokLogo,
+  InstagramLogo,
   TextAa,
   ImageSquare,
   X,
@@ -192,7 +195,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   };
 
   // Восемь подсказок: на телефоне лента вбок, на десктопе в две строки.
-  const inspirationThemes = INSPIRATION[language].slice(0, 8);
+  const inspirationThemes = INSPIRATION[language];
 
   const handleSaveKeys = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -479,7 +482,11 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 onClick={() => setOrientation("landscape")}
                 icon={<FrameCorners size={18} />}
                 title="16:9"
-                hint="YouTube"
+                hint={
+                  <span className="inline-flex items-center gap-1">
+                    <YoutubeLogo size={14} weight="fill" /> YouTube
+                  </span>
+                }
               />
               <SelectCard
                 size="sm"
@@ -488,7 +495,11 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 onClick={() => setOrientation("portrait")}
                 icon={<DeviceMobile size={18} />}
                 title="9:16"
-                hint="Reels · TikTok"
+                hint={
+                  <span className="inline-flex items-center gap-1">
+                    <TiktokLogo size={14} weight="fill" /> TikTok · <InstagramLogo size={14} weight="fill" /> Reels
+                  </span>
+                }
               />
             </div>
           </Tile>
@@ -515,20 +526,24 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             {/* Телефон: лента вбок, крайняя тема обрезана краем экрана — видно, что есть ещё.
                 Десктоп: обычный перенос. */}
             <div className="flex gap-2 mt-3.5 overflow-x-auto -mx-5 px-5 pb-1.5 sm:flex-wrap sm:overflow-visible sm:mx-0 sm:px-0 sm:pb-0">
-              {inspirationThemes.map((t, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  onClick={() => {
-                    setTopic(t.prompt);
-                    if (t.genre) setSelectedGenre(t.genre);
-                  }}
-                  disabled={isGenerating}
-                  className="shrink-0 h-8 px-3.5 rounded-full bg-surface-2 border border-hairline text-[12.5px] text-muted hover:text-ink hover:border-hairline-strong transition-colors cursor-pointer disabled:opacity-45 whitespace-nowrap"
-                >
-                  {t.label}
-                </button>
-              ))}
+              {inspirationThemes.map((t, idx) => {
+                const Icon = iconFor(GENRES[t.genre].icon);
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      setTopic(t.prompt);
+                      if (t.genre) setSelectedGenre(t.genre);
+                    }}
+                    disabled={isGenerating}
+                    className="shrink-0 inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full bg-surface-2 border border-hairline text-[12.5px] text-muted hover:text-ink hover:border-hairline-strong transition-colors cursor-pointer disabled:opacity-45 whitespace-nowrap"
+                  >
+                    <Icon size={14} />
+                    {t.label}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Референс: картинка героя/объекта, по которой рисуются все кадры */}
@@ -618,7 +633,11 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 step={1}
                 onChange={setTargetMinutes}
                 placeholder="Выберите длительность"
-                valueLabel={`${plan.minutes} мин · ${pluralFrames(plan.scenesCount)}`}
+                valueLabel={
+                  <span className="inline-flex items-center gap-1.5">
+                    <Clock size={15} /> {plan.minutes} мин · <FilmStrip size={15} /> {pluralFrames(plan.scenesCount)}
+                  </span>
+                }
                 ticks={[MIN_MINUTES, 5, 10, MAX_MINUTES]}
               />
 
@@ -728,14 +747,14 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
               label="ElevenLabs"
               value={
                 balance?.elevenlabs?.available && typeof balance.elevenlabs.remaining === "number"
-                  ? formatInt(balance.elevenlabs.remaining)
+                  ? `${formatInt(balance.elevenlabs.remaining)} кр.`
                   : user.hasElevenLabsKey
                     ? "…"
                     : "нет ключа"
               }
               caption={
                 balance?.elevenlabs?.available && balance.elevenlabs.limit
-                  ? `из ${formatInt(balance.elevenlabs.limit)} в месяц`
+                  ? `остаток из ${formatInt(balance.elevenlabs.limit)} в этом месяце`
                   : "остаток кредитов"
               }
               icon={<Lightning size={20} />}
@@ -744,8 +763,26 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             />
             <StatTile
               label="OpenAI"
-              value={!user.hasOpenAiKey ? "нет ключа" : balance ? (balance.openai.valid ? "ключ работает" : "ключ отклонён") : "…"}
-              caption={`потрачено здесь ${formatUsd(balance?.spent.openaiUsd ?? 0)}`}
+              value={
+                !user.hasOpenAiKey
+                  ? "нет ключа"
+                  : balance
+                    ? balance.openai.valid
+                      ? `${formatUsd(balance.spent.openaiUsd)} потрачено здесь`
+                      : "ключ отклонён"
+                    : "…"
+              }
+              caption={
+                // Баланс OpenAI по API не отдаётся — только в кабинете.
+                <a
+                  href="https://platform.openai.com/settings/organization/billing/overview"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline decoration-dotted underline-offset-2 hover:opacity-80"
+                >
+                  баланс — в кабинете OpenAI ↗
+                </a>
+              }
               icon={<Sliders size={20} />}
               tone={user.hasOpenAiKey ? "contrast" : "surface"}
               valueClassName="text-[18px]"
@@ -756,7 +793,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             <Tile
               title="Архив"
               icon={<ArrowCounterClockwise size={20} />}
-              hint={`Кадры и звук — ${mediaTtlDays} дней, MP4 собирается в браузере.`}
               action={
                 <span className="text-[12px] text-faint tabular">
                   {loadingHistory ? "…" : `${pastVideos.length} видео`}
@@ -787,9 +823,13 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                         </span>
                       </span>
                       <span
-                        title={`Кадры и озвучка хранятся ${mediaTtlDays} дней — скачайте MP4 до этого`}
+                        title={
+                          daysLeft(vid) === 0
+                            ? "Кадры и озвучка уже удалены с сервера"
+                            : `Видео удалится с сервера через ${daysLeft(vid)} дн. — скачайте его до этого`
+                        }
                         className={cn(
-                          "inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11.5px] tabular shrink-0",
+                          "inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[12px] font-medium tabular shrink-0 cursor-help",
                           daysLeft(vid) === 0
                             ? "bg-danger-soft text-danger-text"
                             : daysLeft(vid) <= 5
@@ -797,8 +837,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                               : "bg-surface-3 text-muted"
                         )}
                       >
-                        <Hourglass size={12} weight="fill" />
-                        {daysLeft(vid) === 0 ? "стёрто" : `${daysLeft(vid)} дн.`}
+                        <Hourglass size={14} weight="fill" />
+                        {daysLeft(vid) === 0 ? "удалено" : `${daysLeft(vid)} дн.`}
                       </span>
                       <span
                         className={cn(

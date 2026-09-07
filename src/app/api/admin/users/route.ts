@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { rotateCodeFor } from "@/lib/access";
 import { requireAdmin } from "@/lib/admin-auth";
+import { kickUser } from "@/lib/kick";
 import { deleteFilmMedia } from "@/lib/storage";
 import {
   blockUser,
   deleteUser,
   findUserById,
   listUsers,
+  revokeSessions,
   setElevenLabsKey,
   setOpenAiKey,
   unblockUser,
@@ -40,6 +42,7 @@ export async function POST(req: NextRequest) {
   switch (action) {
     case "block":
       blockUser(user.id);
+      kickUser(user.id);
       return done();
     case "unblock":
       unblockUser(user.id);
@@ -51,12 +54,15 @@ export async function POST(req: NextRequest) {
     case "rotate_code": {
       // Новый код сразу привязан к почте; старая пара «почта + код» больше не входит.
       const row = rotateCodeFor(user.email);
+      revokeSessions(user.id);
+      kickUser(user.id);
       return done({ code: row.code });
     }
     case "delete": {
       // Сначала файлы на диске, потом строки: иначе фильмы осиротеют.
       for (const id of userVideoIds(user.id)) await deleteFilmMedia(id);
       deleteUser(user.id);
+      kickUser(user.id);
       return done();
     }
     default:

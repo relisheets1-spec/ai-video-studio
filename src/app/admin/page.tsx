@@ -44,7 +44,7 @@ import { formatCostCompact, formatUsd } from "@/lib/cost-format";
 import type { Orientation } from "@/lib/orientation";
 import type { AdminInfo, AdminUserView, Scene, VideoCost } from "@/lib/types";
 
-type TabId = "codes" | "users" | "videos" | "logs" | "admins";
+type TabId = "codes" | "users" | "videos" | "admins";
 
 interface Stats {
   users: number;
@@ -90,30 +90,10 @@ interface OpenedVideo {
   cost: VideoCost | null;
 }
 
-interface LogRow {
-  id: string;
-  email: string | null;
-  topic: string;
-  status: string;
-  stale: boolean;
-  stage: string | null;
-  message: string | null;
-  createdAt: string;
-}
-
-const STAGE_LABELS: Record<string, string> = {
-  llm: "Сценарий",
-  tts: "Озвучка",
-  image: "Картинки",
-  render: "Рендер",
-  auth: "Доступ",
-};
-
 const TABS: { id: TabId; label: string }[] = [
   { id: "codes", label: "Коды доступа" },
   { id: "users", label: "Пользователи" },
   { id: "videos", label: "Фильмы" },
-  { id: "logs", label: "Журнал" },
   { id: "admins", label: "Администраторы" },
 ];
 
@@ -206,9 +186,6 @@ export default function AdminPage() {
   const [openingId, setOpeningId] = useState<string | null>(null);
   const [costFor, setCostFor] = useState<{ title: string; cost: VideoCost } | null>(null);
 
-  const [logs, setLogs] = useState<LogRow[]>([]);
-  const [stageFilter, setStageFilter] = useState("all");
-
   const [admins, setAdmins] = useState<AdminInfo[]>([]);
   const [newAdmin, setNewAdmin] = useState("");
 
@@ -271,11 +248,6 @@ export default function AdminPage() {
     }
   }, []);
 
-  const loadLogs = useCallback(async () => {
-    const res = await adminFetch(`/api/admin/logs?stage=${stageFilter}`);
-    if (res.ok) setLogs((await res.json()).logs || []);
-  }, [stageFilter]);
-
   const loadAdmins = useCallback(async () => {
     const res = await adminFetch("/api/admin/admins");
     if (res.ok) setAdmins((await res.json()).admins || []);
@@ -285,9 +257,8 @@ export default function AdminPage() {
     if (tab === "codes") loadCodes();
     if (tab === "users") loadUsers();
     if (tab === "videos") loadVideos();
-    if (tab === "logs") loadLogs();
     if (tab === "admins") loadAdmins();
-  }, [tab, loadCodes, loadUsers, loadVideos, loadLogs, loadAdmins]);
+  }, [tab, loadCodes, loadUsers, loadVideos, loadAdmins]);
 
   useEffect(() => {
     loadSession().finally(() => setChecking(false));
@@ -862,38 +833,6 @@ export default function AdminPage() {
                         </Button>
                       </span>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </Tile>
-        )}
-
-        {/* ------------------------------------------------------------ Журнал */}
-        {tab === "logs" && (
-          <Tile title="Журнал отказов">
-            <div className="flex items-center gap-1 flex-wrap mb-4">
-              {["all", "llm", "tts", "image", "render", "auth"].map((s) => (
-                <Chip key={s} active={stageFilter === s} onClick={() => setStageFilter(s)}>
-                  {s === "all" ? "Все" : STAGE_LABELS[s]}
-                </Chip>
-              ))}
-            </div>
-
-            {logs.length === 0 ? (
-              <p className="text-[13.5px] text-muted py-6 text-center">Отказов нет.</p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {logs.map((log) => (
-                  <div key={log.id} className="rounded-control border border-hairline bg-surface-2 p-3">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge tone={log.stale ? "warn" : "danger"}>{log.stale ? "Зависла" : "Ошибка"}</Badge>
-                      {log.stage && <Badge tone="outline">{STAGE_LABELS[log.stage] || log.stage}</Badge>}
-                      <span className="text-[13px] text-ink truncate">{log.topic}</span>
-                      <span className="text-[12px] text-faint ml-auto tabular">{formatDate(log.createdAt)}</span>
-                    </div>
-                    {log.message && <p className="text-[12.5px] text-muted mt-1.5 break-words">{log.message}</p>}
-                    {log.email && <p className="text-[12px] text-faint mt-1">{log.email}</p>}
                   </div>
                 ))}
               </div>

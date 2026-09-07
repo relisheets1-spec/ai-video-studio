@@ -23,28 +23,10 @@ export const INSPIRATION: Record<ContentLanguage, InspirationTheme[]> = {
         "История амбициозного IT-стартапа: от первой гениальной идеи в гараже и миллиардных инвестиций до сокрушительного краха из-за гордыни основателей и корпоративного шпионажа.",
     },
     {
-      label: "Свадьба, которую чуть не отменили",
-      genre: "comedy",
-      prompt:
-        "Две большие семьи готовят свадьбу в Шымкенте, и каждая уверена, что главная здесь она. Курьёзы, тосты, три версии меню и неожиданный примиритель.",
-    },
-    {
-      label: "Письмо через сорок лет",
-      genre: "romance",
-      prompt:
-        "Женщина находит письмо, которое ей так и не отправили в 1984 году, и отправляется искать его автора по адресам, которых больше нет.",
-    },
-    {
       label: "Караван по Шёлковому пути",
       genre: "historical",
       prompt:
         "Купец четырнадцатого века ведёт караван из Отрара в Самарканд. Торговля, пустыня, доверие и предательство на одном переходе.",
-    },
-    {
-      label: "Первый казах в космосе",
-      genre: "biography",
-      prompt:
-        "Путь Токтара Аубакирова от аула до орбиты: лётные испытания, отбор в отряд, около восьми дней на станции «Мир» и возвращение домой.",
     },
     {
       label: "Тайна горного отеля",
@@ -64,12 +46,6 @@ export const INSPIRATION: Record<ContentLanguage, InspirationTheme[]> = {
       prompt:
         "Экспедиция на Марс принимает повторяющийся сигнал из-под льда полярной шапки, и каждая новая расшифровка меняет план миссии.",
     },
-    {
-      label: "Марафон после травмы",
-      genre: "inspirational",
-      prompt:
-        "Бывший бегун после аварии учится ходить заново и через два года выходит на старт алматинского марафона. Без чудес: врачи, срывы, соседка с собакой и первые сто метров.",
-    },
   ],
   kz: [
     {
@@ -85,28 +61,10 @@ export const INSPIRATION: Record<ContentLanguage, InspirationTheme[]> = {
         "Амбициялы IT-стартаптың шынайы тарихы: гараждағы алғашқы идея мен миллиардтаған инвестициялардан бастап, негізін қалаушылардың өр көкіректігі салдарынан күйреуіне дейін.",
     },
     {
-      label: "Болмай қала жаздаған той",
-      genre: "comedy",
-      prompt:
-        "Екі үлкен әулет Шымкентте той дайындап жатыр, әрқайсысы бастысы өзі деп сенеді. Күлкілі жағдайлар, тосттар, ас мәзірінің үш нұсқасы және күтпеген татуластырушы.",
-    },
-    {
-      label: "Қырық жылдан кейінгі хат",
-      genre: "romance",
-      prompt:
-        "Әйел 1984 жылы өзіне жіберілмей қалған хатты тауып алады да, енді жоқ мекенжайлар бойынша оның авторын іздеуге аттанады.",
-    },
-    {
       label: "Жібек жолындағы керуен",
       genre: "historical",
       prompt:
         "Он төртінші ғасырдағы саудагер Отырардан Самарқандқа керуен бастап барады. Сауда, шөл, сенім мен опасыздық — бір өткелде.",
-    },
-    {
-      label: "Ғарыштағы алғашқы қазақ",
-      genre: "biography",
-      prompt:
-        "Тоқтар Әубәкіровтің ауылдан орбитаға дейінгі жолы: ұшу сынақтары, іріктеу, «Мир» станциясындағы сегіз күндей уақыт және үйге оралу.",
     },
     {
       label: "Қонақүйдегі жұмбақ жоғалу",
@@ -126,12 +84,6 @@ export const INSPIRATION: Record<ContentLanguage, InspirationTheme[]> = {
       prompt:
         "Марс экспедициясы полюс мұзының астынан қайталанатын сигнал қабылдайды, әрбір жаңа шешім миссия жоспарын өзгертеді.",
     },
-    {
-      label: "Жарақаттан кейінгі марафон",
-      genre: "inspirational",
-      prompt:
-        "Бұрынғы жүгіруші апаттан кейін қайта жүруді үйреніп, екі жылдан соң Алматы марафонының сөресіне шығады. Кереметсіз: дәрігерлер, сәтсіздіктер, иті бар көрші және алғашқы жүз метр.",
-    },
   ],
   en: [
     {
@@ -147,28 +99,10 @@ export const INSPIRATION: Record<ContentLanguage, InspirationTheme[]> = {
         "The story of an ambitious tech startup: from the first brilliant idea in a garage and billion-dollar funding to a total collapse driven by the founders' hubris and corporate espionage.",
     },
     {
-      label: "The wedding that almost wasn't",
-      genre: "comedy",
-      prompt:
-        "Two large families prepare a wedding in Shymkent, each certain it is the one in charge. Mishaps, toasts, three versions of the menu and an unexpected peacemaker.",
-    },
-    {
-      label: "A letter forty years late",
-      genre: "romance",
-      prompt:
-        "A woman finds a letter that was never sent to her in 1984 and sets out to find its author at addresses that no longer exist.",
-    },
-    {
       label: "Caravan on the Silk Road",
       genre: "historical",
       prompt:
         "A fourteenth-century merchant leads a caravan from Otrar to Samarkand. Trade, desert, trust and betrayal on a single crossing.",
-    },
-    {
-      label: "The first Kazakh in space",
-      genre: "biography",
-      prompt:
-        "Toktar Aubakirov's path from a village to orbit: test flights, selection, about eight days aboard the Mir station and the return home.",
     },
     {
       label: "The mountain hotel mystery",
@@ -187,12 +121,6 @@ export const INSPIRATION: Record<ContentLanguage, InspirationTheme[]> = {
       genre: "scifi_adventure",
       prompt:
         "A Mars expedition picks up a repeating signal from beneath the polar ice, and every new decoding changes the mission plan.",
-    },
-    {
-      label: "Marathon after the crash",
-      genre: "inspirational",
-      prompt:
-        "A former runner learns to walk again after an accident and two years later stands at the start of the Almaty marathon. No miracles: doctors, relapses, a neighbour with a dog and the first hundred metres.",
     },
   ],
 };

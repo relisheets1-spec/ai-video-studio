@@ -61,8 +61,7 @@ https. Скрипт идемпотентный и делает всё сразу
 Вручную после первого запуска:
 
 1. вписать в `/etc/studio.env` `ADMIN_EMAIL` и `ADMIN_CODE_HASH`
-   (хэш: `node scripts/hash-code.mjs "<код>"`), при желании `SITE_PASSWORD`;
-   затем `systemctl restart studio`;
+   (хэш: `node scripts/hash-code.mjs "<код>"`), затем `systemctl restart studio`;
 2. отключить вход по паролю: `/etc/ssh/sshd_config.d/00-studio.conf` с
    `PasswordAuthentication no`, `PermitRootLogin prohibit-password`,
    `sshd -t && systemctl reload ssh` (сделано на текущем сервере);
@@ -120,7 +119,7 @@ sudo studio-cloudflare-ufw
 Дальше каждый push в `main` запускает `.github/workflows/deploy.yml`:
 `npm ci` → проверка типов → `next build` → архив выпуска → `scp` → `release.sh`
 на сервере: распаковка, переключение симлинка `current`, `systemctl restart
-studio`, проверка ответа `127.0.0.1:3000/api/site`, удаление старых выпусков
+studio`, проверка ответа `127.0.0.1:3000/api/health`, удаление старых выпусков
 (хранятся пять последних).
 
 Откат — вручную, за пару секунд:

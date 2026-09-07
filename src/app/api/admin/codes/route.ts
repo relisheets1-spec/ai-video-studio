@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createCode, deleteCode, findCode, listCodes, normalizeCode } from "@/lib/access";
 import { requireAdmin } from "@/lib/admin-auth";
+import { kickUser } from "@/lib/kick";
+import { findUserByEmail, revokeSessions } from "@/lib/users";
 
 /** Коды доступа: список. */
 export async function GET(req: NextRequest) {
@@ -33,5 +35,11 @@ export async function DELETE(req: NextRequest) {
   if (!row) return NextResponse.json({ error: "Код не найден" }, { status: 404 });
 
   deleteCode(code);
+  // Привязанный код — это доступ человека: гасим его сессии и выкидываем из открытых вкладок.
+  const user = row.email ? findUserByEmail(row.email) : null;
+  if (user) {
+    revokeSessions(user.id);
+    kickUser(user.id);
+  }
   return NextResponse.json({ success: true, codes: listCodes() });
 }

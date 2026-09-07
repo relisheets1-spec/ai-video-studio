@@ -3,10 +3,9 @@ import { getVideo, updateVideo } from "./videos";
 export type PipelineStage = "llm" | "tts" | "image" | "render" | "auth";
 
 /**
- * Логирование отказов пайплайна: этап кодируется префиксом [stage] в
- * error_message, по нему админка фильтрует журнал. Без этого упавшая
- * генерация навсегда оставалась бы в статусе generating_script и в панели
- * её было бы не отличить от идущей прямо сейчас.
+ * Отказ пайплайна: пишется в журнал сервера, а фильм помечается failed с
+ * причиной в error_message — иначе упавшая генерация навсегда оставалась бы
+ * «идущей».
  */
 export function logPipelineError(opts: {
   stage: PipelineStage;
@@ -25,10 +24,4 @@ export function logPipelineError(opts: {
     // Логирование не должно ронять запрос поверх уже случившейся ошибки.
     console.error("logPipelineError failed to persist:", err);
   }
-}
-
-/** Разбирает префикс обратно в этап для отображения в админке. */
-export function parseStage(errorMessage?: string | null): PipelineStage | null {
-  const m = /^\[(llm|tts|image|render|auth)\]/.exec(errorMessage || "");
-  return m ? (m[1] as PipelineStage) : null;
 }

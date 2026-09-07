@@ -41,8 +41,5 @@ export const COOKIE_SECURE = APP_URL.startsWith("https://");
 export const ADMIN_EMAIL = normalizeEmail(str("ADMIN_EMAIL").split(/[,\s;]+/)[0]);
 export const ADMIN_CODE_HASH = str("ADMIN_CODE_HASH");
 
-/** Заглушка сайта: пока задан пароль, форма входа закрыта общим экраном. */
-export const SITE_PASSWORD = str("SITE_PASSWORD");
-
 /** Через сколько дней уборщик стирает картинки и звук (текст и стоимость остаются). */
 export const MEDIA_TTL_DAYS = int("MEDIA_TTL_DAYS", 30);

@@ -43,7 +43,7 @@ fi
 
 echo "==> Проверка ответа"
 for i in $(seq 1 10); do
-  if curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/api/site; then
+  if curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:3000/api/health; then
     break
   fi
   if [[ $i -eq 10 ]]; then

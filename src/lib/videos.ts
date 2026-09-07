@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { ADMIN_EMAIL } from "./env";
 import { all, get, nowIso, parseJson, run, toJson } from "./db";
 import type { Scene, VideoCost, VideoGeneration } from "./types";
 
@@ -128,46 +129,6 @@ export function listUserVideos(userId: string, limit = 50): VideoRecord[] {
   ).map(toRecord);
 }
 
-export interface AdminLogRow {
-  id: string;
-  userId: string;
-  email: string | null;
-  topic: string;
-  status: string;
-  stale: boolean;
-  message: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** Упавшие и зависшие генерации для журнала в админке. */
-export function listProblemVideos(limit = 100): AdminLogRow[] {
-  const rows = all<VideoRow & { email: string | null }>(
-    "SELECT v.*, u.email AS email FROM video_generations v " +
-      "LEFT JOIN users u ON u.id = v.user_id " +
-      "WHERE v.status IN ('failed', 'generating_script', 'generating_audio', 'generating_images') " +
-      "ORDER BY v.created_at DESC LIMIT ?",
-    limit
-  );
-  const staleCutoff = Date.now() - 2 * 60 * 60 * 1000;
-  return rows
-    .map((row) => {
-      const stale = row.status !== "failed" && Date.parse(row.created_at) < staleCutoff;
-      return {
-        id: row.id,
-        userId: row.user_id,
-        email: row.email,
-        topic: row.topic,
-        status: row.status,
-        stale,
-        message: row.error_message || (stale ? "Генерация прервана и не завершилась" : null),
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      };
-    })
-    .filter((row) => row.status === "failed" || row.stale);
-}
-
 export interface StudioStats {
   users: number;
   blocked: number;
@@ -181,8 +142,11 @@ export function studioStats(): StudioStats {
   const one = (sql: string, ...params: any[]) => Number(get<{ n: number }>(sql, ...params)?.n) || 0;
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   return {
-    users: one("SELECT COUNT(*) AS n FROM users"),
-    blocked: one("SELECT COUNT(*) AS n FROM users WHERE status = 'blocked'"),
+    users: one("SELECT COUNT(*) AS n FROM users WHERE email <> ? AND email NOT IN (SELECT email FROM admins)", ADMIN_EMAIL || ""),
+    blocked: one(
+      "SELECT COUNT(*) AS n FROM users WHERE status = 'blocked' AND email <> ? AND email NOT IN (SELECT email FROM admins)",
+      ADMIN_EMAIL || ""
+    ),
     freeCodes: one("SELECT COUNT(*) AS n FROM access_codes WHERE email IS NULL"),
     videos: one("SELECT COUNT(*) AS n FROM video_generations WHERE status = 'completed'"),
     videos7d: one(

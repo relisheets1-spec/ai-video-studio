@@ -31,6 +31,10 @@ export interface GenerationPlan {
   maxCharsPerScene: number;
   /** Объём «послевкусия» в словах. */
   tailWords: number;
+  /** Короткий фильм (до 3 минут): один эпизод вместо трёх актов, мало битов, без дробного ритма. */
+  short: boolean;
+  /** Сколько битов просить у плана истории. */
+  beats: { min: number; max: number };
   estimatedChars: number;
   /** Прикидка списаний по провайдерам — то, что видит пользователь под слайдером. */
   estimate: {
@@ -67,6 +71,9 @@ export function planFromMinutes(
   const askWords = Math.round(totalWords * 0.95);
   const minWords = Math.round(totalWords * 0.87);
   const wordsPerScene = Math.max(1, Math.round(askWords / scenesCount));
+  // На минуту текста три акта не помещаются: короткий фильм — один эпизод в 2–3 бита.
+  const short = minutes <= 3;
+  const beats = minutes <= 2 ? { min: 2, max: 3 } : minutes <= 3 ? { min: 3, max: 4 } : minutes <= 7 ? { min: 4, max: 5 } : { min: 5, max: 8 };
   const estimatedChars = Math.round(askWords * cpw);
 
   return {
@@ -78,7 +85,9 @@ export function planFromMinutes(
     minWords,
     wordsPerScene,
     maxCharsPerScene: Math.round(wordsPerScene * cpw * 1.6),
-    tailWords: Math.max(20, Math.round(askWords * 0.08)),
+    tailWords: short ? Math.max(8, Math.round(askWords * 0.1)) : Math.max(20, Math.round(askWords * 0.08)),
+    short,
+    beats,
     estimatedChars,
     estimate: (() => {
       const e = estimateFilmCost({ scenesCount, estimatedChars, totalWords: askWords });

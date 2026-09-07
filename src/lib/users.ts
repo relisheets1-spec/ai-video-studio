@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { ADMIN_EMAIL } from "./env";
 import { all, get, nowIso, run } from "./db";
 import type { AccessStatus, AdminUserView, StudioUser } from "./types";
 
@@ -14,7 +15,7 @@ export interface UserRow {
   last_login_at: string | null;
 }
 
-function findUserByEmail(email: string): UserRow | null {
+export function findUserByEmail(email: string): UserRow | null {
   return get<UserRow>("SELECT * FROM users WHERE email = ?", email);
 }
 
@@ -50,6 +51,11 @@ export function statusMessage(status: AccessStatus): string {
 // ---------------------------------------------------------------------------
 
 /** Блокировка гасит выданные сессии: эпоха в токене перестаёт совпадать. */
+/** Погасить все сессии пользователя: старые cookie перестают подходить. */
+export function revokeSessions(id: string): void {
+  run("UPDATE users SET session_epoch = session_epoch + 1 WHERE id = ?", id);
+}
+
 export function blockUser(id: string): void {
   run("UPDATE users SET status = 'blocked', session_epoch = session_epoch + 1 WHERE id = ?", id);
 }
@@ -93,8 +99,9 @@ export function listUsers(): AdminUserView[] {
            c.code       AS code
       FROM users u
       LEFT JOIN access_codes c ON c.email = u.email
+     WHERE u.email <> ? AND u.email NOT IN (SELECT email FROM admins)
      ORDER BY u.created_at DESC
-  `);
+  `, ADMIN_EMAIL || "");
 
   return rows.map((row) => ({
     ...toPublicUser(row),

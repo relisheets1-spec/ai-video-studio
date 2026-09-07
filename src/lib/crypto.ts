@@ -13,8 +13,7 @@ export type KeyPurpose =
   | "user-session"
   | "admin-session"
   | "elevenlabs-key"
-  | "login-code"
-  | "site-gate";
+  | "login-code";
 
 function masterSecret(): string {
   const key = process.env.SESSION_SECRET;
