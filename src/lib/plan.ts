@@ -74,7 +74,7 @@ export function planFromMinutes(
     maxCharsPerScene: Math.round(wordsPerScene * cpw * 1.6),
     tailWords: Math.max(20, Math.round(askWords * 0.08)),
     estimatedChars,
-    estimatedCostUsd: estimateFilmCost({ scenesCount, estimatedChars, totalWords: askWords }).totals.creator,
+    estimatedCostUsd: estimateFilmCost({ scenesCount, estimatedChars, totalWords: askWords }).totalUsd,
   };
 }
 

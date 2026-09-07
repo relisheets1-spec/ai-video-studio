@@ -1,4 +1,4 @@
-import { chatPriceFor, ELEVEN_PAYG_USD_PER_1K, ELEVEN_SCENARIOS, type VideoCost } from "./pricing";
+import { chatPriceFor, ELEVEN_PAYG_USD_PER_1K, ELEVEN_PLAN, normalizeCost, type VideoCost } from "./pricing";
 
 /** Форматирование стоимости для архива и модалки. Без React и без сервера. */
 
@@ -21,16 +21,18 @@ function pluralImages(n: number): string {
   return `${n} картинок`;
 }
 
-/** Одна строка под видео в архиве. */
-export function formatCostLine(cost: VideoCost): string {
+/** Одна строка под видео в архиве. Принимает запись любой версии. */
+export function formatCostLine(raw: unknown): string {
+  const cost = normalizeCost(raw);
+  if (!cost) return "";
   const parts = [
     `${pluralImages(cost.images.count)} ${formatUsd(cost.images.usd)}`,
     `текст ${formatUsd(cost.llm.usd)}`,
   ];
   if (cost.tts.credits > 0) {
-    parts.push(`озвучка ${formatInt(cost.tts.credits)} кр. ${formatUsd(cost.tts.usd.creator)}`);
+    parts.push(`озвучка ${formatInt(cost.tts.credits)} кр. ${formatUsd(cost.tts.usd)}`);
   }
-  parts.push(`итого ${formatUsd(cost.totals.creator)}`);
+  parts.push(`итого ${formatUsd(cost.totalUsd)}`);
   return parts.join(" · ");
 }
 
@@ -39,57 +41,65 @@ export interface CostRow {
   model: string;
   quantity: string;
   price: string;
+  /** Как получилась сумма: «30 × $0,015». */
+  math: string;
   total: string;
   note?: string;
 }
 
-/** Строки таблицы: статья · модель · количество · официальная цена · сумма. */
+/** Строки таблицы: статья · модель · количество · цена · расчёт · сумма. */
 export function costRows(cost: VideoCost): CostRow[] {
   const rows: CostRow[] = [];
-  // Проходы могут идти на разных моделях (план — gpt-5.1, монолог — gpt-4o): цена по каждой.
+
+  // Текст. Проходы могут идти на разных моделях (старые записи: gpt-5.1 + gpt-4o) — цена по каждой.
   const models = Array.from(
     new Set((cost.llm.breakdown || []).map((b) => (b.model || cost.llm.model).replace(/-\d{4}-\d{2}-\d{2}$/, "")))
   );
   const priceLine = (models.length ? models : [cost.llm.model])
     .map((m) => {
       const p = chatPriceFor(m);
-      return `${models.length > 1 ? m + ": " : ""}${formatUsd(p.inputPerM)} / ${formatUsd(p.outputPerM)} за 1M`;
+      return `${models.length > 1 ? m + ": " : ""}${formatUsd(p.inputPerM)} вх. / ${formatUsd(p.outputPerM)} исх. за 1M`;
     })
     .join("; ");
-
   rows.push({
     item: "Текст (сценарий)",
     model: cost.llm.model,
     quantity: `${formatInt(cost.llm.inputTokens)} вх. + ${formatInt(cost.llm.outputTokens)} исх. токенов, ${cost.llm.calls} вызов.`,
     price: priceLine,
-    total: formatUsd(cost.llm.usd, 4),
+    // Старые записи шли на двух моделях — там формула одной ценой была бы враньём.
+    math:
+      models.length > 1
+        ? `по ${cost.llm.calls} вызовам, каждый по цене своей модели`
+        : `${formatInt(cost.llm.inputTokens)} × ${formatUsd(chatPriceFor(models[0] || cost.llm.model).inputPerM)}/1M + ${formatInt(cost.llm.outputTokens)} × ${formatUsd(chatPriceFor(models[0] || cost.llm.model).outputPerM)}/1M`,
+    total: formatUsd(cost.llm.usd, 2),
   });
 
+  // Картинки: цена за штуку по официальной таблице, умноженная на число кадров.
+  const imagesBase = cost.images.count * cost.images.unitUsd;
   rows.push({
     item: "Картинки",
     model: `${cost.images.model} · ${cost.images.quality} · ${cost.images.size.replace("x", "×")}`,
-    quantity: `${formatInt(cost.images.count)} шт.${cost.images.outputTokens ? ` (${formatInt(cost.images.outputTokens)} токенов)` : ""}`,
-    price: `${formatUsd(cost.images.unitUsd, 3)} за шт.`,
-    total: formatUsd(cost.images.usd, 3),
+    quantity: pluralImages(cost.images.count),
+    price: `${formatUsd(cost.images.unitUsd, 3)} за картинку`,
+    math:
+      `${cost.images.count} × ${formatUsd(cost.images.unitUsd, 3)}` +
+      (cost.images.referenceUsd > 0 ? ` + референс ${formatUsd(cost.images.referenceUsd, 3)}` : ""),
+    total: formatUsd(imagesBase + (cost.images.referenceUsd || 0), 2),
     note:
-      [
-        cost.images.withReference > 0
-          ? `с референсом: ${cost.images.withReference} шт., входная картинка ${formatInt(cost.images.referenceInputTokens)} токенов = ${formatUsd(cost.images.referenceUsd, 4)}`
-          : null,
-        cost.images.usdByTokens !== null ? `по токенам ${formatUsd(cost.images.usdByTokens, 4)}` : null,
-      ]
-        .filter(Boolean)
-        .join(" · ") || undefined,
+      cost.images.withReference > 0
+        ? `с референсом: ${cost.images.withReference} шт., входная картинка ${formatInt(cost.images.referenceInputTokens)} токенов`
+        : undefined,
   });
 
+  // Озвучка: только Pay As You Go.
   if (cost.tts.credits > 0) {
-    const s = ELEVEN_SCENARIOS.creator;
     rows.push({
       item: "Озвучка ElevenLabs",
       model: cost.tts.model || "eleven_v3",
       quantity: `${formatInt(cost.tts.characters)} символов = ${formatInt(cost.tts.credits)} кредитов${cost.tts.creditsSource === "history" ? "" : " (по символам)"}`,
-      price: `$${s.monthlyUsd} / ${formatInt(s.monthlyCredits)} кр. в мес.`,
-      total: formatUsd(cost.tts.usd.creator, 4),
+      price: `${formatUsd(ELEVEN_PAYG_USD_PER_1K)} за 1 000 кредитов`,
+      math: `${formatInt(cost.tts.credits)} / 1 000 × ${formatUsd(ELEVEN_PAYG_USD_PER_1K)}`,
+      total: formatUsd(cost.tts.usd, 2),
       note: cost.tts.keyOwner === "env" ? "ключ владельца сайта" : undefined,
     });
   }
@@ -97,32 +107,11 @@ export function costRows(cost: VideoCost): CostRow[] {
   return rows;
 }
 
-export interface ScenarioTotal {
-  id: keyof typeof ELEVEN_SCENARIOS;
-  label: string;
-  ttsUsd: number;
-  totalUsd: number;
-  hint: string;
-}
-
-/** Два итога: текущий тариф Creator и Starter с докупкой Pay As You Go. */
-export function scenarioTotals(cost: VideoCost): ScenarioTotal[] {
-  const c = ELEVEN_SCENARIOS.creator;
-  const perCredit = c.monthlyUsd / c.monthlyCredits;
-  return [
-    {
-      id: "creator",
-      label: ELEVEN_SCENARIOS.creator.label,
-      ttsUsd: cost.tts.usd.creator,
-      totalUsd: cost.totals.creator,
-      hint: `${formatUsd(c.monthlyUsd)} за ${formatInt(c.monthlyCredits)} кредитов = ${formatUsd(perCredit * 1000, 4)} за 1 000`,
-    },
-    {
-      id: "starterPayg",
-      label: ELEVEN_SCENARIOS.starterPayg.label,
-      ttsUsd: cost.tts.usd.starterPayg,
-      totalUsd: cost.totals.starterPayg,
-      hint: `подписка $6 (0 кредитов) + докупка Pay As You Go ${formatUsd(ELEVEN_PAYG_USD_PER_1K)} за 1 000 кредитов Eleven v3, кредиты живут 12 мес.`,
-    },
-  ];
+/** Подпись про тариф под таблицей. */
+export function planNote(): string {
+  return (
+    `Тариф ElevenLabs: ${ELEVEN_PLAN.label} — подписка ${formatUsd(ELEVEN_PLAN.monthlyUsd)} в месяц, ` +
+    `её кредиты в расчёт не входят (считаем, что их ${ELEVEN_PLAN.includedCredits}); каждый потраченный кредит ` +
+    `докупается по ${formatUsd(ELEVEN_PLAN.paygUsdPer1k)} за 1 000, купленные кредиты живут 12 месяцев.`
+  );
 }

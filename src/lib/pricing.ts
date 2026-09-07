@@ -57,8 +57,8 @@ export const ELEVEN_CREDITS_PER_CHAR: Record<string, number> = {
 };
 
 /**
- * Наблюдаемое списание на аккаунте Creator: история ElevenLabs показывает
- * ~0,55 кредита за символ (7 157 кредитов за 13 012 символов; 4 171 за 7 582).
+ * Наблюдаемое списание: история ElevenLabs показывает ~0,55 кредита за символ
+ * (7 157 кредитов за 13 012 символов; 4 171 за 7 582; 6 154 за 11 184).
  * Используется ТОЛЬКО для прикидки под слайдером до генерации; фактическая
  * стоимость всегда берётся из истории по request_id.
  */
@@ -67,23 +67,17 @@ export const ELEVEN_ESTIMATE_CREDITS_PER_CHAR = 0.55;
 /** Pay As You Go для API: Eleven v3, USD за 1 000 кредитов. Кредиты живут 12 месяцев. */
 export const ELEVEN_PAYG_USD_PER_1K = 0.1;
 
-export const ELEVEN_SCENARIOS = {
-  creator: {
-    id: "creator",
-    label: "Creator, $22/мес",
-    monthlyUsd: 22,
-    monthlyCredits: 130_372,
-  },
-  starterPayg: {
-    id: "starterPayg",
-    label: "Starter $6/мес + Pay As You Go",
-    monthlyUsd: 6,
-    includedCredits: 0,
-    paygUsdPer1k: ELEVEN_PAYG_USD_PER_1K,
-  },
+/**
+ * Единственный сценарий по решению владельца: подписка Starter $6/мес, её
+ * кредиты в расчёт не берём (считаем, что их ноль), каждый потраченный кредит
+ * докупается Pay As You Go. Стоимость фильма = токены + картинки + кредиты × $0,10 / 1 000.
+ */
+export const ELEVEN_PLAN = {
+  label: "Starter $6/мес + Pay As You Go",
+  monthlyUsd: 6,
+  includedCredits: 0,
+  paygUsdPer1k: ELEVEN_PAYG_USD_PER_1K,
 } as const;
-
-export type ScenarioId = keyof typeof ELEVEN_SCENARIOS;
 
 // ---------------------------------------------------------------------------
 // Функции
@@ -116,43 +110,33 @@ export function usdForImageTokens(inputTokens: number, outputTokens: number): nu
   return round4((inputTokens / 1e6) * t.textInPerM + (outputTokens / 1e6) * t.imageOutPerM);
 }
 
-export function usdForCreditsCreator(credits: number): number {
-  const s = ELEVEN_SCENARIOS.creator;
-  return round4((credits * s.monthlyUsd) / s.monthlyCredits);
-}
-
-export function usdForCreditsPayg(credits: number): number {
+export function usdForCredits(credits: number): number {
   return round4((credits / 1000) * ELEVEN_PAYG_USD_PER_1K);
 }
 
-/** Грубая оценка текста до запуска: 5 проходов gpt-4o на объём ролика. */
+/**
+ * Грубая оценка текста до запуска. Все проходы на gpt-4o: замер 07.09.2026 —
+ * 15 минут (1 625 слов) = 49 076 вх. + 18 377 исх. токенов за 8 вызовов ≈ $0,29;
+ * с планом и редактором на 4o вместо 5.1 входные токены дороже вдвое.
+ */
 export function estimateLlmUsd(totalWords: number): number {
-  return round4(0.03 + totalWords * 0.00012);
+  return round4(0.05 + totalWords * 0.00017);
 }
 
 export interface FilmEstimate {
   imagesUsd: number;
   llmUsd: number;
   credits: number;
-  ttsUsd: { creator: number; starterPayg: number };
-  totals: { creator: number; starterPayg: number };
+  ttsUsd: number;
+  totalUsd: number;
 }
 
 export function estimateFilmCost(input: { scenesCount: number; estimatedChars: number; totalWords: number }): FilmEstimate {
   const imagesUsd = round4(input.scenesCount * usdForImage("gpt-image-1-mini", "medium", "1536x1024"));
   const llmUsd = estimateLlmUsd(input.totalWords);
   const credits = Math.round(input.estimatedChars * ELEVEN_ESTIMATE_CREDITS_PER_CHAR);
-  const ttsUsd = { creator: usdForCreditsCreator(credits), starterPayg: usdForCreditsPayg(credits) };
-  return {
-    imagesUsd,
-    llmUsd,
-    credits,
-    ttsUsd,
-    totals: {
-      creator: round4(imagesUsd + llmUsd + ttsUsd.creator),
-      starterPayg: round4(imagesUsd + llmUsd + ttsUsd.starterPayg),
-    },
-  };
+  const ttsUsd = usdForCredits(credits);
+  return { imagesUsd, llmUsd, credits, ttsUsd, totalUsd: round4(imagesUsd + llmUsd + ttsUsd) };
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +173,8 @@ export interface ImageFrameUsage {
 }
 
 export interface VideoCost {
-  version: 2;
+  /** 3 — один сценарий ElevenLabs (Pay As You Go); 2 — старые записи с двумя тарифами. */
+  version: 3;
   pricingAsOf: string;
   startedAt: string | null;
   computedAt: string;
@@ -223,10 +208,10 @@ export interface VideoCost {
     keyOwner: "user" | "env" | "mixed" | null;
     historyMatched: number;
     historyMissing: number;
-    usd: { creator: number; starterPayg: number };
+    /** Pay As You Go: кредиты × $0,10 / 1 000. */
+    usd: number;
   };
-  totals: { creator: number; starterPayg: number };
-  /** = totals.creator; продублировано для generated-колонки total_usd. */
+  /** Текст + картинки + озвучка. */
   totalUsd: number;
 }
 
@@ -316,10 +301,7 @@ export function computeVideoCost(input: CostInput): VideoCost {
       ? input.creditsAfter - input.creditsBefore
       : null;
 
-  const ttsUsd = {
-    creator: usdForCreditsCreator(credits),
-    starterPayg: usdForCreditsPayg(credits),
-  };
+  const ttsUsd = usdForCredits(credits);
 
   const tts: VideoCost["tts"] = {
     model: input.tts[0]?.model || null,
@@ -337,21 +319,37 @@ export function computeVideoCost(input: CostInput): VideoCost {
     usd: ttsUsd,
   };
 
-  const base = llm.usd + images.usd;
-  const totals = {
-    creator: round4(base + ttsUsd.creator),
-    starterPayg: round4(base + ttsUsd.starterPayg),
-  };
-
   return {
-    version: 2,
+    version: 3,
     pricingAsOf: PRICING_AS_OF,
     startedAt: input.startedAt,
     computedAt: new Date().toISOString(),
     llm,
     images,
     tts,
-    totals,
-    totalUsd: totals.creator,
+    totalUsd: round4(llm.usd + images.usd + ttsUsd),
   };
+}
+
+/**
+ * Приводит запись `cost` из базы к текущей форме. Старые фильмы (version 2)
+ * хранили два тарифа ElevenLabs; для них озвучка пересчитывается по кредитам
+ * в Pay As You Go, миграция базы не нужна. Неизвестная форма → null.
+ */
+export function normalizeCost(raw: unknown): VideoCost | null {
+  if (!raw || typeof raw !== "object") return null;
+  const c = raw as any;
+  if (!c.llm || !c.images || !c.tts) return null;
+  if (c.version === 3 && typeof c.totalUsd === "number" && typeof c.tts.usd === "number") return c as VideoCost;
+
+  const credits = Number(c.tts.credits) || 0;
+  const ttsUsd = usdForCredits(credits);
+  const llmUsd = Number(c.llm.usd) || 0;
+  const imagesUsd = Number(c.images.usd) || 0;
+  return {
+    ...c,
+    version: 3,
+    tts: { ...c.tts, credits, usd: ttsUsd },
+    totalUsd: round4(llmUsd + imagesUsd + ttsUsd),
+  } as VideoCost;
 }

@@ -13,12 +13,12 @@ export interface ModalProps {
   children: React.ReactNode;
   /** Кнопки внизу. */
   footer?: React.ReactNode;
-  size?: "sm" | "md" | "lg";
+  size?: "sm" | "md" | "lg" | "xl";
   /** Тёмная модалка поверх видео (экспорт) — не следует за темой. */
   tone?: "surface" | "contrast";
 }
 
-const sizes = { sm: "max-w-sm", md: "max-w-md", lg: "max-w-2xl" };
+const sizes = { sm: "max-w-sm", md: "max-w-md", lg: "max-w-2xl", xl: "max-w-4xl" };
 
 export const Modal: React.FC<ModalProps> = ({
   open,
