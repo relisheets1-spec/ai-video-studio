@@ -28,7 +28,7 @@ const SETTINGS_BY_MODEL = data.settings as Record<
   Record<string, number | boolean>
 >;
 
-export function voicesFor(language: ContentLanguage): VoiceDef[] {
+function voicesFor(language: ContentLanguage): VoiceDef[] {
   return VOICE_CATALOG.filter((v) => v.lang === language);
 }
 

@@ -27,12 +27,12 @@ function deriveKey(purpose: KeyPurpose): Buffer {
   return crypto.createHash("sha256").update(`${masterSecret()}\0${purpose}`).digest();
 }
 
-export function hmacHex(purpose: KeyPurpose, data: string): string {
+function hmacHex(purpose: KeyPurpose, data: string): string {
   return crypto.createHmac("sha256", deriveKey(purpose)).update(data).digest("hex");
 }
 
 /** Сравнение hex-строк за постоянное время. */
-export function safeEqualHex(a: string, b: string): boolean {
+function safeEqualHex(a: string, b: string): boolean {
   const ba = Buffer.from(a, "hex");
   const bb = Buffer.from(b, "hex");
   return ba.length > 0 && ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
