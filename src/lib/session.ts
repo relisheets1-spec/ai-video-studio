@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { signToken, verifyToken } from "./crypto";
 import { COOKIE_SECURE } from "./env";
+import { findSession, touchSession } from "./sessions";
 import { findUserById, statusMessage, type UserRow } from "./users";
 
 /**
  * Сессия пользователя студии — подписанный токен в HttpOnly-cookie.
  *
  * Токен живёт 30 дней, но сам по себе доступа не даёт: на каждом запросе
- * requireUser перечитывает строку пользователя и сверяет статус и эпоху.
- * Блокировка вступает в силу на следующем же запросе.
+ * requireUser перечитывает строку пользователя, сверяет статус и эпоху и
+ * проверяет, что сессия (устройство) ещё в списке. Блокировка, отзыв кода и
+ * вытеснение лишнего устройства вступают в силу на следующем же запросе.
  */
 
 const SESSION_COOKIE = "studio_session";
@@ -17,20 +19,29 @@ const TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 interface UserSessionPayload {
   sub: string;
+  /** id строки в sessions — устройство. */
+  sid: string;
   epoch: number;
   iat: number;
   exp: number;
 }
 
-export function signUserToken(userId: string, epoch: number): string {
+export function signUserToken(userId: string, epoch: number, sid: string): string {
   const now = Date.now();
-  return signToken(PREFIX, "user-session", { sub: userId, epoch, iat: now, exp: now + TTL_MS });
+  return signToken(PREFIX, "user-session", { sub: userId, sid, epoch, iat: now, exp: now + TTL_MS });
 }
 
 function readToken(req: NextRequest): UserSessionPayload | null {
   const raw = req.cookies.get(SESSION_COOKIE)?.value;
   const payload = verifyToken<UserSessionPayload>(raw, PREFIX, "user-session");
-  return payload && typeof payload.sub === "string" && payload.sub ? payload : null;
+  return payload && typeof payload.sub === "string" && payload.sub && typeof payload.sid === "string" && payload.sid
+    ? payload
+    : null;
+}
+
+/** id сессии из cookie (для выхода), без проверки пользователя. */
+export function readSessionId(req: NextRequest): string | null {
+  return readToken(req)?.sid ?? null;
 }
 
 const cookieOptions = {
@@ -63,12 +74,16 @@ function unauthenticated(): NextResponse {
  */
 export async function requireUser(
   req: NextRequest
-): Promise<{ user: UserRow } | { response: NextResponse }> {
+): Promise<{ user: UserRow; sid: string } | { response: NextResponse }> {
   const payload = readToken(req);
   if (!payload) return { response: unauthenticated() };
 
   const user = findUserById(payload.sub);
   if (!user) return { response: unauthenticated() };
+
+  // Устройство вытеснили, отозвали код или вышли — сессии в списке уже нет.
+  const session = findSession(payload.sid);
+  if (!session || session.user_id !== user.id) return { response: unauthenticated() };
 
   // Статус проверяется раньше эпохи: заблокированному честнее сказать, что
   // доступ закрыт, чем «сессия истекла».
@@ -80,6 +95,7 @@ export async function requireUser(
 
   if (user.session_epoch !== payload.epoch) return { response: unauthenticated() };
 
-  return { user };
+  touchSession(session.id);
+  return { user, sid: session.id };
 }
 

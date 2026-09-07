@@ -13,7 +13,7 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req);
   if ("response" in auth) return auth.response;
-  const userId = auth.user.id;
+  const { user, sid } = auth;
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
         }
       };
       const ping = setInterval(() => send(": ping\n\n"), 25_000);
-      const stop = onKick(userId, () => {
+      const stop = onKick(user.id, sid, () => {
         send("event: kick\ndata: {}\n\n");
         cleanup();
       });

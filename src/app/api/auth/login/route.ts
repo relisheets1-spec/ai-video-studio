@@ -3,7 +3,9 @@ import { checkAccess } from "@/lib/access";
 import { checkAdminCode, isAdminEmail, setAdminCookie, signAdminToken } from "@/lib/admin-auth";
 import { normalizeEmail } from "@/lib/env";
 import { checkAttempts, failureDelay, getClientIp, recordAttempt } from "@/lib/security";
+import { kickSession } from "@/lib/kick";
 import { setSessionCookie, signUserToken } from "@/lib/session";
+import { createSession, deviceLabel, enforceSessionLimit } from "@/lib/sessions";
 import { ensureUser, statusMessage, toPublicUser, touchLogin } from "@/lib/users";
 
 /**
@@ -56,6 +58,10 @@ export async function POST(req: NextRequest) {
   recordAttempt(ip, "login", true, email);
   touchLogin(user.id);
 
+  // Новое устройство; если их стало больше лимита — самое давнее выходит сразу.
+  const sid = createSession(user.id, deviceLabel(req.headers.get("user-agent")), ip);
+  for (const old of enforceSessionLimit(user.id)) kickSession(old);
+
   const res = NextResponse.json({ role: "user", user: toPublicUser(user), firstUse: check.firstUse });
-  return setSessionCookie(res, signUserToken(user.id, user.session_epoch));
+  return setSessionCookie(res, signUserToken(user.id, user.session_epoch, sid));
 }

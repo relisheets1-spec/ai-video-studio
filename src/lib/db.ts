@@ -16,7 +16,20 @@ import { DB_PATH } from "./env";
  * Номер схемы. Пустая база создаётся сразу в этой версии; база с другим
  * номером — ошибка, а не тихая порча данных.
  */
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 4;
+
+/** Живые сессии (устройства) пользователей — см. sessions.ts. */
+const SESSIONS_SQL = `
+  CREATE TABLE IF NOT EXISTS sessions (
+    id           TEXT PRIMARY KEY,
+    user_id      TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    device       TEXT,
+    ip           TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id, last_seen_at);
+`;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS settings (
@@ -52,6 +65,8 @@ const SCHEMA = `
     added_by   TEXT,
     created_at TEXT NOT NULL
   );
+
+  ${SESSIONS_SQL}
 
   CREATE TABLE IF NOT EXISTS login_attempts (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -112,30 +127,33 @@ function getDb(): DatabaseSync {
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA busy_timeout = 5000");
 
-  const current = Number((db.prepare("PRAGMA user_version").get() as any)?.user_version || 0);
+  const step = (sql: string, version: number) => {
+    db.exec("BEGIN");
+    try {
+      db.exec(sql);
+      db.exec(`PRAGMA user_version = ${version}`);
+      db.exec("COMMIT");
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+  };
+
+  let current = Number((db.prepare("PRAGMA user_version").get() as any)?.user_version || 0);
   if (current === 0) {
-    db.exec("BEGIN");
-    try {
-      db.exec(SCHEMA);
-      db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-      db.exec("COMMIT");
-    } catch (err) {
-      db.exec("ROLLBACK");
-      throw err;
-    }
-  } else if (current === 2) {
-    // v3: отозванные коды больше не хранятся — они удаляются.
-    db.exec("BEGIN");
-    try {
-      db.exec("DELETE FROM access_codes WHERE revoked_at IS NOT NULL");
-      db.exec("ALTER TABLE access_codes DROP COLUMN revoked_at");
-      db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-      db.exec("COMMIT");
-    } catch (err) {
-      db.exec("ROLLBACK");
-      throw err;
-    }
-  } else if (current !== SCHEMA_VERSION) {
+    step(SCHEMA, SCHEMA_VERSION);
+    current = SCHEMA_VERSION;
+  }
+  // Старые базы догоняют текущую схему по шагам, каждый — в своей транзакции.
+  if (current === 2) {
+    step("DELETE FROM access_codes WHERE revoked_at IS NOT NULL; ALTER TABLE access_codes DROP COLUMN revoked_at;", 3);
+    current = 3;
+  }
+  if (current === 3) {
+    step(SESSIONS_SQL, 4);
+    current = 4;
+  }
+  if (current !== SCHEMA_VERSION) {
     throw new Error(
       `База ${DB_PATH} схемы v${current}, приложение ждёт v${SCHEMA_VERSION}: ` +
         "восстановите копию нужной версии из /var/backups/studio или удалите файл (данные пропадут)."

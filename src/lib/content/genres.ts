@@ -10,6 +10,7 @@ export const GENRE_IDS = [
   "scifi_adventure",
   "thriller",
   "detective",
+  "horror",
 ] as const;
 export type GenreId = (typeof GENRE_IDS)[number];
 
@@ -130,6 +131,16 @@ export const GENRES: Record<GenreId, GenreDef> = {
       ru: "ЖАНР: ДЕТЕКТИВ И РАССЛЕДОВАНИЕ. В центре — запутанная тайна. Улики, ложные следы, обман. В финале — раскрытие правды, которое переосмысливает всё сказанное раньше.",
       kz: "ЖАНР: ДЕТЕКТИВ ЖӘНЕ ЗЕРТТЕУ. Оқиға ортасында — күрделі жұмбақ. Дәйектер, жалған іздер, алдау. Ақырында бүкіл әңгімені қайта қарауға мәжбүрлейтін ақиқат ашылады.",
       en: "GENRE: DETECTIVE AND INVESTIGATION. A tangled mystery at the centre. Clues, false trails, deception. The ending reveals a truth that recasts everything said before.",
+    },
+  },
+  horror: {
+    label: "Хоррор",
+    icon: "Ghost",
+    wantsTwist: true,
+    rules: {
+      ru: "ЖАНР: ХОРРОР И МИСТИКА. Мрачная, леденящая атмосфера. Древние проклятия, необъяснимый страх, нарастающее чувство ловушки и жуткий финал.",
+      kz: "ЖАНР: ҚОРҚЫНЫШ ЖӘНЕ МИСТИКА. Қара түнек, үрейлі атмосфера. Ежелгі қарғыс, түсініксіз қорқыныш, қақпанға түсу сезімі және қалтыратар финал.",
+      en: "GENRE: HORROR AND THE UNCANNY. A cold, oppressive atmosphere. Old curses, inexplicable fear, a tightening sense of a trap, and a chilling final image.",
     },
   },
 };

@@ -28,6 +28,8 @@ export interface AdminUserView extends StudioUser {
   createdAt: string;
   lastLoginAt: string | null;
   videosCount: number;
+  /** Сколько устройств (живых сессий) сейчас у пользователя. */
+  devices: number;
   /** Действующий код доступа этой почты. */
   code: string | null;
 }

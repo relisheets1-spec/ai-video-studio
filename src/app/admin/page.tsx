@@ -730,7 +730,7 @@ export default function AdminPage() {
                           )}
                         </div>
                         <div className="text-[12px] text-muted mt-1 tabular">
-                          вход {formatDate(user.lastLoginAt)} · фильмов {user.videosCount}
+                          вход {formatDate(user.lastLoginAt)} · фильмов {user.videosCount} · устройств {user.devices}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 text-[12px] shrink-0">
@@ -759,6 +759,11 @@ export default function AdminPage() {
                       <Button size="sm" variant={user.code ? "secondary" : "primary"} onClick={() => rotateCode(user)} loading={busy === user.id + "rotate_code"}>
                         {user.code ? "Заменить код" : "Выдать код"}
                       </Button>
+                      {user.devices > 0 && (
+                        <Button size="sm" variant="secondary" onClick={() => act(user, "logout_all")} loading={busy === user.id + "logout_all"}>
+                          Выйти везде
+                        </Button>
+                      )}
                       {(user.hasElevenLabsKey || user.hasOpenAiKey) && (
                         <Button size="sm" variant="secondary" onClick={() => act(user, "reset_keys")} loading={busy === user.id + "reset_keys"}>
                           Сбросить ключи

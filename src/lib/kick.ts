@@ -12,11 +12,18 @@ const bus = ((globalThis as any).__studioKickBus ??= new EventEmitter()) as Even
 bus.setMaxListeners(0);
 
 export function kickUser(userId: string): void {
-  bus.emit(`kick:${userId}`);
+  bus.emit(`user:${userId}`);
 }
 
-export function onKick(userId: string, cb: () => void): () => void {
-  const key = `kick:${userId}`;
-  bus.on(key, cb);
-  return () => bus.off(key, cb);
+/** Одно устройство: его вытеснил вход с лишнего устройства. */
+export function kickSession(sid: string): void {
+  bus.emit(`session:${sid}`);
+}
+
+export function onKick(userId: string, sid: string, cb: () => void): () => void {
+  const keys = [`user:${userId}`, `session:${sid}`];
+  for (const k of keys) bus.on(k, cb);
+  return () => {
+    for (const k of keys) bus.off(k, cb);
+  };
 }

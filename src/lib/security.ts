@@ -14,9 +14,8 @@ const ipLimits = new Map<string, number[]>();
 const globalScriptTimestamps: number[] = [];
 
 export function getClientIp(req: NextRequest): string {
-  // Только X-Real-IP: nginx ставит его сам из $remote_addr (за Cloudflare
-  // realip уже подменил $remote_addr на адрес посетителя). Заголовки
-  // CF-Connecting-IP и X-Forwarded-For клиент может подделать — им не верим.
+  // Только X-Real-IP: его ставит nginx из адреса соединения; клиентские
+  // X-Forwarded-For и прочие заголовки подделываются — им не верим.
   return req.headers.get("x-real-ip")?.trim() || "127.0.0.1";
 }
 

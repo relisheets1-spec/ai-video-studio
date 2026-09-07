@@ -54,10 +54,12 @@ export function statusMessage(status: AccessStatus): string {
 /** Погасить все сессии пользователя: старые cookie перестают подходить. */
 export function revokeSessions(id: string): void {
   run("UPDATE users SET session_epoch = session_epoch + 1 WHERE id = ?", id);
+  run("DELETE FROM sessions WHERE user_id = ?", id);
 }
 
 export function blockUser(id: string): void {
   run("UPDATE users SET status = 'blocked', session_epoch = session_epoch + 1 WHERE id = ?", id);
+  run("DELETE FROM sessions WHERE user_id = ?", id);
 }
 
 export function unblockUser(id: string): void {
@@ -79,6 +81,7 @@ export function touchLogin(id: string): void {
 export function deleteUser(id: string): void {
   const row = findUserById(id);
   run("DELETE FROM video_generations WHERE user_id = ?", id);
+  run("DELETE FROM sessions WHERE user_id = ?", id);
   if (row) run("DELETE FROM access_codes WHERE email = ?", row.email);
   run("DELETE FROM users WHERE id = ?", id);
 }
@@ -88,6 +91,7 @@ export function deleteUser(id: string): void {
 // ---------------------------------------------------------------------------
 
 interface UserListRow extends UserRow {
+  devices: number;
   videos_count: number;
   code: string | null;
 }
@@ -96,6 +100,7 @@ export function listUsers(): AdminUserView[] {
   const rows = all<UserListRow>(`
     SELECT u.*,
            (SELECT COUNT(*) FROM video_generations v WHERE v.user_id = u.id AND v.status = 'completed') AS videos_count,
+           (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id) AS devices,
            c.code       AS code
       FROM users u
       LEFT JOIN access_codes c ON c.email = u.email
@@ -108,6 +113,7 @@ export function listUsers(): AdminUserView[] {
     createdAt: row.created_at,
     lastLoginAt: row.last_login_at,
     videosCount: Number(row.videos_count) || 0,
+    devices: Number(row.devices) || 0,
     code: row.code || null,
   }));
 }

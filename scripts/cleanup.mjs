@@ -9,7 +9,7 @@
  *      текст сцен, стоимость и вся статистика остаются в базе навсегда;
  *   2) удаляет папки фильмов, которых уже нет в базе (осиротевшие);
  *   3) стирает референсы старше суток — они нужны только во время генерации;
- *   4) чистит журнал попыток входа старше недели.
+ *   4) чистит журнал попыток входа старше недели и сессии старше 30 дней.
  *
  * Зависимостей нет: node:sqlite и node:fs. Переменные берутся из окружения
  * (systemd подставляет /etc/studio.env).
@@ -114,7 +114,9 @@ if (fs.existsSync(REFS_DIR)) {
 if (!DRY) {
   const week = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const attempts = db.prepare("DELETE FROM login_attempts WHERE created_at < ?").run(week).changes;
-  log(`попытки входа старше недели: ${attempts}`);
+  const month = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const sessions = db.prepare("DELETE FROM sessions WHERE last_seen_at < ?").run(month).changes;
+  log(`попытки входа старше недели: ${attempts}, сессии старше месяца: ${sessions}`);
   db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   db.exec("VACUUM");
 }

@@ -14,8 +14,8 @@
 - **Frontend / Backend**: Next.js 14 (App Router), React 18, Tailwind CSS 3
 - **База и хранилище**: SQLite одним файлом (`node:sqlite`, без нативных модулей)
   и файлы на диске сервера; отдаются nginx по `/media`
-- **Сервер**: свой VPS (Ubuntu 24.04), Node 24 + systemd + nginx, TLS Let's Encrypt
-  (Cloudflare — опция), сборка в GitHub Actions, деплой по SSH — см. `docs/deploy.md`
+- **Сервер**: свой VPS (Ubuntu 24.04), Node 24 + systemd + nginx, TLS Let's Encrypt,
+  сборка в GitHub Actions, деплой по SSH — см. `docs/deploy.md`
 - **Модели**:
   - **GPT-4o** — весь текст: план истории (сюжет, персонажи, биты), сплошной
     монолог, редакторская чистка, обрезка до заказанного объёма, проверка ритма и
@@ -172,6 +172,6 @@ node scripts/gen-voice-samples.mjs
 ## Сервер и деплой
 
 Инструкция целиком — `docs/deploy.md`: заказ VPS, `deploy/server-setup.sh`,
-Cloudflare, GitHub Actions, бэкап в R2 и восстановление. Коротко: push в `main`
+GitHub Actions, бэкап и восстановление. Коротко: push в `main`
 → сборка в Actions → готовый `standalone` уезжает по SSH → `systemctl restart
 studio`.

@@ -43,3 +43,6 @@ export const ADMIN_CODE_HASH = str("ADMIN_CODE_HASH");
 
 /** Через сколько дней уборщик стирает картинки и звук (текст и стоимость остаются). */
 export const MEDIA_TTL_DAYS = int("MEDIA_TTL_DAYS", 30);
+
+/** Сколько устройств (живых сессий) может быть у одного пользователя; лишнее — самое давнее — выходит. */
+export const MAX_SESSIONS = int("MAX_SESSIONS", 3);

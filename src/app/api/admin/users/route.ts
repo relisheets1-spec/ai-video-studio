@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * Действия над пользователем: block / unblock / reset_keys / rotate_code / delete.
+ * Действия над пользователем: block / unblock / logout_all / reset_keys / rotate_code / delete.
  * Лимитов генераций нет — каждый платит со своих ключей.
  */
 export async function POST(req: NextRequest) {
@@ -46,6 +46,10 @@ export async function POST(req: NextRequest) {
       return done();
     case "unblock":
       unblockUser(user.id);
+      return done();
+    case "logout_all":
+      revokeSessions(user.id);
+      kickUser(user.id);
       return done();
     case "reset_keys":
       setElevenLabsKey(user.id, null);
