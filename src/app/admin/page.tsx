@@ -379,7 +379,7 @@ export default function AdminPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Не удалось удалить код");
       setCodes(data.codes);
-      notify(confirmCode.email ? "Код отозван — пользователь больше не войдёт" : "Код удалён");
+      notify(confirmCode.email ? "Код отозван" : "Код удалён");
       loadSession();
     } catch (err: any) {
       notify(err.message, "danger");
@@ -468,7 +468,7 @@ export default function AdminPage() {
     }
     setAdmins(data.admins);
     setNewAdmin("");
-    notify("Администратор добавлен — входит своей почтой и кодом администратора");
+    notify("Администратор добавлен");
   };
 
   const removeAdmin = async (email: string) => {
@@ -536,10 +536,7 @@ export default function AdminPage() {
                 <IconTile size="lg">
                   <ShieldCheck size={24} weight="fill" />
                 </IconTile>
-                <h1 className="text-[24px] font-bold tracking-tight text-ink">Панель администратора</h1>
-                <p className="text-[13.5px] text-muted leading-relaxed max-w-[320px]">
-                  Почта администратора и код администратора.
-                </p>
+                <h1 className="text-[24px] font-bold tracking-tight text-ink">Админ-панель</h1>
               </div>
 
               {loginInfo && (
@@ -566,7 +563,7 @@ export default function AdminPage() {
                     disabled={loginLoading}
                   />
                 </Field>
-                <Field label="Код администратора">
+                <Field label="Код">
                   <Input
                     type="password"
                     required
@@ -649,7 +646,6 @@ export default function AdminPage() {
           <Tile
             title="Коды доступа"
             icon={<Ticket size={20} />}
-            hint="Код + почта = вход. При первом входе код привязывается к почте и дальше работает только с ней."
             action={<span className="text-[12px] text-faint tabular">{loading ? "…" : `${visibleCodes.length}`}</span>}
           >
             <form onSubmit={createCode} className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 mb-5">
@@ -682,7 +678,7 @@ export default function AdminPage() {
             </div>
 
             {visibleCodes.length === 0 ? (
-              <p className="text-[13.5px] text-muted py-6 text-center">Кодов нет — создайте первый.</p>
+              <p className="text-[13.5px] text-muted py-6 text-center">Кодов нет.</p>
             ) : (
               <div className="flex flex-col gap-2">
                 {visibleCodes.map((c) => (
@@ -723,7 +719,6 @@ export default function AdminPage() {
           <Tile
             title="Пользователи"
             icon={<Users size={20} />}
-            hint="Лимитов нет: каждый платит со своих ключей ElevenLabs и OpenAI."
             action={<span className="text-[12px] text-faint tabular">{loading ? "…" : `${visibleUsers.length}`}</span>}
           >
             <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -752,9 +747,7 @@ export default function AdminPage() {
             </div>
 
             {visibleUsers.length === 0 ? (
-              <p className="text-[13.5px] text-muted py-6 text-center">
-                Пока никого: пользователь появляется после первого входа по коду.
-              </p>
+              <p className="text-[13.5px] text-muted py-6 text-center">Пока никого.</p>
             ) : (
               <div className="flex flex-col gap-3">
                 {visibleUsers.map((user) => (
@@ -794,7 +787,7 @@ export default function AdminPage() {
                           <CopyButton value={user.code} title="Скопировать код доступа" />
                         </>
                       ) : (
-                        <span className="text-faint">кода нет — вход закрыт, выдайте новый</span>
+                        <span className="text-faint">кода нет</span>
                       )}
                     </div>
 
@@ -832,7 +825,6 @@ export default function AdminPage() {
           <Tile
             title="Фильмы"
             icon={<FilmStrip size={20} />}
-            hint="Все готовые фильмы со стоимостью по ценам провайдеров. Пользователь стоимость не видит."
             action={
               <span className="text-[12px] text-faint tabular">
                 {loading ? "…" : `${visibleVideos.length} · ${formatUsd(videosTotalUsd)}`}
@@ -850,7 +842,7 @@ export default function AdminPage() {
             </div>
 
             {visibleVideos.length === 0 ? (
-              <p className="text-[13.5px] text-muted py-6 text-center">Готовых фильмов пока нет.</p>
+              <p className="text-[13.5px] text-muted py-6 text-center">Фильмов нет.</p>
             ) : (
               <div className="flex flex-col gap-2">
                 {visibleVideos.map((v) => (
@@ -892,7 +884,7 @@ export default function AdminPage() {
 
         {/* ------------------------------------------------------------ Журнал */}
         {tab === "logs" && (
-          <Tile title="Журнал отказов" hint="Упавшие и зависшие генерации. Идущие сейчас сюда не попадают.">
+          <Tile title="Журнал отказов">
             <div className="flex items-center gap-1 flex-wrap mb-4">
               {["all", "llm", "tts", "image", "render", "auth"].map((s) => (
                 <Chip key={s} active={stageFilter === s} onClick={() => setStageFilter(s)}>
@@ -927,7 +919,7 @@ export default function AdminPage() {
           <Tile
             title="Администраторы"
             icon={<ShieldCheck size={20} />}
-            hint="Каждый входит своей почтой и общим кодом администратора — на сайте его сразу перебрасывает сюда."
+            hint="Вход своей почтой и общим кодом."
           >
             <form onSubmit={addAdmin} className="flex flex-col sm:flex-row gap-3 mb-5">
               <div className="relative flex-1">
@@ -998,9 +990,7 @@ export default function AdminPage() {
             {issuedCode && <CopyButton value={issuedCode.code} />}
           </div>
           <p className="text-[13px] text-muted">
-            {issuedCode?.email
-              ? `Работает только с почтой ${issuedCode.email}; старый код этой почты больше не действует.`
-              : "Передайте код лично. При первом входе он привяжется к почте, с которой вошли, и дальше будет работать только с ней."}
+            {issuedCode?.email ? `Только для ${issuedCode.email}.` : "При первом входе привяжется к почте."}
           </p>
         </div>
       </Modal>
@@ -1045,8 +1035,8 @@ export default function AdminPage() {
         title={confirmCode?.email ? "Отозвать код?" : "Удалить код?"}
         description={
           confirmCode?.email
-            ? `${confirmCode.email} потеряет вход; аккаунт и фильмы останутся, новый код можно выдать во вкладке «Пользователи».`
-            : `Код ${confirmCode?.code} никем не использован и будет удалён.`
+            ? `${confirmCode.email} потеряет вход, фильмы останутся.`
+            : `Код ${confirmCode?.code} будет удалён.`
         }
         onCancel={() => setConfirmCode(null)}
         onConfirm={dropCode}
@@ -1056,7 +1046,7 @@ export default function AdminPage() {
       <ConfirmDialog
         open={!!confirmDelete}
         title="Удалить пользователя?"
-        description={`${confirmDelete?.email}: аккаунт, ключи, его фильмы и файлы будут удалены безвозвратно.`}
+        description={`${confirmDelete?.email}: аккаунт, фильмы и файлы удалятся безвозвратно.`}
         onCancel={() => setConfirmDelete(null)}
         onConfirm={doDelete}
         loading={busy === (confirmDelete?.id || "") + "delete"}

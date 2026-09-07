@@ -110,13 +110,8 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSuccess, notice }) => {
               <LockKey size={24} weight="fill" />
             </IconTile>
             <h1 className="text-[24px] sm:text-[26px] font-bold tracking-tight text-ink leading-tight">
-              {locked ? "Сайт закрыт" : "Вход в студию"}
+              {locked ? "Сайт закрыт" : "Вход"}
             </h1>
-            <p className="text-[13.5px] text-muted leading-relaxed max-w-[340px]">
-              {locked
-                ? "Введите общий пароль сайта, чтобы открыть форму входа."
-                : "Почта и код доступа, который выдал администратор."}
-            </p>
           </div>
 
           {info && (
@@ -132,7 +127,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSuccess, notice }) => {
 
           {booting ? null : locked ? (
             <form onSubmit={handleUnlock} className="flex flex-col gap-4">
-              <Field label="Пароль сайта">
+              <Field label="Пароль">
                 <Input
                   type="password"
                   required
@@ -165,7 +160,7 @@ export const AuthGate: React.FC<AuthGateProps> = ({ onSuccess, notice }) => {
                   />
                 </div>
               </Field>
-              <Field label="Код доступа">
+              <Field label="Код">
                 <div className="relative">
                   <Key size={18} className="text-faint absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <Input

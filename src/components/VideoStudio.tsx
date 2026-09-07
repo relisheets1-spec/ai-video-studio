@@ -11,6 +11,7 @@ import {
   Key,
   ArrowCounterClockwise,
   Lightning,
+  Hourglass,
   TextAa,
   Trash,
   ImageSquare,
@@ -426,6 +427,13 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       ? Math.floor(sec / 60) + ":" + String(Math.round(sec % 60)).padStart(2, "0")
       : Math.round(sec) + " сек";
 
+  /** Сколько дней кадры и озвучка фильма ещё лежат на сервере (0 — уже стёрты). */
+  const daysLeft = (vid: VideoGeneration) => {
+    if (vid.media_purged_at) return 0;
+    const end = new Date(vid.created_at).getTime() + mediaTtlDays * 86400000;
+    return Math.max(0, Math.ceil((end - Date.now()) / 86400000));
+  };
+
   return (
     <div className="w-full max-w-shell mx-auto px-5 sm:px-8 pt-6 sm:pt-8 pb-32">
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6 sm:mb-7">
@@ -442,7 +450,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
               setKeyError(null);
               setShowKeyModal(true);
             }}
-            title="Ключи ElevenLabs и OpenAI вашего аккаунта"
+            title="Ключи"
             className={cn(
               "inline-flex items-center gap-2 h-10 px-4 rounded-full border shrink-0",
               "text-[13px] font-medium transition-colors cursor-pointer",
@@ -584,7 +592,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                     {referenceUploading ? "Распознаю..." : "Референс персонажа (необязательно)"}
                   </Button>
                   <span className="text-[12px] text-muted leading-snug">
-                    Фото человека, животного, робота, предмета или рисунок: ИИ поймёт, кто это и в каком стиле, и все кадры сделает по нему.
+                    Герой или предмет с картинки будет во всех кадрах.
                   </span>
                 </div>
               )}
@@ -743,7 +751,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
               }
               caption={
                 balance?.elevenlabs?.available && balance.elevenlabs.limit
-                  ? `кредитов из ${formatInt(balance.elevenlabs.limit)} в этом месяце`
+                  ? `из ${formatInt(balance.elevenlabs.limit)} в месяц`
                   : "остаток кредитов"
               }
               icon={<Lightning size={20} />}
@@ -753,7 +761,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             <StatTile
               label="OpenAI"
               value={!user.hasOpenAiKey ? "нет ключа" : balance ? (balance.openai.valid ? "ключ работает" : "ключ отклонён") : "…"}
-              caption={balance ? `через студию потрачено ${formatUsd(balance.spent.openaiUsd)}` : "баланс OpenAI в API не отдаёт"}
+              caption={`потрачено здесь ${formatUsd(balance?.spent.openaiUsd ?? 0)}`}
               icon={<Sliders size={20} />}
               tone={user.hasOpenAiKey ? "contrast" : "surface"}
               valueClassName="text-[18px]"
@@ -764,7 +772,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             <Tile
               title="Архив"
               icon={<ArrowCounterClockwise size={20} />}
-              hint={`Кадры и озвучка хранятся на сервере ровно ${mediaTtlDays} дней, потом стираются. Готовый MP4 не хранится — он собирается в браузере из кадров и озвучки, поэтому скачайте его, пока они на месте.`}
+              hint={`Кадры и звук — ${mediaTtlDays} дней, MP4 собирается в браузере.`}
               action={
                 <span className="text-[12px] text-faint tabular">
                   {loadingHistory ? "…" : `${pastVideos.length} видео`}
@@ -793,7 +801,20 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                           {vid.scenes?.length || 0} сцен • {Math.round(vid.actual_duration_seconds || 0)} сек
                           {normalizeOrientation(vid.scenes?.[0]?.orientation) === "portrait" ? " • 9:16" : " • 16:9"}
                         </span>
-
+                      </span>
+                      <span
+                        title={`Кадры и озвучка хранятся ${mediaTtlDays} дней — скачайте MP4 до этого`}
+                        className={cn(
+                          "inline-flex items-center gap-1 h-6 px-2 rounded-full text-[11.5px] tabular shrink-0",
+                          daysLeft(vid) === 0
+                            ? "bg-danger-soft text-danger-text"
+                            : daysLeft(vid) <= 5
+                              ? "bg-warn-soft text-warn-text"
+                              : "bg-surface-3 text-muted"
+                        )}
+                      >
+                        <Hourglass size={12} weight="fill" />
+                        {daysLeft(vid) === 0 ? "стёрто" : `${daysLeft(vid)} дн.`}
                       </span>
                       <span
                         className={cn(
@@ -854,7 +875,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
         open={showKeyModal}
         onClose={() => setShowKeyModal(false)}
         title="Мои ключи"
-        hint="Все расходы идут с ваших счетов: озвучка — ElevenLabs, текст и картинки — OpenAI. Ключи хранятся зашифрованными и наружу не отдаются."
+        hint="Расходы идут с ваших счетов."
         icon={
           <IconTile size="md">
             <Key size={20} weight="fill" />
@@ -870,7 +891,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
           >
             <Input
               type="text"
-              placeholder={user.hasElevenLabsKey ? "оставьте пустым, чтобы не менять" : "sk_..."}
+              placeholder={user.hasElevenLabsKey ? "не менять" : "sk_..."}
               value={elevenDraft}
               onChange={(e) => setElevenDraft(e.target.value)}
               className="font-mono text-[13px]"
@@ -884,7 +905,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
           >
             <Input
               type="text"
-              placeholder={user.hasOpenAiKey ? "оставьте пустым, чтобы не менять" : "sk-..."}
+              placeholder={user.hasOpenAiKey ? "не менять" : "sk-..."}
               value={openaiDraft}
               onChange={(e) => setOpenaiDraft(e.target.value)}
               className="font-mono text-[13px]"
