@@ -11,8 +11,9 @@ import { ensureUser, statusMessage, toPublicUser, touchLogin } from "@/lib/users
  * Единственная форма входа: почта + код.
  *
  * Почта администратора + его код → cookie администратора, клиент уходит в
- * /admin. Любая другая почта + код доступа, выданный в панели → аккаунт
- * (заводится при первом входе) и сессия студии на 30 дней. Писем нет.
+ * /admin. Почта + код доступа, выданный в панели → аккаунт (заводится при
+ * первом входе) и сессия студии на 30 дней. Администратор может быть и
+ * пользователем: его почта с кодом доступа открывает обычную студию. Писем нет.
  */
 export async function POST(req: NextRequest) {
   if (!siteUnlocked(req)) return siteLockedResponse();
@@ -24,19 +25,19 @@ export async function POST(req: NextRequest) {
   if (!email || !code.trim()) return NextResponse.json({ error: "Введите почту и код" }, { status: 400 });
 
   // --- Администратор ---
-  if (isAdminEmail(email)) {
+  const adminEmail = isAdminEmail(email);
+  if (adminEmail) {
     const attempts = checkAttempts(ip, "admin");
     if (attempts.blocked) {
       return NextResponse.json({ error: "Слишком много попыток. Вход администратора закрыт на час." }, { status: 429 });
     }
-    if (!checkAdminCode(code)) {
-      recordAttempt(ip, "admin", false, email);
-      console.warn(`[admin] неверный код с ${ip}`);
-      await failureDelay();
-      return NextResponse.json({ error: "Неверная почта или код" }, { status: 401 });
+    if (checkAdminCode(code)) {
+      recordAttempt(ip, "admin", true, email);
+      return setAdminCookie(NextResponse.json({ role: "admin" }), signAdminToken(email));
     }
-    recordAttempt(ip, "admin", true, email);
-    return setAdminCookie(NextResponse.json({ role: "admin" }), signAdminToken(email));
+    // Не код администратора — возможно, это код доступа в студию для той же
+    // почты. Проверяем ниже; если и он не подошёл, попытка засчитывается в
+    // оба лимита.
   }
 
   // --- Пользователь ---
@@ -47,6 +48,10 @@ export async function POST(req: NextRequest) {
   const check = checkAccess(email, code);
   if (!check.ok) {
     recordAttempt(ip, "login", false, email);
+    if (adminEmail) {
+      recordAttempt(ip, "admin", false, email);
+      console.warn(`[admin] неверный код с ${ip}`);
+    }
     await failureDelay();
     return NextResponse.json({ error: check.error }, { status: 401 });
   }
