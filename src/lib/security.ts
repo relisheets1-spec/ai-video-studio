@@ -14,12 +14,10 @@ const ipLimits = new Map<string, number[]>();
 const globalScriptTimestamps: number[] = [];
 
 export function getClientIp(req: NextRequest): string {
-  // За Cloudflare и nginx реальный адрес приходит в cf-connecting-ip.
-  const cf = req.headers.get("cf-connecting-ip");
-  if (cf) return cf.trim();
-  const forwarded = req.headers.get("x-forwarded-for");
-  if (forwarded) return forwarded.split(",")[0].trim();
-  return req.headers.get("x-real-ip") || "127.0.0.1";
+  // Только X-Real-IP: nginx ставит его сам из $remote_addr (за Cloudflare
+  // realip уже подменил $remote_addr на адрес посетителя). Заголовки
+  // CF-Connecting-IP и X-Forwarded-For клиент может подделать — им не верим.
+  return req.headers.get("x-real-ip")?.trim() || "127.0.0.1";
 }
 
 /** Ограничение на запуск сценариев: 4 за 10 минут с IP и 40 в час на всех. */

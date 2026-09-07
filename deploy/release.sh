@@ -16,10 +16,16 @@ RELEASE_DIR="$APP_DIR/releases/$SHA"
 KEEP=5
 
 echo "==> Распаковка в $RELEASE_DIR"
-rm -rf "$RELEASE_DIR"
-mkdir -p "$RELEASE_DIR"
-tar xzf "$TARBALL" -C "$RELEASE_DIR"
+# Сначала во временный каталог: повторный деплой того же SHA (re-run job)
+# не должен сносить каталог, из которого прямо сейчас работает служба.
+TMP="$RELEASE_DIR.tmp"
+rm -rf "$TMP" "$RELEASE_DIR.old"
+mkdir -p "$TMP"
+tar xzf "$TARBALL" -C "$TMP"
 rm -f "$TARBALL"
+if [[ -e "$RELEASE_DIR" ]]; then mv -T "$RELEASE_DIR" "$RELEASE_DIR.old"; fi
+mv -T "$TMP" "$RELEASE_DIR"
+rm -rf "$RELEASE_DIR.old"
 
 echo "==> Переключение current"
 ln -sfn "$RELEASE_DIR" "$APP_DIR/current.new"
@@ -29,8 +35,9 @@ echo "==> Перезапуск службы"
 sudo systemctl restart studio
 
 sleep 3
-if ! sudo systemctl status studio --no-pager | head -5; then
-  echo "Служба не поднялась" >&2
+if ! systemctl is-active --quiet studio; then
+  echo "Служба не поднялась:" >&2
+  systemctl status studio --no-pager 2>&1 | head -20 >&2
   exit 1
 fi
 
@@ -48,8 +55,9 @@ done
 
 echo "==> Уборка старых выпусков (оставляем $KEEP)"
 cd "$APP_DIR/releases"
-ls -1t | tail -n +$((KEEP + 1)) | while read -r old; do
-  [[ "$APP_DIR/releases/$old" == "$(readlink -f "$APP_DIR/current")" ]] && continue
+CURRENT="$(readlink -f "$APP_DIR/current")"
+ls -1t | grep -vE '\.(tmp|old)$' | tail -n +$((KEEP + 1)) | while IFS= read -r old; do
+  [[ "$APP_DIR/releases/$old" == "$CURRENT" ]] && continue
   rm -rf -- "$old"
 done
 

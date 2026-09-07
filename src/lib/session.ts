@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { signToken, verifyToken } from "./crypto";
-import { IS_PROD } from "./env";
+import { COOKIE_SECURE } from "./env";
 import { findUserById, statusMessage, type UserRow } from "./users";
 
 /**
@@ -36,7 +36,7 @@ function readToken(req: NextRequest): UserSessionPayload | null {
 const cookieOptions = {
   httpOnly: true,
   sameSite: "lax" as const,
-  secure: IS_PROD,
+  secure: COOKIE_SECURE,
   path: "/",
 };
 

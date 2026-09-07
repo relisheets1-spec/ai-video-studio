@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { signToken, verifyToken } from "./crypto";
 import { getAdmin, getAdminEpoch } from "./admins";
-import { IS_PROD } from "./env";
+import { COOKIE_SECURE } from "./env";
 import type { AdminInfo } from "./types";
 
 /**
@@ -29,7 +29,7 @@ export function signAdminToken(email: string, epoch: number): string {
 const cookieOptions = {
   httpOnly: true,
   sameSite: "lax" as const,
-  secure: IS_PROD,
+  secure: COOKIE_SECURE,
   path: "/",
 };
 

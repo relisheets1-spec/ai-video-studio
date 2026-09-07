@@ -33,6 +33,8 @@ export const MEDIA_ROOT = str("MEDIA_ROOT", path.join(DATA_DIR, "media"));
 /** Внешний адрес сайта — нужен для ссылок в письмах. */
 export const APP_URL = str("APP_URL", "http://localhost:3000").replace(/\/+$/, "");
 export const APP_NAME = str("APP_NAME", "AI Video Studio");
+/** Secure-cookie только за https: на голом IP до Cloudflare браузер такую cookie отбросит. */
+export const COOKIE_SECURE = APP_URL.startsWith("https://");
 
 /** Стартовые администраторы. Их нельзя снять из панели. */
 export const ADMIN_EMAILS: string[] = str("ADMIN_EMAILS")

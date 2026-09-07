@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { hmacHex, safeEqualHex, safeEqualString } from "./crypto";
-import { IS_PROD, SITE_PASSWORD } from "./env";
+import { COOKIE_SECURE, SITE_PASSWORD } from "./env";
 
 /**
  * Общая заглушка сайта (переменная SITE_PASSWORD).
@@ -37,7 +37,7 @@ export function setSiteCookie(res: NextResponse): NextResponse {
   res.cookies.set(SITE_COOKIE, siteToken(), {
     httpOnly: true,
     sameSite: "lax",
-    secure: IS_PROD,
+    secure: COOKIE_SECURE,
     path: "/",
     maxAge: 30 * 24 * 60 * 60,
   });

@@ -3,10 +3,15 @@
 # Первичная настройка сервера под AI Video Studio.
 # Ubuntu 24.04 LTS, запускать от root:
 #
-#     bash server-setup.sh studio.example.com
+#     bash server-setup.sh                      # домена ещё нет: сайт на голом IP по http
+#     bash server-setup.sh studio.example.com   # домен за Cloudflare: TLS, только IP Cloudflare
 #
-# Скрипт идемпотентный: можно запускать повторно после изменений.
-# Сборка приложения на сервере не делается — её выполняет GitHub Actions.
+# Скрипт идемпотентный: можно запускать повторно — например, второй раз с
+# доменом, когда он появится. Сборка приложения на сервере не делается — её
+# выполняет GitHub Actions.
+#
+# Необязательно: DEPLOY_PUBKEY_FILE=/root/deploy/studio_deploy.pub — публичный
+# ключ GitHub Actions, будет добавлен пользователю studio.
 set -euo pipefail
 
 DOMAIN="${1:-}"
@@ -18,14 +23,14 @@ ENV_FILE=/etc/studio.env
 REPO_DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 if [[ $EUID -ne 0 ]]; then
-  echo "Запускать от root: sudo bash $0 <домен>" >&2
+  echo "Запускать от root: sudo bash $0 [домен]" >&2
   exit 1
 fi
 
 echo "==> Пакеты"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq curl ca-certificates gnupg git nginx sqlite3 ufw rsync unzip jq
+apt-get install -y -qq curl ca-certificates gnupg git nginx sqlite3 ufw rsync unzip jq rclone
 
 echo "==> Node.js ${NODE_MAJOR}"
 if ! command -v node >/dev/null || [[ "$(node -v | cut -d. -f1 | tr -d v)" -lt "$NODE_MAJOR" ]]; then
@@ -41,18 +46,27 @@ if [[ ! -f /swapfile ]]; then
   mkswap /swapfile
   swapon /swapfile
   grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
-  sysctl -w vm.swappiness=10
-  grep -q '^vm.swappiness' /etc/sysctl.conf || echo 'vm.swappiness=10' >> /etc/sysctl.conf
 fi
+sysctl -qw vm.swappiness=10
+grep -q '^vm.swappiness' /etc/sysctl.conf || echo 'vm.swappiness=10' >> /etc/sysctl.conf
 
 echo "==> Пользователь ${APP_USER} и каталоги"
 id -u "$APP_USER" >/dev/null 2>&1 || useradd --system --create-home --shell /bin/bash "$APP_USER"
 mkdir -p "$APP_DIR/releases" "$DATA_DIR/media/films" "$DATA_DIR/media/refs" /var/backups/studio
 chown -R "$APP_USER:$APP_USER" "$APP_DIR" "$DATA_DIR"
-chmod 750 "$DATA_DIR"
-# nginx отдаёт /media напрямую — ему нужен проход внутрь каталога данных.
-usermod -aG "$APP_USER" www-data
-chmod 755 "$DATA_DIR" "$DATA_DIR/media"
+# nginx отдаёт /media напрямую: каталоги проходимы для всех, файлы пишет только studio.
+chmod 755 "$DATA_DIR" "$DATA_DIR/media" "$DATA_DIR/media/films" "$DATA_DIR/media/refs"
+chmod 750 /var/backups/studio
+
+if [[ -n "${DEPLOY_PUBKEY_FILE:-}" && -f "$DEPLOY_PUBKEY_FILE" ]]; then
+  echo "==> Ключ деплоя для ${APP_USER}"
+  install -d -m 700 -o "$APP_USER" -g "$APP_USER" "/home/$APP_USER/.ssh"
+  touch "/home/$APP_USER/.ssh/authorized_keys"
+  grep -qF "$(cut -d' ' -f2 "$DEPLOY_PUBKEY_FILE")" "/home/$APP_USER/.ssh/authorized_keys" \
+    || cat "$DEPLOY_PUBKEY_FILE" >> "/home/$APP_USER/.ssh/authorized_keys"
+  chown "$APP_USER:$APP_USER" "/home/$APP_USER/.ssh/authorized_keys"
+  chmod 600 "/home/$APP_USER/.ssh/authorized_keys"
+fi
 
 echo "==> Ключи и переменные (${ENV_FILE})"
 if [[ ! -f "$ENV_FILE" ]]; then
@@ -61,12 +75,12 @@ if [[ ! -f "$ENV_FILE" ]]; then
 SESSION_SECRET=${SECRET}
 OPENAI_API_KEY=
 ADMIN_EMAILS=
-APP_URL=https://${DOMAIN:-example.com}
+APP_URL=
 APP_NAME=AI Video Studio
 DATA_DIR=${DATA_DIR}
 MEDIA_TTL_DAYS=30
 DEFAULT_GENERATION_LIMIT=5
-MAIL_FROM=AI Video Studio <no-reply@${DOMAIN:-example.com}>
+MAIL_FROM=AI Video Studio <no-reply@example.com>
 RESEND_API_KEY=
 SITE_PASSWORD=
 ELEVENLABS_API_KEY=
@@ -87,43 +101,75 @@ install -m 644 "$REPO_DEPLOY_DIR/studio-backup.timer" /etc/systemd/system/studio
 install -m 755 "$REPO_DEPLOY_DIR/backup.sh" /usr/local/bin/studio-backup
 install -m 755 "$REPO_DEPLOY_DIR/cloudflare-ufw.sh" /usr/local/bin/studio-cloudflare-ufw
 systemctl daemon-reload
-systemctl enable studio-cleanup.timer studio-backup.timer >/dev/null
+systemctl enable studio.service studio-cleanup.timer studio-backup.timer >/dev/null
 systemctl start studio-cleanup.timer studio-backup.timer
 
 # Деплой перезапускает службу без пароля — больше root-прав у studio нет.
 cat > /etc/sudoers.d/studio-deploy <<SUDO
-studio ALL=(root) NOPASSWD: /bin/systemctl restart studio, /bin/systemctl status studio, /usr/bin/systemctl restart studio, /usr/bin/systemctl status studio
+studio ALL=(root) NOPASSWD: /usr/bin/systemctl restart studio, /usr/bin/systemctl status studio, /bin/systemctl restart studio, /bin/systemctl status studio
 SUDO
 chmod 440 /etc/sudoers.d/studio-deploy
+visudo -cf /etc/sudoers.d/studio-deploy >/dev/null
 
 echo "==> nginx"
+rm -f /etc/nginx/sites-enabled/default
 if [[ -n "$DOMAIN" ]]; then
   sed "s/DOMAIN/${DOMAIN}/g" "$REPO_DEPLOY_DIR/nginx.conf" > /etc/nginx/sites-available/studio
-  ln -sf /etc/nginx/sites-available/studio /etc/nginx/sites-enabled/studio
-  rm -f /etc/nginx/sites-enabled/default
   mkdir -p /etc/ssl/cloudflare
-  if [[ ! -f /etc/ssl/cloudflare/origin.pem ]]; then
-    echo "    ВНИМАНИЕ: положите origin-сертификат Cloudflare в /etc/ssl/cloudflare/origin.pem и origin.key,"
-    echo "    затем: nginx -t && systemctl reload nginx"
-  else
-    nginx -t && systemctl reload nginx
+  if [[ ! -f /etc/ssl/cloudflare/origin.pem || ! -f /etc/ssl/cloudflare/origin.key ]]; then
+    echo "    ВНИМАНИЕ: нет origin-сертификата Cloudflare (/etc/ssl/cloudflare/origin.pem и origin.key)."
+    echo "    Пока оставляю http-конфиг; положите сертификат и запустите скрипт ещё раз."
+    cp "$REPO_DEPLOY_DIR/nginx-http.conf" /etc/nginx/sites-available/studio
+    DOMAIN=""
   fi
 else
-  echo "    домен не передан — конфиг nginx не установлен"
+  cp "$REPO_DEPLOY_DIR/nginx-http.conf" /etc/nginx/sites-available/studio
 fi
+ln -sf /etc/nginx/sites-available/studio /etc/nginx/sites-enabled/studio
+nginx -t
+systemctl enable nginx >/dev/null
+systemctl reload nginx || systemctl restart nginx
+
+# Адрес сайта решается здесь, после nginx: если сертификата нет, DOMAIN
+# уже сброшен, и APP_URL остаётся http://<IP> — иначе cookie с флагом Secure
+# ушли бы на голый http и браузер их отбросил бы.
+echo "==> Адрес сайта в ${ENV_FILE}"
+if [[ -n "$DOMAIN" ]]; then
+  APP_URL="https://${DOMAIN}"
+else
+  APP_URL="http://$(curl -fsS --max-time 5 https://api.ipify.org || hostname -I | awk '{print $1}')"
+fi
+if grep -q '^APP_URL=' "$ENV_FILE"; then
+  sed -i "s|^APP_URL=.*|APP_URL=${APP_URL}|" "$ENV_FILE"
+else
+  echo "APP_URL=${APP_URL}" >> "$ENV_FILE"
+fi
+if [[ -n "$DOMAIN" ]]; then
+  sed -i "s|<no-reply@[^>]*>|<no-reply@${DOMAIN}>|" "$ENV_FILE"
+fi
+echo "    APP_URL=${APP_URL}"
+if systemctl is-active --quiet studio; then systemctl restart studio; fi
 
 echo "==> Файрвол"
 ufw --force reset >/dev/null
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
 ufw allow 22/tcp comment 'ssh' >/dev/null
-/usr/local/bin/studio-cloudflare-ufw
+if [[ -n "$DOMAIN" ]]; then
+  # За Cloudflare: 80/443 только с его диапазонов, реальный IP сервера скрыт.
+  /usr/local/bin/studio-cloudflare-ufw
+else
+  # Домена нет: сайт открыт по http на IP. После Cloudflare — server-setup.sh <домен>.
+  ufw allow 80/tcp comment 'http (до Cloudflare)' >/dev/null
+fi
 ufw --force enable >/dev/null
-ufw status numbered | head -20
+ufw status | sed -n '1,12p'
 
 echo
 echo "Готово. Дальше:"
 echo "  1) впишите ключи в ${ENV_FILE} (OPENAI_API_KEY, ADMIN_EMAILS, RESEND_API_KEY);"
-echo "  2) положите SSH-ключ деплоя в /home/${APP_USER}/.ssh/authorized_keys;"
-echo "  3) запушьте в main — GitHub Actions соберёт и разложит приложение;"
-echo "  4) systemctl status studio && journalctl -u studio -f"
+echo "  2) секреты GitHub: SSH_HOST, SSH_USER=${APP_USER}, SSH_KEY — и push в main разложит приложение;"
+echo "  3) systemctl status studio && journalctl -u studio -f"
+if [[ -z "$DOMAIN" ]]; then
+  echo "  4) когда появится домен за Cloudflare: origin-сертификат в /etc/ssl/cloudflare/ и bash $0 <домен>"
+fi
