@@ -9,6 +9,9 @@ import { safeEqualString } from "./crypto";
  * передаёт человеку любым способом. Тот вводит почту и код: при первом входе
  * код навсегда привязывается к этой почте и заводится аккаунт, дальше та же
  * пара «почта + код» открывает студию. Писем в схеме нет.
+ *
+ * Отозвать код — значит удалить его: почта освобождается, и человек снова
+ * войдёт, когда получит новый код. Истории отозванных кодов нет намеренно.
  */
 
 /** Без похожих друг на друга символов: 0/O, 1/I, 5/S. */
@@ -41,7 +44,6 @@ export interface AccessCodeRow {
   note: string | null;
   created_at: string;
   used_at: string | null;
-  revoked_at: string | null;
 }
 
 export function listCodes(): AccessCodeRow[] {
@@ -78,23 +80,17 @@ export function createCode(custom: string | null, note: string | null, email: st
   return { ok: true, row: findCode(code)! };
 }
 
-/** Отзыв: код перестаёт открывать вход, привязка к почте остаётся для истории. */
-export function revokeCode(code: string): boolean {
-  return run("UPDATE access_codes SET revoked_at = ? WHERE code = ? AND revoked_at IS NULL", nowIso(), code).changes > 0;
-}
-
+/** Удалить (отозвать) код: свободный исчезает, привязанный закрывает вход этой почте до нового кода. */
 export function deleteCode(code: string): boolean {
   return run("DELETE FROM access_codes WHERE code = ?", code).changes > 0;
 }
 
 /**
- * Заменить код пользователю: старый отзывается, новый сразу привязан к его
+ * Заменить код пользователю: старый удаляется, новый сразу привязан к его
  * почте — прежняя пара «почта + код» больше не работает.
  */
 export function rotateCodeFor(email: string): AccessCodeRow {
-  run("UPDATE access_codes SET revoked_at = ? WHERE email = ? AND revoked_at IS NULL", nowIso(), email);
-  // Освобождаем почту у отозванных кодов: UNIQUE(email) допускает одну живую привязку.
-  run("UPDATE access_codes SET email = NULL, note = COALESCE(note, '') || ' (заменён для ' || ? || ')' WHERE email = ?", email, email);
+  run("DELETE FROM access_codes WHERE email = ?", email);
   const created = createCode(null, null, email);
   if (!created.ok) throw new Error(created.error);
   run("UPDATE access_codes SET used_at = ? WHERE code = ?", nowIso(), created.row.code);
@@ -113,15 +109,15 @@ export function checkAccess(email: string, rawCode: unknown): CheckResult {
   const code = normalizeCode(rawCode);
   if (!code) return { ok: false, error: "Введите код доступа" };
   const row = findCode(code);
-  if (!row || !safeEqualString(row.code, code) || row.revoked_at) {
+  if (!row || !safeEqualString(row.code, code)) {
     return { ok: false, error: "Неверная почта или код доступа" };
   }
   if (row.email && row.email !== email) return { ok: false, error: "Неверная почта или код доступа" };
 
   if (!row.email) {
-    // Первый вход: код становится пропуском этой почты.
-    const taken = findCodeByEmail(email);
-    if (taken && taken.code !== code && !taken.revoked_at) {
+    // Первый вход: код становится пропуском этой почты. Чужим свободным кодом
+    // нельзя занять почту, у которой уже есть свой код, — только своим.
+    if (findCodeByEmail(email)) {
       return { ok: false, error: "У этой почты уже есть свой код доступа" };
     }
     run("UPDATE access_codes SET email = ?, used_at = ? WHERE code = ?", email, nowIso(), code);

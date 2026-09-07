@@ -84,15 +84,13 @@ export function deleteUser(id: string): void {
 interface UserListRow extends UserRow {
   videos_count: number;
   code: string | null;
-  code_revoked_at: string | null;
 }
 
 export function listUsers(): AdminUserView[] {
   const rows = all<UserListRow>(`
     SELECT u.*,
            (SELECT COUNT(*) FROM video_generations v WHERE v.user_id = u.id AND v.status = 'completed') AS videos_count,
-           c.code       AS code,
-           c.revoked_at AS code_revoked_at
+           c.code       AS code
       FROM users u
       LEFT JOIN access_codes c ON c.email = u.email
      ORDER BY u.created_at DESC
@@ -103,6 +101,6 @@ export function listUsers(): AdminUserView[] {
     createdAt: row.created_at,
     lastLoginAt: row.last_login_at,
     videosCount: Number(row.videos_count) || 0,
-    code: row.code && !row.code_revoked_at ? row.code : null,
+    code: row.code || null,
   }));
 }

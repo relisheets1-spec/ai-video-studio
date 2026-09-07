@@ -16,7 +16,7 @@ import { DB_PATH } from "./env";
  * Номер схемы. Пустая база создаётся сразу в этой версии; база с другим
  * номером — ошибка, а не тихая порча данных.
  */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS settings (
@@ -36,14 +36,14 @@ const SCHEMA = `
     last_login_at      TEXT
   );
 
-  -- Коды доступа: свободный код привязывается к почте при первом входе.
+  -- Коды доступа: свободный код привязывается к почте при первом входе;
+  -- отозванный код просто удаляется.
   CREATE TABLE IF NOT EXISTS access_codes (
     code       TEXT PRIMARY KEY,
     email      TEXT UNIQUE,
     note       TEXT,
     created_at TEXT NOT NULL,
-    used_at    TEXT,
-    revoked_at TEXT
+    used_at    TEXT
   );
 
   -- Администраторы, добавленные из панели (главный — ADMIN_EMAIL из env).
@@ -117,6 +117,18 @@ function getDb(): DatabaseSync {
     db.exec("BEGIN");
     try {
       db.exec(SCHEMA);
+      db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+      db.exec("COMMIT");
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+  } else if (current === 2) {
+    // v3: отозванные коды больше не хранятся — они удаляются.
+    db.exec("BEGIN");
+    try {
+      db.exec("DELETE FROM access_codes WHERE revoked_at IS NOT NULL");
+      db.exec("ALTER TABLE access_codes DROP COLUMN revoked_at");
       db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       db.exec("COMMIT");
     } catch (err) {

@@ -66,7 +66,6 @@ interface CodeRow {
   note: string | null;
   created_at: string;
   used_at: string | null;
-  revoked_at: string | null;
 }
 
 interface VideoRow {
@@ -190,7 +189,7 @@ export default function AdminPage() {
   const [busy, setBusy] = useState<string | null>(null);
 
   const [codes, setCodes] = useState<CodeRow[]>([]);
-  const [codeFilter, setCodeFilter] = useState<"all" | "free" | "used" | "revoked">("all");
+  const [codeFilter, setCodeFilter] = useState<"all" | "free" | "used">("all");
   const [newCodeCustom, setNewCodeCustom] = useState("");
   const [newCodeNote, setNewCodeNote] = useState("");
   const [issuedCode, setIssuedCode] = useState<{ code: string; email: string | null; note: string | null } | null>(null);
@@ -379,7 +378,7 @@ export default function AdminPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Не удалось удалить код");
       setCodes(data.codes);
-      notify(confirmCode.email ? "Код отозван" : "Код удалён");
+      notify(confirmCode.email ? "Код отозван — почта свободна для нового кода" : "Код удалён");
       loadSession();
     } catch (err: any) {
       notify(err.message, "danger");
@@ -489,9 +488,8 @@ export default function AdminPage() {
   const visibleCodes = useMemo(
     () =>
       codes.filter((c) => {
-        if (codeFilter === "free") return !c.email && !c.revoked_at;
-        if (codeFilter === "used") return !!c.email && !c.revoked_at;
-        if (codeFilter === "revoked") return !!c.revoked_at;
+        if (codeFilter === "free") return !c.email;
+        if (codeFilter === "used") return !!c.email;
         return true;
       }),
     [codes, codeFilter]
@@ -668,7 +666,6 @@ export default function AdminPage() {
                   ["all", "Все"],
                   ["free", "Свободные"],
                   ["used", "Привязанные"],
-                  ["revoked", "Отозванные"],
                 ] as const
               ).map(([id, label]) => (
                 <Chip key={id} active={codeFilter === id} onClick={() => setCodeFilter(id)}>
@@ -686,27 +683,17 @@ export default function AdminPage() {
                     key={c.code}
                     className="rounded-control border border-hairline bg-surface-2 px-3.5 py-3 flex items-center gap-3 flex-wrap"
                   >
-                    <span className={cn("font-mono text-[14px] tracking-wider", c.revoked_at ? "text-faint line-through" : "text-ink")}>
-                      {c.code}
-                    </span>
-                    {!c.revoked_at && <CopyButton value={c.code} />}
-                    {c.revoked_at ? (
-                      <Badge tone="neutral">отозван {formatDate(c.revoked_at)}</Badge>
-                    ) : c.email ? (
-                      <Badge tone="ok">{c.email}</Badge>
-                    ) : (
-                      <Badge tone="warn">свободен</Badge>
-                    )}
+                    <span className="font-mono text-[14px] tracking-wider text-ink">{c.code}</span>
+                    <CopyButton value={c.code} />
+                    {c.email ? <Badge tone="ok">{c.email}</Badge> : <Badge tone="warn">свободен</Badge>}
                     {c.note && <span className="text-[12.5px] text-muted">{c.note}</span>}
                     <span className="text-[12px] text-faint tabular ml-auto">
                       создан {formatDate(c.created_at)}
                       {c.used_at ? ` · вход ${formatDate(c.used_at)}` : ""}
                     </span>
-                    {!c.revoked_at && (
-                      <IconButton title={c.email ? "Отозвать" : "Удалить"} onClick={() => setConfirmCode(c)}>
-                        <Trash size={15} />
-                      </IconButton>
-                    )}
+                    <IconButton title={c.email ? "Отозвать" : "Удалить"} onClick={() => setConfirmCode(c)}>
+                      <Trash size={15} />
+                    </IconButton>
                   </div>
                 ))}
               </div>
@@ -1035,7 +1022,7 @@ export default function AdminPage() {
         title={confirmCode?.email ? "Отозвать код?" : "Удалить код?"}
         description={
           confirmCode?.email
-            ? `${confirmCode.email} потеряет вход, фильмы останутся.`
+            ? `${confirmCode.email} потеряет вход до нового кода, аккаунт и фильмы останутся.`
             : `Код ${confirmCode?.code} будет удалён.`
         }
         onCancel={() => setConfirmCode(null)}

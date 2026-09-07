@@ -183,7 +183,7 @@ export function studioStats(): StudioStats {
   return {
     users: one("SELECT COUNT(*) AS n FROM users"),
     blocked: one("SELECT COUNT(*) AS n FROM users WHERE status = 'blocked'"),
-    freeCodes: one("SELECT COUNT(*) AS n FROM access_codes WHERE email IS NULL AND revoked_at IS NULL"),
+    freeCodes: one("SELECT COUNT(*) AS n FROM access_codes WHERE email IS NULL"),
     videos: one("SELECT COUNT(*) AS n FROM video_generations WHERE status = 'completed'"),
     videos7d: one(
       "SELECT COUNT(*) AS n FROM video_generations WHERE status = 'completed' AND created_at >= ?",

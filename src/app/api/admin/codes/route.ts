@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createCode, deleteCode, findCode, listCodes, normalizeCode, revokeCode } from "@/lib/access";
+import { createCode, deleteCode, findCode, listCodes, normalizeCode } from "@/lib/access";
 import { requireAdmin } from "@/lib/admin-auth";
 
 /** Коды доступа: список. */
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ success: true, code: result.row, codes: listCodes() });
 }
 
-/** Свободный код удаляется, использованный — отзывается (пользователь теряет вход). */
+/** Удалить код: свободный просто исчезает, привязанный закрывает вход почте до нового кода. */
 export async function DELETE(req: NextRequest) {
   const auth = await requireAdmin(req);
   if ("response" in auth) return auth.response;
@@ -32,7 +32,6 @@ export async function DELETE(req: NextRequest) {
   const row = code ? findCode(code) : null;
   if (!row) return NextResponse.json({ error: "Код не найден" }, { status: 404 });
 
-  if (row.email) revokeCode(code);
-  else deleteCode(code);
+  deleteCode(code);
   return NextResponse.json({ success: true, codes: listCodes() });
 }
