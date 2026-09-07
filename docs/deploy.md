@@ -33,29 +33,47 @@
 ## 2. Первичная настройка (один раз)
 
 ```bash
-# с локальной машины
+# с локальной машины: ключ деплоя кладём рядом со скриптами
 scp -r deploy root@<IP>:/root/deploy
-ssh root@<IP> "bash /root/deploy/server-setup.sh studio.example.com"
+scp ~/.ssh/studio_deploy.pub root@<IP>:/root/deploy/
+ssh root@<IP> "DEPLOY_PUBKEY_FILE=/root/deploy/studio_deploy.pub bash /root/deploy/server-setup.sh"
 ```
 
-Скрипт идемпотентный и делает всё сразу:
+Домен передаётся вторым аргументом, когда он есть; без него сервер работает
+по http на голом IP (порт 80 открыт для всех, cookie без Secure) — так сейчас
+и настроен `89.207.249.30`. Когда домен появится, повторный запуск
+`bash /root/deploy/server-setup.sh studio.example.com` переключит nginx на
+TLS, ufw — на диапазоны Cloudflare, а `APP_URL` в `/etc/studio.env` — на
+https. Скрипт идемпотентный и делает всё сразу:
 
-- пакеты, **Node 24 LTS**, nginx, sqlite3, ufw;
+- пакеты, **Node 24 LTS**, nginx, sqlite3, ufw, rclone;
 - swap 2 ГБ и `vm.swappiness=10` — страховка от OOM при всплесках;
-- пользователь `studio`, каталоги `/var/www/studio` и `/var/lib/studio`;
-- `/etc/studio.env` со сгенерированным `SESSION_SECRET`;
+- пользователь `studio` (с ключом деплоя из `DEPLOY_PUBKEY_FILE`),
+  каталоги `/var/www/studio` и `/var/lib/studio`;
+- `/etc/studio.env` со сгенерированным `SESSION_SECRET` и актуальным `APP_URL`;
 - служба `studio`, таймеры уборки (04:30) и бэкапа (03:30);
 - правило sudo: `studio` может только перезапускать свою службу;
-- конфиг nginx с доменом, `/media` прямо с диска, таймауты 600 с;
-- ufw: SSH отовсюду, 80/443 — только с диапазонов Cloudflare.
+- nginx: без домена — `nginx-http.conf`, с доменом — `nginx.conf`
+  (`/media` прямо с диска, таймауты 600 с);
+- ufw: SSH отовсюду; без домена — 80 отовсюду, с доменом — 80/443 только с
+  диапазонов Cloudflare.
 
-Дальше вручную:
+Вручную после первого запуска:
 
 1. вписать в `/etc/studio.env` ключи: `OPENAI_API_KEY`, `ADMIN_EMAILS`,
    `RESEND_API_KEY` (или `SMTP_*`), при желании `SITE_PASSWORD`;
-2. положить origin-сертификат Cloudflare в `/etc/ssl/cloudflare/origin.pem`
-   и ключ в `origin.key`, затем `nginx -t && systemctl reload nginx`;
-3. добавить публичный ключ деплоя в `/home/studio/.ssh/authorized_keys`.
+   затем `systemctl restart studio`;
+2. отключить вход по паролю: `/etc/ssh/sshd_config.d/00-studio.conf` с
+   `PasswordAuthentication no`, `PermitRootLogin prohibit-password`,
+   `sshd -t && systemctl reload ssh` (сделано на текущем сервере);
+3. для домена — origin-сертификат Cloudflare в `/etc/ssl/cloudflare/origin.pem`
+   и `origin.key`, затем повторный запуск скрипта с доменом.
+
+Пока почта не настроена (`RESEND_API_KEY` пуст), коды входа пишутся в журнал:
+
+```bash
+journalctl -u studio -n 50 | grep -A1 'mail:log'
+```
 
 ## 3. Cloudflare
 
@@ -69,7 +87,10 @@ ssh root@<IP> "bash /root/deploy/server-setup.sh studio.example.com"
 
 Реальный IP сервера после этого не виден: ufw пускает 80/443 только с
 диапазонов Cloudflare, а nginx восстанавливает адрес посетителя из
-`CF-Connecting-IP` (иначе все лимиты считали бы один адрес прокси).
+`CF-Connecting-IP` только для соединений с этих диапазонов и передаёт его
+приложению в `X-Real-IP`. Приложение верит лишь этому заголовку: клиентские
+`X-Forwarded-For` и `CF-Connecting-IP` затираются в обоих конфигах nginx,
+иначе лимиты попыток можно было бы обойти, подменив заголовок.
 
 Список диапазонов Cloudflare меняется редко; обновить правила:
 

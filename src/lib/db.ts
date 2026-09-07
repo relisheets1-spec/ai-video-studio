@@ -113,6 +113,12 @@ export function getDb(): DatabaseSync {
 
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
   const db = new DatabaseSync(DB_PATH);
+  // Каталог данных проходим для nginx (он отдаёт /media), сам файл базы —
+  // только владельцу. WAL/SHM наследуют права основного файла, поэтому
+  // chmod идёт до включения WAL. На Windows chmod ничего не меняет.
+  try {
+    fs.chmodSync(DB_PATH, 0o600);
+  } catch {}
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
   db.exec("PRAGMA foreign_keys = ON");
