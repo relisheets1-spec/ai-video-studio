@@ -60,7 +60,7 @@ export type AttemptKind = "login" | "admin" | "site";
 
 const ATTEMPT_LIMITS: Record<AttemptKind, { max: number; windowMs: number; label: string }> = {
   login: { max: 20, windowMs: 60 * 60 * 1000, label: "20 попыток за час" },
-  admin: { max: 5, windowMs: 60 * 60 * 1000, label: "5 попыток за час" },
+  admin: { max: 10, windowMs: 60 * 60 * 1000, label: "10 попыток за час" },
   site: { max: 20, windowMs: 60 * 60 * 1000, label: "20 попыток за час" },
 };
 

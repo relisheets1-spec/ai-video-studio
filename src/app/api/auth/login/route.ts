@@ -25,12 +25,10 @@ export async function POST(req: NextRequest) {
   if (!email || !code.trim()) return NextResponse.json({ error: "Введите почту и код" }, { status: 400 });
 
   // --- Администратор ---
-  const adminEmail = isAdminEmail(email);
-  if (adminEmail) {
-    const attempts = checkAttempts(ip, "admin");
-    if (attempts.blocked) {
-      return NextResponse.json({ error: "Слишком много попыток. Вход администратора закрыт на час." }, { status: 429 });
-    }
+  // Сработавший лимит админа закрывает только проверку админского кода:
+  // студия по коду доступа для той же почты продолжает работать.
+  const adminChecked = isAdminEmail(email) && !checkAttempts(ip, "admin").blocked;
+  if (adminChecked) {
     if (checkAdminCode(code)) {
       recordAttempt(ip, "admin", true, email);
       return setAdminCookie(NextResponse.json({ role: "admin" }), signAdminToken(email));
@@ -48,7 +46,7 @@ export async function POST(req: NextRequest) {
   const check = checkAccess(email, code);
   if (!check.ok) {
     recordAttempt(ip, "login", false, email);
-    if (adminEmail) {
+    if (adminChecked) {
       recordAttempt(ip, "admin", false, email);
       console.warn(`[admin] неверный код с ${ip}`);
     }
