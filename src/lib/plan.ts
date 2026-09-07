@@ -47,7 +47,7 @@ export function clampMinutes(value: unknown): number {
   return Math.min(MAX_MINUTES, Math.max(MIN_MINUTES, Math.round(n * 2) / 2));
 }
 
-export function scenesForMinutes(minutes: number): number {
+function scenesForMinutes(minutes: number): number {
   return Math.min(MAX_SCENES, Math.max(MIN_SCENES, Math.round(5 + ((minutes - 1) * 25) / 14)));
 }
 

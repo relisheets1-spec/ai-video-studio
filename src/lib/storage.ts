@@ -14,7 +14,7 @@ import { MEDIA_ROOT } from "./env";
  * напрямую с диска, в разработке тот же путь обслуживает роут src/app/media.
  */
 
-export const MEDIA_PREFIX = "/media/";
+const MEDIA_PREFIX = "/media/";
 
 const SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
 
@@ -35,7 +35,7 @@ export function resolveMedia(rel: string): string | null {
   return path.join(MEDIA_ROOT, ...parts);
 }
 
-export function relFromUrl(url: string | null | undefined): string | null {
+function relFromUrl(url: string | null | undefined): string | null {
   if (!url || !url.startsWith(MEDIA_PREFIX)) return null;
   const rel = url.slice(MEDIA_PREFIX.length).split("?")[0];
   return resolveMedia(rel) ? rel : null;
@@ -81,7 +81,7 @@ export function isOwnReference(url: string, userId: string): boolean {
   return !!rel && rel.startsWith(`refs/${userId}/`);
 }
 
-export function filmDir(videoId: string): string | null {
+function filmDir(videoId: string): string | null {
   return SEGMENT_RE.test(videoId) ? path.join(MEDIA_ROOT, "films", videoId) : null;
 }
 

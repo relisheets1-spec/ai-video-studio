@@ -9,7 +9,7 @@ import { COOKIE_SECURE, SITE_PASSWORD } from "./env";
  * посетителей и ботов, пока идёт тест. Пустая переменная — заглушки нет.
  */
 
-export const SITE_COOKIE = "site_gate";
+const SITE_COOKIE = "site_gate";
 
 export function siteLockEnabled(): boolean {
   return SITE_PASSWORD.length > 0;

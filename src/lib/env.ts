@@ -23,16 +23,13 @@ function int(name: string, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
 }
 
-export const IS_PROD = process.env.NODE_ENV === "production";
-
 /** Каталог с данными: база и медиа. На сервере — /var/lib/studio. */
-export const DATA_DIR = str("DATA_DIR", path.join(process.cwd(), ".data"));
+const DATA_DIR = str("DATA_DIR", path.join(process.cwd(), ".data"));
 export const DB_PATH = str("DB_PATH", path.join(DATA_DIR, "studio.db"));
 export const MEDIA_ROOT = str("MEDIA_ROOT", path.join(DATA_DIR, "media"));
 
 /** Внешний адрес сайта. */
-export const APP_URL = str("APP_URL", "http://localhost:3000").replace(/\/+$/, "");
-export const APP_NAME = str("APP_NAME", "AI Video Studio");
+const APP_URL = str("APP_URL", "http://localhost:3000").replace(/\/+$/, "");
 /** Secure-cookie только за https: на голом http браузер такую cookie отбросит. */
 export const COOKIE_SECURE = APP_URL.startsWith("https://");
 

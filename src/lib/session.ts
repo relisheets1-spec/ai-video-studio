@@ -11,7 +11,7 @@ import { findUserById, statusMessage, type UserRow } from "./users";
  * Блокировка вступает в силу на следующем же запросе.
  */
 
-export const SESSION_COOKIE = "studio_session";
+const SESSION_COOKIE = "studio_session";
 const PREFIX = "u1.";
 const TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -50,7 +50,7 @@ export function clearSessionCookie(res: NextResponse): NextResponse {
   return res;
 }
 
-export const UNAUTHENTICATED = { error: "Требуется вход в студию", code: "unauthenticated" } as const;
+const UNAUTHENTICATED = { error: "Требуется вход в студию", code: "unauthenticated" } as const;
 
 /** Ответ 401 со сброшенной cookie: битую сессию незачем таскать дальше. */
 function unauthenticated(): NextResponse {
@@ -83,4 +83,3 @@ export async function requireUser(
   return { user };
 }
 
-export { toPublicUser } from "./users";

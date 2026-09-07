@@ -24,7 +24,7 @@ function masterSecret(): string {
   return key;
 }
 
-export function deriveKey(purpose: KeyPurpose): Buffer {
+function deriveKey(purpose: KeyPurpose): Buffer {
   return crypto.createHash("sha256").update(`${masterSecret()}\0${purpose}`).digest();
 }
 
@@ -51,11 +51,11 @@ export function safeEqualString(a: string, b: string): boolean {
   return crypto.timingSafeEqual(ba, bb);
 }
 
-export function b64url(input: Buffer | string): string {
+function b64url(input: Buffer | string): string {
   return Buffer.from(input).toString("base64url");
 }
 
-export function fromB64url(value: string): Buffer {
+function fromB64url(value: string): Buffer {
   return Buffer.from(value, "base64url");
 }
 
@@ -126,12 +126,6 @@ export function decryptSecret(encrypted: string | null | undefined): string | nu
 // ---------------------------------------------------------------------------
 
 const SCRYPT_OPTS = { N: 1 << 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
-
-export function hashSecret(plain: string): string {
-  const salt = crypto.randomBytes(16);
-  const hash = crypto.scryptSync(plain, salt, 32, SCRYPT_OPTS);
-  return `scrypt$${b64url(salt)}$${b64url(hash)}`;
-}
 
 /** Сверка за постоянное время; чужой формат или ошибка — всегда false. */
 export function verifySecret(plain: string, stored: string): boolean {

@@ -2,19 +2,22 @@ import { openaiFor } from "./openai";
 import { VISION_MODEL } from "./script/model";
 
 /**
- * Референс персонажа/объекта. GPT-4o смотрит на картинку и описывает для
- * генератора изображений, ЧТО на ней и В КАКОМ СТИЛЕ, — дальше все кадры
- * рисуются с этим описанием, а сама картинка уходит в images/edits как образец.
+ * Референс — картинка-образец для всего фильма. GPT-4o описывает её вид
+ * (техника, палитра, свет, настроение) — этот вид получают все кадры вместо
+ * стиля по умолчанию. Если на картинке явный герой или предмет, он описывается
+ * отдельно и становится героем истории; если это пейзаж, кадр из фильма или
+ * абстракция — берётся только стиль.
  */
 
 export interface ReferenceAnalysis {
-  /** Кто/что на картинке — короткая формулировка для интерфейса (по-русски). */
+  /** Что на картинке и в каком стиле — коротко, по-русски, для интерфейса. */
   summary: string;
-  kind: "person" | "animal" | "robot" | "object" | "character" | "other";
-  /** Описание субъекта по-английски, вставляется в каждый промпт дословно. */
-  subjectPrompt: string;
-  /** Стиль по-английски: техника, линия, палитра, фон — заменяет выбранный стиль. */
+  /** Вид фильма по-английски: техника, палитра, свет, композиция, эпоха. */
   stylePrompt: string;
+  /** Настроение и жанр, которые подсказывает картинка, по-английски. */
+  mood: string;
+  /** Выраженный герой/предмет по-английски; пусто, если его нет. */
+  subjectPrompt: string;
   palette: string;
 }
 
@@ -25,14 +28,7 @@ export interface ReferenceUsage {
 
 export function isReferenceAnalysis(v: unknown): v is ReferenceAnalysis {
   const a = v as ReferenceAnalysis;
-  return (
-    !!a &&
-    typeof a === "object" &&
-    typeof a.subjectPrompt === "string" &&
-    a.subjectPrompt.length > 5 &&
-    typeof a.stylePrompt === "string" &&
-    a.stylePrompt.length > 5
-  );
+  return !!a && typeof a === "object" && typeof a.stylePrompt === "string" && a.stylePrompt.length > 5;
 }
 
 export async function analyzeReference(
@@ -47,14 +43,15 @@ export async function analyzeReference(
       {
         role: "system",
         content:
-          "You describe a reference image for an image-generation pipeline that must reproduce the SAME subject in the SAME visual style across 30 frames.\n" +
+          "You describe a reference image for an image-generation pipeline. The image sets the LOOK of a whole 30-frame film: " +
+          "medium, palette, lighting, mood, era. It is not necessarily about a character.\n" +
           "Answer strictly as JSON:\n" +
-          '{"summary":"1 short sentence in RUSSIAN: what is depicted and in what style",' +
-          '"kind":"person|animal|robot|object|character|other",' +
-          '"subjectPrompt":"ENGLISH, 1-2 sentences: the subject with every distinctive, reusable detail (body, face, hair, clothing, colors, proportions, accessories). No background, no action.",' +
-          '"stylePrompt":"ENGLISH, one compact fragment for the end of an image prompt: medium, line quality, shading, color palette, background treatment, era. Example: xkcd-style stick figure, thin black ink lines on plain white, no shading, minimal detail",' +
+          '{"summary":"1 short sentence in RUSSIAN: what is shown and in what style",' +
+          '"stylePrompt":"ENGLISH, one compact fragment for the end of an image prompt: medium/technique, line and shading, color palette, lighting, composition habits, era. Example: gouache illustration, thick visible brushstrokes, muted teal and ochre palette, soft overcast light",' +
+          '"mood":"ENGLISH, 3-8 words: the mood and genre the picture suggests, e.g. quiet melancholic drama",' +
+          '"subjectPrompt":"ENGLISH, 1-2 sentences describing a clearly defined main character or object with every reusable detail (body, face, hair, clothing, colors, proportions) ONLY if the image is about one (portrait, mascot, product). Otherwise an empty string.",' +
           '"palette":"ENGLISH: 3-5 colors"}\n' +
-          "Be literal about the style: if it is a stick figure, say stick figure; if a photo, say photorealistic photo and describe lighting.",
+          "Be literal about the style: if it is a stick figure, say stick figure; if a photo, say photorealistic photo and describe the lighting.",
       },
       {
         role: "user",
@@ -72,12 +69,13 @@ export async function analyzeReference(
   } catch {
     parsed = {};
   }
+  const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
   const analysis: ReferenceAnalysis = {
-    summary: typeof parsed.summary === "string" ? parsed.summary.slice(0, 200) : "Референс загружен",
-    kind: ["person", "animal", "robot", "object", "character", "other"].includes(parsed.kind) ? parsed.kind : "other",
-    subjectPrompt: typeof parsed.subjectPrompt === "string" ? parsed.subjectPrompt.slice(0, 600) : "",
-    stylePrompt: typeof parsed.stylePrompt === "string" ? parsed.stylePrompt.slice(0, 300) : "",
-    palette: typeof parsed.palette === "string" ? parsed.palette.slice(0, 200) : "",
+    summary: text(parsed.summary, 200) || "Референс загружен",
+    stylePrompt: text(parsed.stylePrompt, 300),
+    mood: text(parsed.mood, 120),
+    subjectPrompt: text(parsed.subjectPrompt, 600),
+    palette: text(parsed.palette, 200),
   };
   if (!isReferenceAnalysis(analysis)) {
     throw new Error("Не удалось распознать референс — попробуйте другое изображение");

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MIN_SCENES, planFromMinutes } from "@/lib/plan";
 import { resolveStyleFragment } from "@/lib/content/styles";
-import { normalizeGenre } from "@/lib/content/genres";
 import { normalizeLanguage } from "@/lib/content/languages";
 import { normalizeOrientation } from "@/lib/orientation";
 import {
@@ -78,13 +77,14 @@ export async function POST(req: NextRequest) {
 
     const params = draft.params;
     const topic: string = params.topic || row.topic;
-    const genre = normalizeGenre(params.genre);
     const language = normalizeLanguage(params.language);
     const orientation = normalizeOrientation(params.orientation);
     const plan = planFromMinutes(params.targetMinutes, language);
     const reference = isReferenceAnalysis(row.reference_analysis) ? row.reference_analysis : null;
     // С референсом стиль задаёт картинка пользователя, а не выбранный пресет.
-    const styleFragment = reference ? reference.stylePrompt : resolveStyleFragment(params.style);
+    const styleFragment = reference
+      ? [reference.stylePrompt, reference.mood].filter(Boolean).join(", ")
+      : resolveStyleFragment(params.style);
     const blueprint: Blueprint = draft.blueprint || {};
     if (!Array.isArray(blueprint.beats)) blueprint.beats = [];
     if (!Array.isArray(blueprint.characters)) blueprint.characters = [];

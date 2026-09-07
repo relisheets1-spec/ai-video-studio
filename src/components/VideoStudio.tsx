@@ -13,7 +13,6 @@ import {
   Lightning,
   Hourglass,
   TextAa,
-  Trash,
   ImageSquare,
   X,
 } from "@phosphor-icons/react";
@@ -59,8 +58,6 @@ const GENRE_OPTIONS = GENRE_IDS.map((id) => ({
   icon: iconFor(GENRES[id].icon),
 }));
 
-/** Стиль картинок пользователь не выбирает: по умолчанию кино, а если тема прямо задаёт технику — её подхватывает план истории. */
-const DEFAULT_STYLE = "cinematic";
 /** Картинки не зависят друг от друга — генерируем пачками; озвучка остаётся последовательной. */
 const IMAGE_CONCURRENCY = 3;
 
@@ -104,11 +101,11 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   // Сколько дней сервер держит кадры и озвучку (MEDIA_TTL_DAYS) — для подписи в архиве.
   const [mediaTtlDays, setMediaTtlDays] = useState(30);
   const [loadingHistory, setLoadingHistory] = useState(false);
-  // Референс персонажа/объекта (необязательно): картинка пользователя → все кадры по ней.
+  // Референс (необязательно): картинка-образец задаёт вид всего фильма.
   const [reference, setReference] = useState<{
     url: string;
     preview: string;
-    analysis: { summary: string; subjectPrompt: string; stylePrompt: string; palette: string; kind: string };
+    analysis: { summary: string; stylePrompt: string; mood: string; subjectPrompt: string; palette: string };
     usage: { inputTokens: number; outputTokens: number };
   } | null>(null);
   const [referenceUploading, setReferenceUploading] = useState(false);
@@ -256,7 +253,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
         body: JSON.stringify({
           topic: topic.trim(),
           genre: selectedGenre,
-          style: DEFAULT_STYLE,
           voice: selectedVoice,
           language,
           targetMinutes,
@@ -417,15 +413,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   const activeGenre = GENRE_OPTIONS.find((g) => g.id === selectedGenre);
   const wordCount = topic.split(" ").filter(Boolean).length;
   const plan = planFromMinutes(targetMinutes ?? MIN_MINUTES, language);
-  const plannedFrames = targetMinutes === null ? "—" : plan.scenesCount;
-  const plannedLength = targetMinutes === null ? "—" : formatPlanLength(plan);
-  const currentDuration = currentVideo
-    ? currentVideo.scenes.reduce((acc, sc) => acc + (sc.actualDuration || sc.durationEstimate || 0), 0)
-    : 0;
-  const formatSeconds = (sec: number) =>
-    sec >= 60
-      ? Math.floor(sec / 60) + ":" + String(Math.round(sec % 60)).padStart(2, "0")
-      : Math.round(sec) + " сек";
 
   /** Сколько дней кадры и озвучка фильма ещё лежат на сервере (0 — уже стёрты). */
   const daysLeft = (vid: VideoGeneration) => {
@@ -554,19 +541,15 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 onChange={(e) => handleReferenceFile(e.target.files?.[0] || null)}
               />
               {reference ? (
-                <div className="flex items-start gap-3">
+                <div className="flex items-center gap-3">
                   <img
                     src={reference.preview}
                     alt="Референс"
-                    className="w-16 h-16 rounded-control object-cover border border-hairline shrink-0"
+                    className="w-16 h-16 rounded-control object-cover border border-accent shrink-0"
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <Badge tone="accent">Референс</Badge>
-                      <span className="text-[12px] text-faint">все кадры — по этой картинке</span>
-                    </div>
-                    <p className="text-[13px] text-ink mt-1 leading-snug">{reference.analysis.summary}</p>
-                    <p className="text-[12px] text-muted mt-0.5 leading-snug line-clamp-2">{reference.analysis.stylePrompt}</p>
+                    <Badge tone="accent">Референс видео</Badge>
+                    <p className="text-[13px] text-ink mt-1 leading-snug line-clamp-2">{reference.analysis.summary}</p>
                   </div>
                   <button
                     type="button"
@@ -579,22 +562,19 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                   </button>
                 </div>
               ) : (
-                <div className="flex flex-wrap items-center gap-3">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    icon={<ImageSquare size={16} />}
-                    loading={referenceUploading}
-                    disabled={isGenerating}
-                    onClick={() => referenceInputRef.current?.click()}
-                  >
-                    {referenceUploading ? "Распознаю..." : "Референс персонажа (необязательно)"}
-                  </Button>
-                  <span className="text-[12px] text-muted leading-snug">
-                    Герой или предмет с картинки будет во всех кадрах.
-                  </span>
-                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="md"
+                  block
+                  icon={<ImageSquare size={20} />}
+                  loading={referenceUploading}
+                  disabled={isGenerating}
+                  onClick={() => referenceInputRef.current?.click()}
+                  className="border-accent border-2 h-12 text-[14px]"
+                >
+                  {referenceUploading ? "Распознаю..." : "Референс видео — картинка-образец"}
+                </Button>
               )}
               {referenceError && <p className="text-[12.5px] text-danger-text mt-2">{referenceError}</p>}
             </div>
@@ -643,26 +623,30 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
               />
 
               {targetMinutes !== null && (
-                <div className="rounded-control bg-surface-2 border border-hairline px-3.5 py-3 text-[13px] leading-snug">
-                  <div className="text-[12px] text-faint mb-2">
-                    {formatPlanLength(plan)} · {pluralFrames(plan.scenesCount)} · спишется примерно:
+                <div className="rounded-control border border-hairline overflow-hidden text-[13px] leading-snug">
+                  <div className="px-3.5 py-2 bg-surface-2 border-b border-hairline text-[12px] text-faint">
+                    {formatPlanLength(plan)} · {pluralFrames(plan.scenesCount)} · спишется примерно
                   </div>
                   {/* Таблица: сумма никогда не переносится, описание — как влезет. */}
-                  <div className="grid grid-cols-[auto_1fr_auto] gap-x-4 gap-y-1.5 items-baseline tabular">
-                    <span className="text-ink font-medium">OpenAI</span>
-                    <span className="text-muted">текст ~{formatInt(plan.estimatedChars)} символов + {pluralFrames(plan.scenesCount)}</span>
-                    <span className="text-ink font-semibold whitespace-nowrap text-right">≈ {formatUsd(plan.estimate.openaiUsd)}</span>
-
-                    <span className="text-ink font-medium">ElevenLabs</span>
-                    <span className="text-muted">озвучка ~{formatInt(plan.estimatedChars)} символов ≈ {formatInt(plan.estimate.elevenCredits)} кр.</span>
-                    <span className="text-ink font-semibold whitespace-nowrap text-right">≈ {formatUsd(plan.estimate.elevenUsd)}</span>
-
-                    <span className="col-span-3 border-t border-hairline" />
-
-                    <span className="text-ink font-semibold">Итого</span>
-                    <span className="text-muted">с двух счетов</span>
-                    <span className="text-ink font-bold whitespace-nowrap text-right">≈ {formatUsd(plan.estimate.totalUsd)}</span>
-                  </div>
+                  <table className="w-full tabular border-collapse">
+                    <tbody>
+                      <tr className="border-b border-hairline">
+                        <td className="px-3.5 py-2 font-medium text-ink whitespace-nowrap align-top">OpenAI</td>
+                        <td className="px-3 py-2 text-muted w-full">текст ~{formatInt(plan.estimatedChars)} символов + {pluralFrames(plan.scenesCount)}</td>
+                        <td className="px-3.5 py-2 text-right font-semibold text-ink whitespace-nowrap align-top">≈ {formatUsd(plan.estimate.openaiUsd)}</td>
+                      </tr>
+                      <tr className="border-b border-hairline">
+                        <td className="px-3.5 py-2 font-medium text-ink whitespace-nowrap align-top">ElevenLabs</td>
+                        <td className="px-3 py-2 text-muted w-full">озвучка ~{formatInt(plan.estimatedChars)} символов ≈ {formatInt(plan.estimate.elevenCredits)} кр.</td>
+                        <td className="px-3.5 py-2 text-right font-semibold text-ink whitespace-nowrap align-top">≈ {formatUsd(plan.estimate.elevenUsd)}</td>
+                      </tr>
+                      <tr className="bg-surface-2">
+                        <td className="px-3.5 py-2 font-semibold text-ink whitespace-nowrap">Итого</td>
+                        <td className="px-3 py-2 text-muted w-full">с двух счетов</td>
+                        <td className="px-3.5 py-2 text-right font-bold text-ink whitespace-nowrap">≈ {formatUsd(plan.estimate.totalUsd)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>

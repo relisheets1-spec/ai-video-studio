@@ -21,21 +21,6 @@ function pluralImages(n: number): string {
   return `${n} картинок`;
 }
 
-/** Одна строка под видео в архиве. Принимает запись любой версии. */
-export function formatCostLine(raw: unknown): string {
-  const cost = normalizeCost(raw);
-  if (!cost) return "";
-  const parts = [
-    `${pluralImages(cost.images.count)} ${formatUsd(cost.images.usd)}`,
-    `текст ${formatUsd(cost.llm.usd)}`,
-  ];
-  if (cost.tts.credits > 0) {
-    parts.push(`озвучка ${formatInt(cost.tts.credits)} кр. ${formatUsd(cost.tts.usd)}`);
-  }
-  parts.push(`итого ${formatUsd(cost.totalUsd)}`);
-  return parts.join(" · ");
-}
-
 export interface CostRow {
   item: string;
   model: string;

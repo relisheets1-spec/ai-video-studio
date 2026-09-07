@@ -8,7 +8,8 @@
  *   1) стирает картинки и звук фильмов старше MEDIA_TTL_DAYS (30 по умолчанию);
  *      текст сцен, стоимость и вся статистика остаются в базе навсегда;
  *   2) удаляет папки фильмов, которых уже нет в базе (осиротевшие);
- *   3) чистит журнал попыток входа старше недели.
+ *   3) стирает референсы старше суток — они нужны только во время генерации;
+ *   4) чистит журнал попыток входа старше недели.
  *
  * Зависимостей нет: node:sqlite и node:fs. Переменные берутся из окружения
  * (systemd подставляет /etc/studio.env).
@@ -83,7 +84,33 @@ if (fs.existsSync(FILMS_DIR)) {
   log(`осиротевших папок: ${orphans}`);
 }
 
-// 3. Журнал попыток входа
+// 3. Референсы: нужны только пока идёт генерация (окно два часа)
+const REFS_DIR = path.join(MEDIA_ROOT, "refs");
+if (fs.existsSync(REFS_DIR)) {
+  const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+  let refs = 0;
+  for (const userDir of fs.readdirSync(REFS_DIR, { withFileTypes: true })) {
+    if (!userDir.isDirectory()) continue;
+    const dir = path.join(REFS_DIR, userDir.name);
+    for (const file of fs.readdirSync(dir)) {
+      const full = path.join(dir, file);
+      try {
+        const st = fs.statSync(full);
+        if (st.mtimeMs < dayAgo) {
+          freed += st.size;
+          if (!DRY) fs.unlinkSync(full);
+          refs++;
+        }
+      } catch {
+        // файл исчез между чтением каталога и статом
+      }
+    }
+    if (!DRY && fs.readdirSync(dir).length === 0) fs.rmdirSync(dir);
+  }
+  log(`референсов старше суток: ${refs}`);
+}
+
+// 4. Журнал попыток входа
 if (!DRY) {
   const week = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   const attempts = db.prepare("DELETE FROM login_attempts WHERE created_at < ?").run(week).changes;

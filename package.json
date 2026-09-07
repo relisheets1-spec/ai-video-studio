@@ -8,6 +8,7 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "cleanup": "node scripts/cleanup.mjs",
+    "hash-code": "node scripts/hash-code.mjs",
     "voices": "node scripts/gen-voice-samples.mjs"
   },
   "dependencies": {

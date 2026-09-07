@@ -192,19 +192,6 @@ export function studioStats(): StudioStats {
   };
 }
 
-/** Фильмы, у которых пора стереть картинки и звук. */
-export function videosWithOldMedia(olderThanDays: number): { id: string }[] {
-  const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
-  return all<{ id: string }>(
-    "SELECT id FROM video_generations WHERE media_purged_at IS NULL AND created_at < ?",
-    cutoff
-  );
-}
-
-export function markMediaPurged(id: string): void {
-  run("UPDATE video_generations SET media_purged_at = ? WHERE id = ?", nowIso(), id);
-}
-
 /** Все фильмы всех пользователей — для админской таблицы со стоимостью. */
 export function listAllVideos(limit = 300): (VideoRecord & { email: string | null })[] {
   return all<VideoRow & { email: string | null }>(

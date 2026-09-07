@@ -37,7 +37,7 @@ function languageRule(language: ContentLanguage): string {
   return "ЯЗЫК: Весь текст пишется на чистом, богатом РУССКОМ ЯЗЫКЕ. Не смешивай языки.";
 }
 
-export interface BlueprintBeat {
+interface BlueprintBeat {
   act?: number;
   share?: number;
   beat?: string;
@@ -46,7 +46,7 @@ export interface BlueprintBeat {
   timeOfDay?: string;
 }
 
-export interface BlueprintWorld {
+interface BlueprintWorld {
   setting?: string;
   era?: string;
   palette?: string;
@@ -107,7 +107,7 @@ const RHYTHM_EXAMPLES: Record<ContentLanguage, { good: string; bad: string }> = 
   },
 };
 
-export function rhythmRule(language: ContentLanguage): string {
+function rhythmRule(language: ContentLanguage): string {
   const ex = RHYTHM_EXAMPLES[language];
   return (
     "8. РИТМ РЕЧИ — ДЛЯ ДИКТОРА, А НЕ ДЛЯ ЧТЕНИЯ ГЛАЗАМИ. Текст озвучит синтез речи, и длинные периоды с причастными и деепричастными оборотами он читает с ложными паузами. Поэтому:\n" +
@@ -129,26 +129,32 @@ export function rhythmRule(language: ContentLanguage): string {
 // Проход 1 — план истории
 // ---------------------------------------------------------------------------
 
-/** Референс пользователя: кто/что на картинке и в каком стиле (по-английски). */
+/** Референс пользователя: вид фильма, настроение и — если есть — герой (по-английски). */
 export interface ReferenceForPrompt {
-  subjectPrompt: string;
   stylePrompt: string;
+  mood?: string;
+  subjectPrompt?: string;
   palette?: string;
-  kind?: string;
 }
 
 function referenceBlockRu(ref: ReferenceForPrompt | null | undefined): string {
   if (!ref) return "";
+  const subject = ref.subjectPrompt?.trim();
   return (
-    "\n\nРЕФЕРЕНС ПОЛЬЗОВАТЕЛЯ (обязателен): главный герой или объект истории задан картинкой. " +
-    "Вот что на ней, по-английски: «" +
-    ref.subjectPrompt +
-    "». Стиль картинки: «" +
+    "\n\nРЕФЕРЕНС ПОЛЬЗОВАТЕЛЯ (обязателен): картинка задаёт ВИД и настроение всего фильма. " +
+    "Стиль, по-английски: «" +
     ref.stylePrompt +
-    "». Сделай этого героя/объект центром истории; characters[0].appearance — дословно это описание " +
-    "(можно добавить одежду и возраст, если они не противоречат); world.palette — палитра референса" +
+    "»." +
+    (ref.mood ? " Настроение картинки: «" + ref.mood + "» — учти его в тоне истории." : "") +
+    " world.palette — палитра референса" +
     (ref.palette ? " («" + ref.palette + "»)" : "") +
-    ".\n"
+    "." +
+    (subject
+      ? " На картинке выраженный герой или объект: «" +
+        subject +
+        "». Сделай его центром истории; characters[0].appearance — дословно это описание (можно добавить одежду и возраст, если не противоречат)."
+      : " Героев придумай сам под тему — на картинке нет выраженного персонажа.") +
+    "\n"
   );
 }
 
@@ -496,14 +502,18 @@ export function buildVisualsPrompt(opts: {
     .filter((line) => line.length > 4)
     .join("\n");
 
+  const referenceSubject = opts.reference?.subjectPrompt?.trim();
   const referenceBlock = opts.reference
-    ? "\n\nREFERENCE IMAGE (mandatory — every frame is generated FROM this image):\n" +
-      "- subject: " +
-      opts.reference.subjectPrompt +
-      "\n- visual style: " +
+    ? "\n\nREFERENCE LOOK (mandatory — the user's picture defines how the whole film looks):\n" +
+      "- visual style: " +
       opts.reference.stylePrompt +
-      "\nEvery prompt must feature this subject, described each time as 'the reference character' plus the subject line above verbatim, " +
-      "and must be drawn in the reference's visual style — this overrides the Style line and the WORLD palette. Never redesign the subject."
+      (opts.reference.mood ? "\n- mood: " + opts.reference.mood : "") +
+      "\nEvery frame is rendered in this style — it overrides the Style line and the WORLD palette." +
+      (referenceSubject
+        ? "\n- recurring subject from the picture: " +
+          referenceSubject +
+          "\nWhenever this subject appears, describe it with the line above verbatim so it stays identical; never redesign it."
+        : "\nThere is no fixed subject: depict whatever each fragment is about, in this style.")
     : "";
 
   const world = opts.blueprint?.world || {};

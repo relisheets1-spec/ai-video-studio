@@ -36,9 +36,9 @@ export interface CueBox {
 }
 
 /** Кроссфейд между кадрами — тот же, что в превью (XFADE_MS в плеере). */
-export const XFADE_SEC = 0.5;
+const XFADE_SEC = 0.5;
 
-export const EXPORT_BG = "#0A0B0E";
+const EXPORT_BG = "#0A0B0E";
 
 export async function loadAssets(
   scenes: Scene[],
@@ -79,7 +79,7 @@ export async function loadAssets(
 }
 
 /** Разметка реплик считается один раз на сцену, а не на каждый кодируемый кадр. */
-export function buildCueBoxes(
+function buildCueBoxes(
   ctx: CanvasRenderingContext2D,
   layout: SubtitleLayout,
   cues: Cue[],
@@ -125,7 +125,7 @@ export function prepareSceneCues(
 }
 
 /** Ken Burns: состояние картинки в момент progress ∈ [0, 1] сцены (пресет по индексу). */
-export function motionAt(sceneIndex: number, progress: number): KenBurnsState {
+function motionAt(sceneIndex: number, progress: number): KenBurnsState {
   return kenBurnsAt(kenBurnsPreset(sceneIndex), progress);
 }
 

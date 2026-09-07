@@ -14,7 +14,7 @@ export interface UserRow {
   last_login_at: string | null;
 }
 
-export function findUserByEmail(email: string): UserRow | null {
+function findUserByEmail(email: string): UserRow | null {
   return get<UserRow>("SELECT * FROM users WHERE email = ?", email);
 }
 

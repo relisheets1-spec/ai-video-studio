@@ -1,7 +1,7 @@
 import type { Orientation } from "./orientation";
 import type { VideoCost } from "./pricing";
 
-export type { Orientation, VideoCost };
+export type { VideoCost };
 
 /** active — работает; blocked — доступ закрыт администратором, сессии погашены. */
 export type AccessStatus = "active" | "blocked";
@@ -66,7 +66,7 @@ export interface VideoGeneration {
   cost?: VideoCost | null;
   /** Референс персонажа/объекта, если фильм делался по картинке пользователя. */
   reference_url?: string | null;
-  reference_analysis?: { summary?: string; subjectPrompt?: string; stylePrompt?: string } | null;
+  reference_analysis?: { summary?: string; stylePrompt?: string; mood?: string; subjectPrompt?: string } | null;
   /** Когда уборщик стёр картинки и звук; текст сцен и стоимость остаются. */
   media_purged_at?: string | null;
   created_at: string;
@@ -82,10 +82,3 @@ export type VoiceOption =
   | "pNInz6obpgDQGcFmaJgB" // Adam
   | string;
 
-export interface GenerationProgress {
-  step: "idle" | "script" | "audio" | "images" | "ready";
-  currentScene: number;
-  totalScenes: number;
-  percent: number;
-  message: string;
-}

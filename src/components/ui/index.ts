@@ -4,7 +4,7 @@ export { Tile } from "./Tile";
 export { StatTile } from "./StatTile";
 export { IconTile } from "./IconTile";
 export { SelectCard } from "./SelectCard";
-export { Field, Input, Textarea, Select } from "./Field";
+export { Field, Input, Textarea } from "./Field";
 export { Badge } from "./Badge";
 export { Alert } from "./Alert";
 export { Progress } from "./Progress";

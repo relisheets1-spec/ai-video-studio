@@ -11,7 +11,7 @@ import { ADMIN_CODE_HASH, ADMIN_EMAIL, COOKIE_SECURE } from "./env";
  * («выйти везде» сдвигает эпоху и гасит все выданные cookie).
  */
 
-export const ADMIN_COOKIE = "admin_session";
+const ADMIN_COOKIE = "admin_session";
 const PREFIX = "a1.";
 const TTL_MS = 12 * 60 * 60 * 1000;
 const EPOCH_KEY = "admin_session_epoch";
@@ -39,7 +39,7 @@ export function checkAdminCode(code: unknown): boolean {
   return verifySecret(code.trim(), ADMIN_CODE_HASH);
 }
 
-export function getAdminEpoch(): number {
+function getAdminEpoch(): number {
   const n = Number(getSetting(EPOCH_KEY));
   return Number.isFinite(n) && n > 0 ? n : 1;
 }
@@ -73,9 +73,9 @@ export function clearAdminCookie(res: NextResponse): NextResponse {
   return res;
 }
 
-export const UNAUTHORIZED = { error: "Требуется вход администратора" } as const;
+const UNAUTHORIZED = { error: "Требуется вход администратора" } as const;
 
-export function readAdminSession(req: NextRequest): { email: string; exp: number } | null {
+function readAdminSession(req: NextRequest): { email: string; exp: number } | null {
   const raw = req.cookies.get(ADMIN_COOKIE)?.value;
   const payload = verifyToken<AdminSessionPayload>(raw, PREFIX, "admin-session");
   if (!payload?.email || !isAdminEmail(payload.email) || payload.epoch !== getAdminEpoch()) return null;

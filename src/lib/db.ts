@@ -6,33 +6,51 @@ import { DB_PATH } from "./env";
 /**
  * База: один файл SQLite (node:sqlite, без нативных зависимостей).
  *
- * Схема создаётся при первом обращении и обновляется по user_version, так что
+ * Схема создаётся при первом обращении; её номер лежит в user_version, так что
  * отдельного шага миграции при деплое нет: сервер поднялся — база готова.
  * Все JSON-поля (scenes, cost, draft, reference_analysis) лежат текстом,
  * чтение и запись идут через хелперы parseJson/stringify ниже.
  */
 
-const SCHEMA: string[] = [
-  // v1 — схема после переезда с Supabase: заявки, коды на почту, лимиты
-  `
+/**
+ * Номер схемы. Пустая база создаётся сразу в этой версии; база с другим
+ * номером — ошибка, а не тихая порча данных.
+ */
+const SCHEMA_VERSION = 2;
+
+const SCHEMA = `
   CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
 
+  -- Пользователь появляется при первом входе по коду доступа.
   CREATE TABLE IF NOT EXISTS users (
     id                 TEXT PRIMARY KEY,
     email              TEXT NOT NULL UNIQUE,
-    status             TEXT NOT NULL DEFAULT 'pending',
-    generations_limit  INTEGER NOT NULL DEFAULT 0,
-    generations_used   INTEGER NOT NULL DEFAULT 0,
+    status             TEXT NOT NULL DEFAULT 'active',
     elevenlabs_key_enc TEXT,
+    openai_key_enc     TEXT,
     session_epoch      INTEGER NOT NULL DEFAULT 1,
-    note               TEXT,
     created_at         TEXT NOT NULL,
-    approved_at        TEXT,
-    registered_at      TEXT,
     last_login_at      TEXT
+  );
+
+  -- Коды доступа: свободный код привязывается к почте при первом входе.
+  CREATE TABLE IF NOT EXISTS access_codes (
+    code       TEXT PRIMARY KEY,
+    email      TEXT UNIQUE,
+    note       TEXT,
+    created_at TEXT NOT NULL,
+    used_at    TEXT,
+    revoked_at TEXT
+  );
+
+  -- Администраторы, добавленные из панели (главный — ADMIN_EMAIL из env).
+  CREATE TABLE IF NOT EXISTS admins (
+    email      TEXT PRIMARY KEY,
+    added_by   TEXT,
+    created_at TEXT NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS login_attempts (
@@ -67,56 +85,14 @@ const SCHEMA: string[] = [
   );
   CREATE INDEX IF NOT EXISTS idx_videos_user ON video_generations (user_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_videos_status ON video_generations (status, created_at);
-  `,
-  // v2 — коды доступа вместо заявок и писем, ключ OpenAI у пользователя, без
-  // лимитов; дополнительные администраторы в таблице admins (общий код у всех).
-  // Таблица users пересобирается: SQLite не умеет менять колонки на месте.
-  `
-  CREATE TABLE IF NOT EXISTS access_codes (
-    code       TEXT PRIMARY KEY,
-    email      TEXT UNIQUE,
-    note       TEXT,
-    created_at TEXT NOT NULL,
-    used_at    TEXT,
-    revoked_at TEXT
-  );
-
-  CREATE TABLE users_v2 (
-    id                 TEXT PRIMARY KEY,
-    email              TEXT NOT NULL UNIQUE,
-    status             TEXT NOT NULL DEFAULT 'active',
-    elevenlabs_key_enc TEXT,
-    openai_key_enc     TEXT,
-    session_epoch      INTEGER NOT NULL DEFAULT 1,
-    created_at         TEXT NOT NULL,
-    last_login_at      TEXT
-  );
-  INSERT INTO users_v2 (id, email, status, elevenlabs_key_enc, session_epoch, created_at, last_login_at)
-    SELECT id, email,
-           CASE status WHEN 'blocked' THEN 'blocked' ELSE 'active' END,
-           elevenlabs_key_enc, session_epoch, created_at, last_login_at
-      FROM users
-     WHERE status IN ('approved', 'blocked');
-  DROP TABLE users;
-  ALTER TABLE users_v2 RENAME TO users;
-
-  DROP TABLE IF EXISTS invite_codes;
-  DROP TABLE IF EXISTS login_codes;
-
-  CREATE TABLE IF NOT EXISTS admins (
-    email      TEXT PRIMARY KEY,
-    added_by   TEXT,
-    created_at TEXT NOT NULL
-  );
-  `,
-];
+`;
 
 let handle: DatabaseSync | null = null;
 
 /** Соединение переживает горячую перезагрузку в dev — иначе плодятся хэндлы. */
 const cache = globalThis as unknown as { __studioDb?: DatabaseSync };
 
-export function getDb(): DatabaseSync {
+function getDb(): DatabaseSync {
   if (handle) return handle;
   if (cache.__studioDb) {
     handle = cache.__studioDb;
@@ -137,16 +113,21 @@ export function getDb(): DatabaseSync {
   db.exec("PRAGMA busy_timeout = 5000");
 
   const current = Number((db.prepare("PRAGMA user_version").get() as any)?.user_version || 0);
-  for (let v = current; v < SCHEMA.length; v++) {
+  if (current === 0) {
     db.exec("BEGIN");
     try {
-      db.exec(SCHEMA[v]);
-      db.exec(`PRAGMA user_version = ${v + 1}`);
+      db.exec(SCHEMA);
+      db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
       db.exec("COMMIT");
     } catch (err) {
       db.exec("ROLLBACK");
       throw err;
     }
+  } else if (current !== SCHEMA_VERSION) {
+    throw new Error(
+      `База ${DB_PATH} схемы v${current}, приложение ждёт v${SCHEMA_VERSION}: ` +
+        "восстановите копию нужной версии из /var/backups/studio или удалите файл (данные пропадут)."
+    );
   }
 
   handle = db;

@@ -52,7 +52,7 @@ const OVERLAY_DECK_FADE_PX = 32;
 /** Высота контента оверлей-деки, если её ещё не измерили. */
 const OVERLAY_DECK_FALLBACK_PX = 88;
 
-export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orientation, onExportClick }) => {
+export const VideoPlayer: React.FC<VideoPlayerProps> = ({ scenes, orientation, onExportClick }) => {
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [prevSceneIndex, setPrevSceneIndex] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);

@@ -1,5 +1,5 @@
 /** Языки КОНТЕНТА (сценарий, озвучка, субтитры). Интерфейс всегда русский. */
-export const CONTENT_LANGUAGES = ["ru", "kz", "en"] as const;
+const CONTENT_LANGUAGES = ["ru", "kz", "en"] as const;
 export type ContentLanguage = (typeof CONTENT_LANGUAGES)[number];
 
 export function normalizeLanguage(value: unknown): ContentLanguage {

@@ -28,7 +28,7 @@ export const SUBTITLE_FONT_WEIGHT = 700;
  * выбирает — каждое предложение берёт следующий цвет палитры по сквозному
  * номеру предложения в фильме, одинаково в плеере и в MP4.
  */
-export const SUBTITLE_COLORS = [
+const SUBTITLE_COLORS = [
   { id: "white", label: "Белый", hex: "#FFFFFF" },
   { id: "yellow", label: "Жёлтый", hex: "#FFE14D" },
   { id: "red", label: "Красный", hex: "#FF5A5A" },
@@ -48,9 +48,8 @@ export function cueColorHex(colorIndex: number): string {
 export const SUBTITLE_MAX_LINES = 2;
 
 export const SUBTITLE_OUTLINE = "#000000";
-export const SUBTITLE_FG = "#FFFFFF";
 /** Видимая ширина чёрной обводки. Тени и подложки у субтитров нет. */
-export const SUBTITLE_STROKE_PX = 1;
+const SUBTITLE_STROKE_PX = 1;
 
 export interface Cue {
   text: string;

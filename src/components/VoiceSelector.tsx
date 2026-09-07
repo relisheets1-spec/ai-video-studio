@@ -5,7 +5,7 @@ import { SpeakerHigh, Play, Pause, User, CheckCircle } from "@phosphor-icons/rea
 import { VoiceOption } from "@/lib/types";
 import { FlagEN, FlagKZ, FlagRU, IconTile, cn } from "@/components/ui";
 import { LANGUAGE_LABELS, type ContentLanguage } from "@/lib/content/languages";
-import { defaultVoiceFor, VOICE_CATALOG, voicesFor } from "@/lib/content/voices";
+import { defaultVoiceFor, VOICE_CATALOG } from "@/lib/content/voices";
 
 interface VoiceSelectorProps {
   selectedVoice: VoiceOption;
@@ -20,7 +20,7 @@ const LANGUAGE_FLAGS: Record<ContentLanguage, React.FC<{ className?: string }>> 
   en: FlagEN,
 };
 
-export interface VoiceItem {
+interface VoiceItem {
   id: VoiceOption;
   name: string;
   gender: "male" | "female";
@@ -35,7 +35,7 @@ export interface VoiceItem {
  * читает scripts/gen-voice-samples.mjs. Раньше список был продублирован в
  * скрипте, из-за чего сэмплы в интерфейсе и реальная озвучка разъезжались.
  */
-export const VOICES_CONFIG: VoiceItem[] = VOICE_CATALOG.map((v) => ({
+const VOICES_CONFIG: VoiceItem[] = VOICE_CATALOG.map((v) => ({
   id: v.id,
   name: v.name,
   gender: v.gender,

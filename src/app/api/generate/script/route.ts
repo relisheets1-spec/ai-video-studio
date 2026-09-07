@@ -27,9 +27,9 @@ function parseReference(
     url,
     analysis: {
       summary: String(a.summary || "").slice(0, 200),
-      kind: a.kind,
-      subjectPrompt: a.subjectPrompt.slice(0, 600),
       stylePrompt: a.stylePrompt.slice(0, 300),
+      mood: String(a.mood || "").slice(0, 120),
+      subjectPrompt: String(a.subjectPrompt || "").slice(0, 600),
       palette: String(a.palette || "").slice(0, 200),
     },
     usage: {

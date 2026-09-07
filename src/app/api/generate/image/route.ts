@@ -66,17 +66,21 @@ export async function POST(req: NextRequest) {
     const size = imageApiSize(frameOrientation);
 
     // Стиль берётся из записи фильма: id по умолчанию или фрагмент, который план
-    // истории вытащил из темы. С референсом стиль диктует картинка пользователя,
-    // а сам референс уходит в images/edits.
-    const styleLine = reference ? reference.stylePrompt : resolveStyleFragment(video.style);
-    const cleanPrompt = reference
-      ? `Use the attached reference image as the exact model for the main subject and for the visual style. ` +
-        `Keep the same character design, proportions, line style and palette; do not redesign the subject. ` +
+    // истории вытащил из темы. С референсом вид задаёт картинка пользователя;
+    // сама картинка прикладывается к запросу только когда на ней выраженный
+    // герой — чтобы он оставался узнаваемым в каждом кадре.
+    const styleLine = reference
+      ? [reference.stylePrompt, reference.mood].filter(Boolean).join(", ")
+      : resolveStyleFragment(video.style);
+    const attachReference = !!(reference && reference.subjectPrompt && video.reference_url);
+    const cleanPrompt = attachReference
+      ? `Use the attached reference image for the visual style (medium, palette, lighting, mood) and for the design of its main subject; ` +
+        `keep that subject recognizable, do not redesign it. ` +
         `Scene: ${String(visualPrompt).slice(0, 800)}. Style: ${styleLine}, ${promptAspectHint(frameOrientation)}.`
       : `${String(visualPrompt).slice(0, 900)}. Style: ${styleLine}, ${promptAspectHint(frameOrientation)}.`;
 
     let openAiRes: Response;
-    if (reference && video.reference_url) {
+    if (attachReference && video.reference_url) {
       // gpt-image-1-mini: 1536x1024 (гориз.) или 1024x1536 (верт.) — 3:2 / 2:3.
       const form = new FormData();
       form.append("model", IMAGE_MODEL);
@@ -139,7 +143,7 @@ export async function POST(req: NextRequest) {
       model: IMAGE_MODEL,
       quality: IMAGE_QUALITY,
       size,
-      withReference: !!reference,
+      withReference: attachReference,
       usage,
     });
   } catch (err: any) {

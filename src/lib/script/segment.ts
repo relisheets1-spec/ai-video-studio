@@ -3,9 +3,9 @@ import { MAX_SCENES } from "../plan";
 import type { ContentLanguage } from "../content/languages";
 
 /** Жёсткий потолок кадров — он же бюджет картинок. */
-export const HARD_MAX_SCENES = MAX_SCENES;
+const HARD_MAX_SCENES = MAX_SCENES;
 
-export const SCENE_MARKER = "|||";
+const SCENE_MARKER = "|||";
 
 export function countWords(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -16,7 +16,7 @@ export function countMarkers(text: string): number {
 }
 
 /** Убирает markdown, эмодзи и служебный мусор, который модель иногда добавляет. */
-export function normalizeNarration(raw: string): string {
+function normalizeNarration(raw: string): string {
   return raw
     .replace(/\r\n/g, "\n")
     .replace(/^\s*#{1,6}\s+/gm, "")
@@ -242,7 +242,7 @@ export interface RhythmStats {
   gerundEstimate: number;
 }
 
-export const RHYTHM = {
+const RHYTHM = {
   shortMaxWords: 6,
   longMinWords: 18,
   runMinWords: 15,

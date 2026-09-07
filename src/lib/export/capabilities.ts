@@ -7,11 +7,11 @@
  * доступным только если и видео-, и аудиоконфиг реально поддержаны.
  */
 
-export type ExportEngine = "webcodecs" | "mediarecorder" | "none";
+type ExportEngine = "webcodecs" | "mediarecorder" | "none";
 
-export const AVC_CODECS = ["avc1.4d002a", "avc1.64002a", "avc1.420034", "avc1.420028"];
+const AVC_CODECS = ["avc1.4d002a", "avc1.64002a", "avc1.420034", "avc1.420028"];
 
-export const RECORDER_MIMES = [
+const RECORDER_MIMES = [
   "video/mp4;codecs=avc1.42E01E,mp4a.40.2",
   "video/mp4;codecs=avc1,mp4a.40.2",
   "video/mp4",
@@ -26,7 +26,7 @@ export interface EngineInfo {
   mime?: string;
 }
 
-export async function pickAvcCodec(
+async function pickAvcCodec(
   width: number,
   height: number,
   bitrate: number,
@@ -57,7 +57,7 @@ async function aacSupported(sampleRate: number): Promise<boolean> {
   }
 }
 
-export function pickRecorderMime(): string | null {
+function pickRecorderMime(): string | null {
   if (typeof window === "undefined" || typeof MediaRecorder === "undefined") return null;
   for (const mime of RECORDER_MIMES) {
     try {
@@ -67,7 +67,7 @@ export function pickRecorderMime(): string | null {
   return null;
 }
 
-export function recorderAvailable(): boolean {
+function recorderAvailable(): boolean {
   return (
     typeof window !== "undefined" &&
     typeof MediaRecorder !== "undefined" &&

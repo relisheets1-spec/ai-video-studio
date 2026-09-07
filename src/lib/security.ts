@@ -3,7 +3,7 @@ import { get, nowIso, run } from "./db";
 import { normalizeOrientation, type Orientation } from "./orientation";
 import { normalizeGenre, type GenreId } from "./content/genres";
 import { normalizeLanguage, type ContentLanguage } from "./content/languages";
-import { STYLES, type StyleId } from "./content/styles";
+import { DEFAULT_STYLE_ID } from "./content/styles";
 import { clampMinutes, MAX_MINUTES, MIN_MINUTES } from "./plan";
 
 // ---------------------------------------------------------------------------
@@ -117,12 +117,6 @@ export function failureDelay(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 700 + Math.floor(Math.random() * 600)));
 }
 
-/** Уборка журнала попыток старше недели — вызывается уборщиком раз в сутки. */
-export function purgeOldAttempts(): number {
-  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  return run("DELETE FROM login_attempts WHERE created_at < ?", cutoff).changes;
-}
-
 /**
  * Validates prompt and generation settings
  */
@@ -139,7 +133,7 @@ export function sanitizeScriptInput(data: any): {
     orientation: Orientation;
   };
 } {
-  const { topic, genre, style, voice, targetMinutes, language, orientation } = data || {};
+  const { topic, genre, voice, targetMinutes, language, orientation } = data || {};
 
   if (!topic || typeof topic !== "string") {
     return { valid: false, error: "Укажите тему сюжета" };
@@ -156,11 +150,8 @@ export function sanitizeScriptInput(data: any): {
 
   const cleanGenre = normalizeGenre(genre);
   const chosenVoice = typeof voice === "string" && voice.length > 0 ? voice.slice(0, 80) : "";
-  // id стиля или — для записей из архива — уже готовый английский фрагмент промпта
-  const cleanStyle =
-    typeof style === "string" && style.length > 0
-      ? (STYLES[style as StyleId] ? style : style.slice(0, 120))
-      : "cinematic";
+  // Стиль клиент не выбирает: всегда дефолт, свой фрагмент подставит план истории.
+  const cleanStyle = DEFAULT_STYLE_ID;
   const chosenLang = normalizeLanguage(language);
   const chosenOrientation = normalizeOrientation(orientation);
 

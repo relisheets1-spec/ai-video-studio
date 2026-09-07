@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { FilmStrip, SignOut } from "@phosphor-icons/react";
-import { Badge, IconTile, ThemeToggle, cn } from "@/components/ui";
+import { Badge, IconTile, ThemeToggle } from "@/components/ui";
 
 interface NavbarProps {
   user?: {

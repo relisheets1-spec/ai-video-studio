@@ -22,7 +22,7 @@ function block(size: number): string {
   return out;
 }
 
-export function generateCode(): string {
+function generateCode(): string {
   return `KZ-${block(4)}-${block(4)}`;
 }
 
@@ -31,7 +31,7 @@ export function normalizeCode(raw: unknown): string {
   return typeof raw === "string" ? raw.trim().toUpperCase().replace(/\s+/g, "") : "";
 }
 
-export function isValidCodeFormat(code: string): boolean {
+function isValidCodeFormat(code: string): boolean {
   return CODE_RE.test(code);
 }
 
@@ -52,7 +52,7 @@ export function findCode(code: string): AccessCodeRow | null {
   return get<AccessCodeRow>("SELECT * FROM access_codes WHERE code = ?", code);
 }
 
-export function findCodeByEmail(email: string): AccessCodeRow | null {
+function findCodeByEmail(email: string): AccessCodeRow | null {
   return get<AccessCodeRow>("SELECT * FROM access_codes WHERE email = ?", email);
 }
 

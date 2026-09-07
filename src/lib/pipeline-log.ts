@@ -2,14 +2,6 @@ import { getVideo, updateVideo } from "./videos";
 
 export type PipelineStage = "llm" | "tts" | "image" | "render" | "auth";
 
-export const STAGE_LABELS: Record<PipelineStage, string> = {
-  llm: "Сценарий (LLM)",
-  tts: "Озвучка",
-  image: "Изображения",
-  render: "Рендер",
-  auth: "Доступ",
-};
-
 /**
  * Логирование отказов пайплайна: этап кодируется префиксом [stage] в
  * error_message, по нему админка фильтрует журнал. Без этого упавшая

@@ -9,19 +9,12 @@
 
 export const PRICING_AS_OF = "2026-09-05";
 
-export const PRICING_SOURCES = {
-  openai: "https://developers.openai.com/api/docs/pricing",
-  openaiImages: "https://platform.openai.com/docs/models/gpt-image-1-mini",
-  elevenlabs: "https://elevenlabs.io/pricing/api",
-  elevenlabsPayg: "https://elevenlabs.io/docs/overview/administration/pay-as-you-go",
-} as const;
-
 // ---------------------------------------------------------------------------
 // OpenAI
 // ---------------------------------------------------------------------------
 
 /** USD за 1M токенов (стандартная обработка, короткий контекст). */
-export const CHAT_PRICES: Record<string, { inputPerM: number; outputPerM: number }> = {
+const CHAT_PRICES: Record<string, { inputPerM: number; outputPerM: number }> = {
   "gpt-4o": { inputPerM: 2.5, outputPerM: 10 },
   "gpt-4o-2024-11-20": { inputPerM: 2.5, outputPerM: 10 },
   "gpt-4.1": { inputPerM: 2, outputPerM: 8 },
@@ -33,7 +26,7 @@ export const CHAT_PRICES: Record<string, { inputPerM: number; outputPerM: number
   "gpt-5.5": { inputPerM: 5, outputPerM: 30 },
 };
 
-export const IMAGE_PRICES = {
+const IMAGE_PRICES = {
   "gpt-image-1-mini": {
     /** USD за одну картинку — официальная таблица по качеству и размеру. */
     perImage: {
@@ -51,7 +44,7 @@ export const IMAGE_PRICES = {
 // ---------------------------------------------------------------------------
 
 /** Кредитов за символ по моделям (token_cost_factor из /v1/models). */
-export const ELEVEN_CREDITS_PER_CHAR: Record<string, number> = {
+const ELEVEN_CREDITS_PER_CHAR: Record<string, number> = {
   eleven_v3: 1,
   eleven_v3_conversational: 1,
 };
@@ -62,7 +55,7 @@ export const ELEVEN_CREDITS_PER_CHAR: Record<string, number> = {
  * Используется ТОЛЬКО для прикидки под слайдером до генерации; фактическая
  * стоимость всегда берётся из истории по request_id.
  */
-export const ELEVEN_ESTIMATE_CREDITS_PER_CHAR = 0.55;
+const ELEVEN_ESTIMATE_CREDITS_PER_CHAR = 0.55;
 
 /** Pay As You Go для API: Eleven v3, USD за 1 000 кредитов. Кредиты живут 12 месяцев. */
 export const ELEVEN_PAYG_USD_PER_1K = 0.1;
@@ -100,17 +93,17 @@ export function usdForChat(model: string, promptTokens: number, completionTokens
 }
 
 /** Цена одной картинки по таблице; незнакомые сочетания считаем как medium 1024×1536. */
-export function usdForImage(model: string, quality: string, size: string): number {
+function usdForImage(model: string, quality: string, size: string): number {
   const table = IMAGE_PRICES[model as keyof typeof IMAGE_PRICES]?.perImage || IMAGE_PRICES["gpt-image-1-mini"].perImage;
   return table[quality]?.[size] ?? table.medium["1024x1536"];
 }
 
-export function usdForImageTokens(inputTokens: number, outputTokens: number): number {
+function usdForImageTokens(inputTokens: number, outputTokens: number): number {
   const t = IMAGE_PRICES["gpt-image-1-mini"].tokens;
   return round4((inputTokens / 1e6) * t.textInPerM + (outputTokens / 1e6) * t.imageOutPerM);
 }
 
-export function usdForCredits(credits: number): number {
+function usdForCredits(credits: number): number {
   return round4((credits / 1000) * ELEVEN_PAYG_USD_PER_1K);
 }
 
@@ -119,7 +112,7 @@ export function usdForCredits(credits: number): number {
  * 15 минут (1 625 слов) = 49 076 вх. + 18 377 исх. токенов за 8 вызовов ≈ $0,29;
  * с планом и редактором на 4o вместо 5.1 входные токены дороже вдвое.
  */
-export function estimateLlmUsd(totalWords: number): number {
+function estimateLlmUsd(totalWords: number): number {
   return round4(0.05 + totalWords * 0.00017);
 }
 

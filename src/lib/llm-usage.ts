@@ -32,6 +32,6 @@ export class LlmUsage {
 }
 
 /** gpt-5.1-2025-11-13 → gpt-5.1, gpt-4o-2024-11-20 → gpt-4o. */
-export function shortModel(model: string): string {
+function shortModel(model: string): string {
   return model.replace(/-\d{4}-\d{2}-\d{2}$/, "");
 }

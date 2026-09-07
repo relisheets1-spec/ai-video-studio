@@ -21,9 +21,9 @@ export const VOICE_CATALOG = data.voices as VoiceDef[];
  * любой ошибке — если запрос седьмого кадра падал, седьмой кадр приходил от
  * другой модели, и посреди ролика слышно менялся тембр.
  */
-export const MODEL_BY_LANGUAGE = data.models as Record<ContentLanguage, string>;
+const MODEL_BY_LANGUAGE = data.models as Record<ContentLanguage, string>;
 
-export const SETTINGS_BY_MODEL = data.settings as Record<
+const SETTINGS_BY_MODEL = data.settings as Record<
   string,
   Record<string, number | boolean>
 >;
@@ -36,7 +36,7 @@ export function defaultVoiceFor(language: ContentLanguage): string {
   return voicesFor(language)[0]?.id || VOICE_CATALOG[0].id;
 }
 
-export function findVoice(id: string): VoiceDef | undefined {
+function findVoice(id: string): VoiceDef | undefined {
   return VOICE_CATALOG.find((v) => v.id === id);
 }
 
