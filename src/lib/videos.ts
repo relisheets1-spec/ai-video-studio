@@ -100,6 +100,8 @@ export function getOwnedVideo(id: string, userId: string): VideoRecord | null {
 
 type Patch = Partial<{
   status: VideoGeneration["status"];
+  /** id стиля или фрагмент, который план истории вытащил из темы. */
+  style: string;
   scenes: Scene[];
   draft: unknown;
   cost: unknown;

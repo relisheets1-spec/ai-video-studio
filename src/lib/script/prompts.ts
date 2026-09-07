@@ -55,6 +55,8 @@ export interface BlueprintWorld {
 
 export interface Blueprint {
   title?: string;
+  /** Английский фрагмент стиля картинок — только если тема прямо задаёт технику; иначе пусто. */
+  visualStyle?: string;
   logline?: string;
   throughline?: string;
   world?: BlueprintWorld;
@@ -185,12 +187,16 @@ export function buildBlueprintPrompt(opts: {
     "timeOfDay — dawn / day / dusk / night. Внутри бита место и время суток не меняются.\n" +
     twistLine +
     "\n- ending: чем именно заканчивается история. Без морали в лоб." +
+    "\n- visualStyle: ТОЛЬКО если тема прямо задаёт технику или стиль картинки (аниме, акварель, карандашный набросок, " +
+    "3D-мультфильм, комикс, масло, пиксель-арт, чёрно-белое фото и т.п.) — короткий фрагмент НА АНГЛИЙСКОМ до 12 слов " +
+    "для генератора изображений, например: watercolor illustration, soft washes, paper texture. " +
+    "Если стиль в теме не назван — пустая строка: по умолчанию кино-фотореализм." +
     referenceBlockRu(opts.reference) +
     "\n\n" +
     'Ответь строго JSON: {"title":"...","logline":"...","throughline":"...",' +
     '"world":{"setting":"...","era":"...","palette":"...","motifs":["..."]},' +
     '"characters":[{"name":"...","role":"...","appearance":"..."}],' +
-    '"beats":[{"act":1,"share":0.2,"beat":"...","turn":"...","location":"...","timeOfDay":"..."}],"ending":"..."}';
+    '"beats":[{"act":1,"share":0.2,"beat":"...","turn":"...","location":"...","timeOfDay":"..."}],"ending":"...","visualStyle":""}';
 
   const user =
     'Тема истории:\n"' +

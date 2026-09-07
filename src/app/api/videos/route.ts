@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { MEDIA_TTL_DAYS } from "@/lib/env";
 import { requireUser } from "@/lib/session";
 import { getOwnedVideo, listUserVideos } from "@/lib/videos";
 
@@ -22,5 +23,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ video: strip(video) });
   }
 
-  return NextResponse.json({ videos: listUserVideos(auth.user.id).map(strip) });
+  return NextResponse.json({ videos: listUserVideos(auth.user.id).map(strip), mediaTtlDays: MEDIA_TTL_DAYS });
 }

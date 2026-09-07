@@ -11,8 +11,13 @@ import { decryptSecret } from "@/lib/crypto";
 
 const IMAGE_MODEL = "gpt-image-1-mini";
 const IMAGE_QUALITY = "medium";
-/** PNG без сжатия — по требованию владельца (кадр 1536×1024 ≈ 2 МБ). */
-const IMAGE_OUTPUT_FORMAT = "png";
+/**
+ * JPEG 95 % прямо из API: визуально тот же кадр, что PNG, но ≈0,5 МБ вместо 2–3 МБ —
+ * место на диске экономим, качество не режем (решение владельца 07.09.2026).
+ */
+const IMAGE_OUTPUT_FORMAT = "jpeg";
+const IMAGE_OUTPUT_COMPRESSION = 95;
+const IMAGE_FILE_EXT = "jpg";
 
 /** Референс читаем с диска один раз на фильм — 30 кадров идут подряд. */
 const referenceCache = new Map<string, { blob: Blob; at: number }>();
@@ -38,7 +43,7 @@ export async function POST(req: NextRequest) {
     const OPENAI_API_KEY = decryptSecret(user.openai_key_enc);
     if (!OPENAI_API_KEY) return NextResponse.json({ error: "Добавьте ключ OpenAI в настройках" }, { status: 400 });
 
-    const { videoId, sceneId, visualPrompt, style, orientation } = await req.json();
+    const { videoId, sceneId, visualPrompt, orientation } = await req.json();
     const frameOrientation = normalizeOrientation(orientation);
     loggedVideoId = typeof videoId === "string" ? videoId : null;
 
@@ -60,9 +65,10 @@ export async function POST(req: NextRequest) {
     const reference = video.reference_url && isReferenceAnalysis(video.reference_analysis) ? video.reference_analysis : null;
     const size = imageApiSize(frameOrientation);
 
-    // Стиль приходит id-шником (или готовым фрагментом из архива). С референсом
-    // стиль диктует картинка пользователя, а сам референс уходит в images/edits.
-    const styleLine = reference ? reference.stylePrompt : resolveStyleFragment(style);
+    // Стиль берётся из записи фильма: id по умолчанию или фрагмент, который план
+    // истории вытащил из темы. С референсом стиль диктует картинка пользователя,
+    // а сам референс уходит в images/edits.
+    const styleLine = reference ? reference.stylePrompt : resolveStyleFragment(video.style);
     const cleanPrompt = reference
       ? `Use the attached reference image as the exact model for the main subject and for the visual style. ` +
         `Keep the same character design, proportions, line style and palette; do not redesign the subject. ` +
@@ -79,6 +85,7 @@ export async function POST(req: NextRequest) {
       form.append("size", size);
       form.append("n", "1");
       form.append("output_format", IMAGE_OUTPUT_FORMAT);
+      form.append("output_compression", String(IMAGE_OUTPUT_COMPRESSION));
       form.append("image", await loadReference(video.reference_url), "reference.png");
       openAiRes = await fetch("https://api.openai.com/v1/images/edits", {
         method: "POST",
@@ -99,6 +106,7 @@ export async function POST(req: NextRequest) {
           size,
           n: 1,
           output_format: IMAGE_OUTPUT_FORMAT,
+          output_compression: IMAGE_OUTPUT_COMPRESSION,
         }),
       });
     }
@@ -111,7 +119,7 @@ export async function POST(req: NextRequest) {
     const b64Json = openAiData.data[0].b64_json;
     if (!b64Json) throw new Error("Отсутствуют base64 данные изображения");
 
-    const imageUrl = await saveSceneImage(videoId, sceneId, Buffer.from(b64Json, "base64"));
+    const imageUrl = await saveSceneImage(videoId, sceneId, Buffer.from(b64Json, "base64"), IMAGE_FILE_EXT);
 
     // usage приходит у gpt-image-1: токены для сверки с официальной таблицей за штуку;
     // при референсе входная картинка оплачивается отдельно (image input).

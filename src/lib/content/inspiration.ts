@@ -11,22 +11,10 @@ export interface InspirationTheme {
 export const INSPIRATION: Record<ContentLanguage, InspirationTheme[]> = {
   ru: [
     {
-      label: "Кофейня на углу",
-      genre: "narrative",
-      prompt:
-        "Обычная кофейня на углу, где бариста за пятнадцать лет запомнил заказ каждого постоянного посетителя. Спокойная история о людях, которые приходят сюда каждое утро, и о том, что они приносят с собой.",
-    },
-    {
       label: "Последний маяк",
       genre: "narrative",
       prompt:
         "Смотритель маяка на Каспии продолжает зажигать свет, хотя корабли давно ходят по GPS. История одной осени, когда к нему впервые за много лет приехал гость.",
-    },
-    {
-      label: "Учительница из аула",
-      genre: "drama",
-      prompt:
-        "Молодая учительница приезжает по распределению в далёкий аул, где школу собираются закрыть, и за один учебный год меняет решение целого района.",
     },
     {
       label: "IT-стартап: триумф и крах",
@@ -85,22 +73,10 @@ export const INSPIRATION: Record<ContentLanguage, InspirationTheme[]> = {
   ],
   kz: [
     {
-      label: "Бұрыштағы кофехана",
-      genre: "narrative",
-      prompt:
-        "Бұрыштағы қарапайым кофехана. Бариста он бес жыл ішінде әр тұрақты қонақтың тапсырысын жаттап алған. Күн сайын таңертең осында келетін адамдар және олардың өзімен бірге әкелетіні туралы жайбарақат әңгіме.",
-    },
-    {
       label: "Соңғы шамшырақ",
       genre: "narrative",
       prompt:
         "Каспийдегі шамшырақ күзетшісі кемелер әлдеқашан GPS-пен жүрсе де, шамды жағуды тоқтатпайды. Көп жылдан кейін оған алғаш рет қонақ келген бір күздің оқиғасы.",
-    },
-    {
-      label: "Ауылдағы мұғалім",
-      genre: "drama",
-      prompt:
-        "Жас мұғалім жолдамамен мектебі жабылғалы тұрған алыс ауылға келеді де, бір оқу жылында бүкіл ауданның шешімін өзгертеді.",
     },
     {
       label: "Стартаптың өрлеуі мен құлдырауы",
@@ -159,22 +135,10 @@ export const INSPIRATION: Record<ContentLanguage, InspirationTheme[]> = {
   ],
   en: [
     {
-      label: "The corner coffee shop",
-      genre: "narrative",
-      prompt:
-        "An ordinary corner coffee shop where, over fifteen years, the barista has learned every regular's order by heart. A quiet story about the people who come in each morning and what they bring with them.",
-    },
-    {
       label: "The last lighthouse",
       genre: "narrative",
       prompt:
         "A lighthouse keeper on the Caspian still lights the lamp every night although ships have navigated by GPS for years. The story of one autumn when, for the first time in a long while, a visitor came.",
-    },
-    {
-      label: "The village teacher",
-      genre: "drama",
-      prompt:
-        "A young teacher is posted to a remote village whose school is about to be closed, and over one school year changes the mind of a whole district.",
     },
     {
       label: "A startup's rise and fall",

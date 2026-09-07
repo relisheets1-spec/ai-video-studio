@@ -306,6 +306,12 @@ export default function AdminPage() {
     if (session) loadTab();
   }, [session, loadTab]);
 
+  // Список администраторов нужен сводке сверху, а не только своей вкладке.
+  const adminEmail = session?.admin.email;
+  useEffect(() => {
+    if (adminEmail) loadAdmins();
+  }, [adminEmail, loadAdmins]);
+
   // -------------------------------------------------------------------------
   // Вход
   // -------------------------------------------------------------------------

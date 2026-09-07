@@ -13,15 +13,12 @@ import {
   Lightning,
   TextAa,
   Trash,
-  CaretDown,
-  CaretUp,
   ImageSquare,
   X,
 } from "@phosphor-icons/react";
 import { Scene, StudioUser, VideoGeneration, VoiceOption } from "@/lib/types";
 import { aspectRatioCss, normalizeOrientation, type Orientation } from "@/lib/orientation";
 import { GENRE_IDS, GENRES } from "@/lib/content/genres";
-import { STYLE_IDS, STYLES } from "@/lib/content/styles";
 import { INSPIRATION } from "@/lib/content/inspiration";
 import { type ContentLanguage } from "@/lib/content/languages";
 import { defaultVoiceFor } from "@/lib/content/voices";
@@ -61,14 +58,8 @@ const GENRE_OPTIONS = GENRE_IDS.map((id) => ({
   icon: iconFor(GENRES[id].icon),
 }));
 
-const STYLE_OPTIONS = STYLE_IDS.map((id) => ({
-  id,
-  label: STYLES[id].label,
-  icon: iconFor(STYLES[id].icon),
-}));
-
-/** Сколько стилей показывать до кнопки «Ещё». */
-const STYLES_COLLAPSED = 6;
+/** Стиль картинок пользователь не выбирает: по умолчанию кино, а если тема прямо задаёт технику — её подхватывает план истории. */
+const DEFAULT_STYLE = "cinematic";
 /** Картинки не зависят друг от друга — генерируем пачками; озвучка остаётся последовательной. */
 const IMAGE_CONCURRENCY = 3;
 
@@ -82,8 +73,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   const [language, setLanguage] = useState<ContentLanguage>("ru");
   const [topic, setTopic] = useState("");
   const [selectedGenre, setSelectedGenre] = useState(GENRE_OPTIONS[0].id);
-  const [selectedStyle, setSelectedStyle] = useState(STYLE_OPTIONS[0].id);
-  const [showAllStyles, setShowAllStyles] = useState(false);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>(defaultVoiceFor("ru"));
   // По умолчанию максимум: кадры, символы и стоимость видны сразу, без клика по слайдеру.
   const [targetMinutes, setTargetMinutes] = useState<number | null>(MAX_MINUTES);
@@ -111,6 +100,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   const [error, setError] = useState<string | null>(null);
 
   const [pastVideos, setPastVideos] = useState<VideoGeneration[]>([]);
+  // Сколько дней сервер держит кадры и озвучку (MEDIA_TTL_DAYS) — для подписи в архиве.
+  const [mediaTtlDays, setMediaTtlDays] = useState(30);
   const [loadingHistory, setLoadingHistory] = useState(false);
   // Референс персонажа/объекта (необязательно): картинка пользователя → все кадры по ней.
   const [reference, setReference] = useState<{
@@ -187,6 +178,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       const data = await res.json();
       if (res.ok && data.videos) {
         setPastVideos(data.videos);
+        if (typeof data.mediaTtlDays === "number") setMediaTtlDays(data.mediaTtlDays);
         if (!currentVideo && data.videos.length > 0) {
           const latest = data.videos[0];
           if (latest.scenes && latest.scenes.length > 0) {
@@ -263,7 +255,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
         body: JSON.stringify({
           topic: topic.trim(),
           genre: selectedGenre,
-          style: selectedStyle,
+          style: DEFAULT_STYLE,
           voice: selectedVoice,
           language,
           targetMinutes,
@@ -352,7 +344,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 videoId,
                 sceneId: scene.id,
                 visualPrompt: scene.visualPrompt,
-                style: selectedStyle,
                 orientation,
               }),
             });
@@ -423,7 +414,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     : orientation;
 
   const activeGenre = GENRE_OPTIONS.find((g) => g.id === selectedGenre);
-  const activeStyle = STYLE_OPTIONS.find((st) => st.id === selectedStyle);
   const wordCount = topic.split(" ").filter(Boolean).length;
   const plan = planFromMinutes(targetMinutes ?? MIN_MINUTES, language);
   const plannedFrames = targetMinutes === null ? "—" : plan.scenesCount;
@@ -435,9 +425,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     sec >= 60
       ? Math.floor(sec / 60) + ":" + String(Math.round(sec % 60)).padStart(2, "0")
       : Math.round(sec) + " сек";
-
-  const visibleStyles = showAllStyles ? STYLE_OPTIONS : STYLE_OPTIONS.slice(0, STYLES_COLLAPSED);
-  const selectedStyleHidden = !showAllStyles && !visibleStyles.some((st) => st.id === selectedStyle);
 
   return (
     <div className="w-full max-w-shell mx-auto px-5 sm:px-8 pt-6 sm:pt-8 pb-32">
@@ -634,77 +621,44 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             />
           </Tile>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-            <Tile title="Хронометраж" icon={<Clock size={20} />}>
-              <div className="flex flex-col gap-4">
-                <Slider
-                  value={targetMinutes}
-                  min={MIN_MINUTES}
-                  max={MAX_MINUTES}
-                  step={1}
-                  onChange={setTargetMinutes}
-                  placeholder="Выберите длительность"
-                  valueLabel={`${plan.minutes} мин · ${pluralFrames(plan.scenesCount)}`}
-                  ticks={[MIN_MINUTES, 5, 10, MAX_MINUTES]}
-                />
+          <Tile title="Хронометраж" icon={<Clock size={20} />}>
+            <div className="flex flex-col gap-4">
+              <Slider
+                value={targetMinutes}
+                min={MIN_MINUTES}
+                max={MAX_MINUTES}
+                step={1}
+                onChange={setTargetMinutes}
+                placeholder="Выберите длительность"
+                valueLabel={`${plan.minutes} мин · ${pluralFrames(plan.scenesCount)}`}
+                ticks={[MIN_MINUTES, 5, 10, MAX_MINUTES]}
+              />
 
-                {targetMinutes !== null && (
-                  <div className="rounded-control bg-surface-2 border border-hairline px-3.5 py-3 text-[13px] leading-snug flex flex-col gap-1.5">
-                    <div className="text-[12px] text-faint">
-                      {formatPlanLength(plan)} · {pluralFrames(plan.scenesCount)} · спишется примерно:
-                    </div>
-                    <div className="flex items-baseline justify-between gap-3 tabular">
-                      <span className="text-ink font-medium">OpenAI</span>
-                      <span className="text-muted">~{formatInt(plan.estimatedChars)} символов + {pluralFrames(plan.scenesCount)}</span>
-                      <span className="text-ink font-semibold">≈ {formatUsd(plan.estimate.openaiUsd)}</span>
-                    </div>
-                    <div className="flex items-baseline justify-between gap-3 tabular">
-                      <span className="text-ink font-medium">ElevenLabs</span>
-                      <span className="text-muted">~{formatInt(plan.estimatedChars)} символов ≈ {formatInt(plan.estimate.elevenCredits)} кр.</span>
-                      <span className="text-ink font-semibold">≈ {formatUsd(plan.estimate.elevenUsd)}</span>
-                    </div>
+              {targetMinutes !== null && (
+                <div className="rounded-control bg-surface-2 border border-hairline px-3.5 py-3 text-[13px] leading-snug">
+                  <div className="text-[12px] text-faint mb-2">
+                    {formatPlanLength(plan)} · {pluralFrames(plan.scenesCount)} · спишется примерно:
                   </div>
-                )}
-              </div>
-            </Tile>
+                  {/* Таблица: сумма никогда не переносится, описание — как влезет. */}
+                  <div className="grid grid-cols-[auto_1fr_auto] gap-x-4 gap-y-1.5 items-baseline tabular">
+                    <span className="text-ink font-medium">OpenAI</span>
+                    <span className="text-muted">текст ~{formatInt(plan.estimatedChars)} символов + {pluralFrames(plan.scenesCount)}</span>
+                    <span className="text-ink font-semibold whitespace-nowrap text-right">≈ {formatUsd(plan.estimate.openaiUsd)}</span>
 
-            <Tile
-              title="Визуальный стиль"
-              icon={<Sliders size={20} />}
-              action={
-                selectedStyleHidden && activeStyle ? (
-                  <Badge tone="outline">{activeStyle.label}</Badge>
-                ) : null
-              }
-            >
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {visibleStyles.map((st) => {
-                  const Icon = st.icon;
-                  return (
-                    <SelectCard
-                      key={st.id}
-                      size="sm"
-                      selected={selectedStyle === st.id}
-                      onClick={() => setSelectedStyle(st.id)}
-                      icon={<Icon size={18} />}
-                      title={st.label}
-                    />
-                  );
-                })}
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="mt-2.5 w-full"
-                icon={showAllStyles ? <CaretUp size={14} /> : <CaretDown size={14} />}
-                onClick={() => setShowAllStyles((v) => !v)}
-              >
-                {showAllStyles ? "Свернуть" : `Ещё ${STYLE_OPTIONS.length - STYLES_COLLAPSED} стилей`}
-              </Button>
-            </Tile>
-          </div>
+                    <span className="text-ink font-medium">ElevenLabs</span>
+                    <span className="text-muted">озвучка ~{formatInt(plan.estimatedChars)} символов ≈ {formatInt(plan.estimate.elevenCredits)} кр.</span>
+                    <span className="text-ink font-semibold whitespace-nowrap text-right">≈ {formatUsd(plan.estimate.elevenUsd)}</span>
 
+                    <span className="col-span-3 border-t border-hairline" />
+
+                    <span className="text-ink font-semibold">Итого</span>
+                    <span className="text-muted">с двух счетов</span>
+                    <span className="text-ink font-bold whitespace-nowrap text-right">≈ {formatUsd(plan.estimate.totalUsd)}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </Tile>
         </form>
 
         {/* ================= ПРАВО: монитор и архив ================= */}
@@ -810,6 +764,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             <Tile
               title="Архив"
               icon={<ArrowCounterClockwise size={20} />}
+              hint={`Кадры и озвучка хранятся на сервере ровно ${mediaTtlDays} дней, потом стираются. Готовый MP4 не хранится — он собирается в браузере из кадров и озвучки, поэтому скачайте его, пока они на месте.`}
               action={
                 <span className="text-[12px] text-faint tabular">
                   {loadingHistory ? "…" : `${pastVideos.length} видео`}
@@ -866,7 +821,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             <div className="flex items-center justify-between gap-4">
               <div className="hidden md:flex items-center gap-2 min-w-0 text-[12.5px] text-muted">
                 {activeGenre && <Badge tone="outline">{activeGenre.label}</Badge>}
-                {activeStyle && <Badge tone="outline">{activeStyle.label}</Badge>}
                 {targetMinutes !== null && <Badge tone="outline">{pluralFrames(plan.scenesCount)}</Badge>}
                 <Badge tone="outline">{orientation === "portrait" ? "9:16" : "16:9"}</Badge>
               </div>

@@ -7,7 +7,7 @@ import { MEDIA_ROOT } from "./env";
 /**
  * Файлы на диске сервера.
  *
- *   <MEDIA_ROOT>/films/<videoId>/scene_1.png | scene_1.mp3
+ *   <MEDIA_ROOT>/films/<videoId>/scene_1.jpg | scene_1.mp3   (фильмы до 07.09.2026 — scene_1.png)
  *   <MEDIA_ROOT>/refs/<userId>/<uuid>.png
  *
  * Наружу они уходят ссылками /media/... — в production их отдаёт nginx
@@ -54,8 +54,8 @@ export function saveSceneAudio(videoId: string, sceneId: number, data: Buffer): 
   return write(`films/${videoId}/scene_${sceneId}.mp3`, data);
 }
 
-export function saveSceneImage(videoId: string, sceneId: number, data: Buffer): Promise<string> {
-  return write(`films/${videoId}/scene_${sceneId}.png`, data);
+export function saveSceneImage(videoId: string, sceneId: number, data: Buffer, ext: "jpg" | "png" = "jpg"): Promise<string> {
+  return write(`films/${videoId}/scene_${sceneId}.${ext}`, data);
 }
 
 export async function saveReference(userId: string, ext: string, data: Buffer): Promise<string> {

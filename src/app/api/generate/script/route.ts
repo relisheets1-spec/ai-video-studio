@@ -160,10 +160,16 @@ export async function POST(req: NextRequest) {
       `[rhythm] after narration: ${JSON.stringify(stats)} failures=${JSON.stringify(rhythmFailures(stats, language))}`
     );
 
+    // Стиль картинок: по умолчанию кино; свой — только если тема прямо задаёт
+    // технику, тогда план возвращает visualStyle и он идёт в промпты кадров.
+    const customStyle = typeof blueprint.visualStyle === "string" ? blueprint.visualStyle.trim().slice(0, 120) : "";
+    const effectiveStyle = customStyle.length >= 4 ? customStyle : style;
+    if (customStyle) console.info(`[blueprint] стиль из темы: ${customStyle}`);
+
     const draft = {
       blueprint,
       narration,
-      params: { topic, genre, style, voice, language, orientation, targetMinutes: plan.minutes },
+      params: { topic, genre, style: effectiveStyle, voice, language, orientation, targetMinutes: plan.minutes },
       llm: usage.toJSON(),
     };
     const cost = {
@@ -176,7 +182,7 @@ export async function POST(req: NextRequest) {
       },
     };
 
-    updateVideo(createdVideoId, { draft, cost });
+    updateVideo(createdVideoId, { draft, cost, style: effectiveStyle });
 
     return NextResponse.json({
       videoId: createdVideoId,
