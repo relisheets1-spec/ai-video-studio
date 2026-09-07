@@ -88,12 +88,17 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   const [selectedStyle, setSelectedStyle] = useState(STYLE_OPTIONS[0].id);
   const [showAllStyles, setShowAllStyles] = useState(false);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>(defaultVoiceFor("ru"));
-  // По ТЗ значения по умолчанию нет — пользователь обязан выбрать хронометраж сам.
-  const [targetMinutes, setTargetMinutes] = useState<number | null>(null);
+  // По умолчанию максимум: кадры, символы и стоимость видны сразу, без клика по слайдеру.
+  const [targetMinutes, setTargetMinutes] = useState<number | null>(MAX_MINUTES);
   const [orientation, setOrientation] = useState<Orientation>("landscape");
 
   // Ключ ElevenLabs живёт в аккаунте (введён при регистрации); здесь только обновление.
   const [showKeyModal, setShowKeyModal] = useState(false);
+  // Без ключа озвучки нет, поэтому окно ключа открывается сразу при входе в студию.
+  useEffect(() => {
+    if (!user.hasElevenLabsKey) setShowKeyModal(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.id]);
   const [keyDraft, setKeyDraft] = useState("");
   const [keySaving, setKeySaving] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
@@ -121,7 +126,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
   const scrollGenres = (direction: -1 | 1) => {
-    genreScrollRef.current?.scrollBy({ left: direction * 328, behavior: "smooth" });
+    genreScrollRef.current?.scrollBy({ left: direction * 280, behavior: "smooth" });
   };
   const onGenrePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.pointerType !== "mouse" || e.button !== 0) return;
@@ -254,7 +259,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     }
   };
 
-  const inspirationThemes = INSPIRATION[language];
+  // Восемь подсказок: на телефоне лента вбок, на десктопе в две строки.
+  const inspirationThemes = INSPIRATION[language].slice(0, 8);
 
   const handleSaveKey = async (e: React.FormEvent, clear = false) => {
     e.preventDefault();
@@ -292,6 +298,11 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     }
     if (user.remaining <= 0) {
       setError("Лимит генераций исчерпан. Обратитесь к администратору.");
+      return;
+    }
+    if (!user.hasElevenLabsKey) {
+      setKeyError(null);
+      setShowKeyModal(true);
       return;
     }
 
@@ -543,27 +554,25 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
           onSubmit={handleStartGeneration}
           className="lg:col-span-7 flex flex-col gap-5 min-w-0"
         >
-          <Tile
-            title="Формат кадра"
-            icon={<FrameCorners size={20} />}
-            hint="Выбирается до генерации: картинки рисуются сразу в этом формате."
-          >
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <Tile title="Формат кадра" icon={<FrameCorners size={20} />}>
+            <div className="grid grid-cols-2 gap-2.5">
               <SelectCard
+                size="sm"
                 layout="horizontal"
                 selected={orientation === "landscape"}
                 onClick={() => setOrientation("landscape")}
-                icon={<FrameCorners size={20} />}
-                title="Горизонтальный 16:9"
-                meta="YouTube · 1920×1080"
+                icon={<FrameCorners size={18} />}
+                title="16:9"
+                hint="YouTube"
               />
               <SelectCard
+                size="sm"
                 layout="horizontal"
                 selected={orientation === "portrait"}
                 onClick={() => setOrientation("portrait")}
-                icon={<DeviceMobile size={20} />}
-                title="Вертикальный 9:16"
-                meta="Reels · Shorts · TikTok · 1080×1920"
+                icon={<DeviceMobile size={18} />}
+                title="9:16"
+                hint="Reels · TikTok"
               />
             </div>
           </Tile>
@@ -573,7 +582,9 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             action={
               wordCount > 0 ? (
                 <span className="text-[12px] text-faint tabular">{wordCount} слов</span>
-              ) : null
+              ) : (
+                <span className="text-[12px] text-faint sm:hidden">темы: листайте →</span>
+              )
             }
           >
             <Textarea
@@ -585,7 +596,9 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
               disabled={isGenerating}
             />
 
-            <div className="flex flex-wrap gap-2 mt-3.5">
+            {/* Телефон: лента вбок, крайняя тема обрезана краем экрана — видно, что есть ещё.
+                Десктоп: обычный перенос. */}
+            <div className="flex gap-2 mt-3.5 overflow-x-auto -mx-5 px-5 pb-1.5 sm:flex-wrap sm:overflow-visible sm:mx-0 sm:px-0 sm:pb-0">
               {inspirationThemes.map((t, idx) => (
                 <button
                   key={idx}
@@ -595,7 +608,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                     if (t.genre) setSelectedGenre(t.genre);
                   }}
                   disabled={isGenerating}
-                  className="h-8 px-3.5 rounded-full bg-surface-2 border border-hairline text-[12.5px] text-muted hover:text-ink hover:border-hairline-strong transition-colors cursor-pointer disabled:opacity-45"
+                  className="shrink-0 h-8 px-3.5 rounded-full bg-surface-2 border border-hairline text-[12.5px] text-muted hover:text-ink hover:border-hairline-strong transition-colors cursor-pointer disabled:opacity-45 whitespace-nowrap"
                 >
                   {t.label}
                 </button>
@@ -663,11 +676,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             icon={<FilmStrip size={20} />}
             action={
               <div className="flex items-center gap-1.5">
-                <span className="text-[12px] text-faint [@media(hover:hover)]:hidden">листайте →</span>
                 <button
                   type="button"
                   onClick={() => scrollGenres(-1)}
-                  className="hidden [@media(hover:hover)]:flex w-7 h-7 rounded-full border border-hairline bg-surface hover:bg-surface-2 text-muted hover:text-ink items-center justify-center cursor-pointer transition-colors"
+                  className="flex w-7 h-7 rounded-full border border-hairline bg-surface hover:bg-surface-2 text-muted hover:text-ink items-center justify-center cursor-pointer transition-colors"
                   title="Назад"
                   aria-label="Прокрутить жанры назад"
                 >
@@ -676,7 +688,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 <button
                   type="button"
                   onClick={() => scrollGenres(1)}
-                  className="hidden [@media(hover:hover)]:flex w-7 h-7 rounded-full border border-hairline bg-surface hover:bg-surface-2 text-muted hover:text-ink items-center justify-center cursor-pointer transition-colors"
+                  className="flex w-7 h-7 rounded-full border border-hairline bg-surface hover:bg-surface-2 text-muted hover:text-ink items-center justify-center cursor-pointer transition-colors"
                   title="Вперёд"
                   aria-label="Прокрутить жанры вперёд"
                 >
@@ -691,12 +703,12 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
               ref={genreScrollRef}
               onPointerDown={onGenrePointerDown}
               onClickCapture={onGenreClickCapture}
-              className="overflow-x-auto no-scrollbar -mx-5 px-5 pb-1 [@media(hover:hover)]:cursor-grab [@media(hover:hover)]:active:cursor-grabbing select-none"
+              className="overflow-x-auto -mx-5 px-5 pb-2 [@media(hover:hover)]:cursor-grab [@media(hover:hover)]:active:cursor-grabbing select-none"
             >
               <div className="flex flex-col gap-2 min-w-max">
                 {[GENRE_OPTIONS.filter((_, i) => i % 2 === 0), GENRE_OPTIONS.filter((_, i) => i % 2 === 1)].map(
                   (row, rowIdx) => (
-                    <div key={rowIdx} className={cn("flex gap-2", rowIdx === 1 && "pl-[78px]")}>
+                    <div key={rowIdx} className={cn("flex gap-2", rowIdx === 1 && "pl-[66px]")}>
                       {row.map((g) => {
                         const Icon = g.icon;
                         return (
@@ -706,9 +718,9 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                             layout="horizontal"
                             selected={selectedGenre === g.id}
                             onClick={() => setSelectedGenre(g.id)}
-                            icon={<Icon size={18} />}
+                            icon={<Icon size={16} />}
                             title={g.label}
-                            className="w-[156px] shrink-0"
+                            className="w-[132px] shrink-0 !p-2"
                           />
                         );
                       })}
@@ -980,10 +992,14 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 form="studio-form"
                 size="lg"
                 icon={<Play size={20} weight="fill" />}
-                disabled={user.remaining <= 0 || !topic.trim() || targetMinutes === null}
+                disabled={user.remaining <= 0 || !topic.trim() || targetMinutes === null || !user.hasElevenLabsKey}
                 className="w-full md:w-auto"
               >
-                {targetMinutes === null ? "Выберите хронометраж" : "Запустить генерацию"}
+                {!user.hasElevenLabsKey
+                  ? "Добавьте ключ ElevenLabs"
+                  : targetMinutes === null
+                    ? "Выберите хронометраж"
+                    : "Запустить генерацию"}
               </Button>
             </div>
           )}
@@ -1013,7 +1029,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
         hint={
           user.hasElevenLabsKey
             ? "Ключ сохранён в аккаунте в зашифрованном виде. Здесь его можно заменить или удалить."
-            : "Без ключа озвучка идёт запасным голосом OpenAI. Введите ключ ElevenLabs, чтобы использовать выбранные голоса."
+            : "Озвучка идёт с вашего аккаунта ElevenLabs — без ключа генерация не запустится. Ключ хранится зашифрованным."
         }
         icon={
           <IconTile size="md">
