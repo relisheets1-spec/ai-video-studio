@@ -12,14 +12,14 @@ export async function POST(req: NextRequest) {
   if (!siteLockEnabled()) return NextResponse.json({ success: true });
 
   const ip = getClientIp(req);
-  const attempts = checkAttempts(ip, "login");
+  const attempts = checkAttempts(ip, "site");
   if (attempts.blocked) {
     return NextResponse.json({ error: `Превышен лимит (${attempts.label}). Попробуйте позже.` }, { status: 429 });
   }
 
   const body = await req.json().catch(() => ({}));
   if (!checkSitePassword(body?.password)) {
-    recordAttempt(ip, "login", false, null);
+    recordAttempt(ip, "site", false, null);
     return NextResponse.json({ error: "Неверный пароль" }, { status: 401 });
   }
 

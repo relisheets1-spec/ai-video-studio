@@ -107,6 +107,15 @@ export function costRows(cost: VideoCost): CostRow[] {
   return rows;
 }
 
+/** Компактно для таблицы фильмов в админке: «$1,36 · текст $0,29 · картинки $0,45 · озвучка $0,62 (6 154 кр.)». */
+export function formatCostCompact(raw: unknown): string {
+  const cost = normalizeCost(raw);
+  if (!cost) return "—";
+  const parts = [`текст ${formatUsd(cost.llm.usd)}`, `картинки ${formatUsd(cost.images.usd)}`];
+  if (cost.tts.credits > 0) parts.push(`озвучка ${formatUsd(cost.tts.usd)} (${formatInt(cost.tts.credits)} кр.)`);
+  return `${formatUsd(cost.totalUsd)} · ${parts.join(" · ")}`;
+}
+
 /** Подпись про тариф под таблицей. */
 export function planNote(): string {
   return (

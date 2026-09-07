@@ -3,43 +3,33 @@ import type { VideoCost } from "./pricing";
 
 export type { Orientation, VideoCost };
 
-/**
- * Жизненный цикл доступа:
- *   pending  — заявка подана, ждёт администратора;
- *   invited  — админ одобрил, выдан код приглашения, регистрация не завершена;
- *   approved — доступ открыт, вход по коду с почты;
- *   rejected — заявка отклонена;
- *   blocked  — доступ закрыт, все сессии погашены.
- */
-export type AccessStatus = "pending" | "invited" | "approved" | "rejected" | "blocked";
+/** active — работает; blocked — доступ закрыт администратором, сессии погашены. */
+export type AccessStatus = "active" | "blocked";
 
-/** Профиль, который получает клиент студии. Ключ ElevenLabs наружу не отдаётся. */
+/** Профиль, который получает клиент студии. Сами ключи наружу не отдаются. */
 export interface StudioUser {
   id: string;
   email: string;
   status: AccessStatus;
-  remaining: number;
-  generationsLimit: number;
-  generationsUsed: number;
   hasElevenLabsKey: boolean;
+  hasOpenAiKey: boolean;
 }
 
-/** Строка таблицы пользователей в админке: плюс даты, счётчик фильмов и код приглашения. */
-export interface AdminUserView extends StudioUser {
-  createdAt: string;
-  approvedAt: string | null;
-  registeredAt: string | null;
-  lastLoginAt: string | null;
-  videosCount: number;
-  invite: { code: string; expiresAt: string; usedAt: string | null } | null;
-}
-
+/** Администратор: главный — из настроек сервера, остальные добавлены из панели. */
 export interface AdminInfo {
   email: string;
-  /** Из ADMIN_EMAILS: такого админа нельзя снять из панели. */
   isPrimary: boolean;
-  addedBy?: string | null;
-  createdAt?: string | null;
+  addedBy: string | null;
+  createdAt: string | null;
+}
+
+/** Строка таблицы пользователей в админке. */
+export interface AdminUserView extends StudioUser {
+  createdAt: string;
+  lastLoginAt: string | null;
+  videosCount: number;
+  /** Действующий код доступа этой почты. */
+  code: string | null;
 }
 
 export interface Scene {
@@ -72,6 +62,7 @@ export interface VideoGeneration {
   actual_duration_seconds: number;
   scenes: Scene[];
   error_message?: string | null;
+  /** Фактическая стоимость — видна только администратору. */
   cost?: VideoCost | null;
   /** Референс персонажа/объекта, если фильм делался по картинке пользователя. */
   reference_url?: string | null;

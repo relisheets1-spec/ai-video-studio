@@ -78,21 +78,18 @@ if [[ ! -f "$ENV_FILE" ]]; then
   SECRET="$(openssl rand -base64 48 | tr -d '\n')"
   cat > "$ENV_FILE" <<ENV
 SESSION_SECRET=${SECRET}
-OPENAI_API_KEY=
-ADMIN_EMAILS=
+# главный администратор и scrypt-хэш кода администратора (node scripts/hash-code.mjs "<код>")
+ADMIN_EMAIL=
+ADMIN_CODE_HASH=
 APP_URL=
 APP_NAME=AI Video Studio
 DATA_DIR=${DATA_DIR}
 MEDIA_TTL_DAYS=30
-DEFAULT_GENERATION_LIMIT=5
-MAIL_FROM=AI Video Studio <no-reply@example.com>
-RESEND_API_KEY=
 SITE_PASSWORD=
-ELEVENLABS_API_KEY=
 PORT=3000
 HOSTNAME=127.0.0.1
 ENV
-  echo "    создан ${ENV_FILE} — впишите OPENAI_API_KEY, ADMIN_EMAILS и почту"
+  echo "    создан ${ENV_FILE} — впишите ADMIN_EMAIL и ADMIN_CODE_HASH"
 fi
 chown root:"$APP_USER" "$ENV_FILE"
 chmod 640 "$ENV_FILE"
@@ -197,7 +194,7 @@ ufw status | sed -n '1,12p'
 
 echo
 echo "Готово. Дальше:"
-echo "  1) впишите ключи в ${ENV_FILE} (OPENAI_API_KEY, ADMIN_EMAILS, RESEND_API_KEY);"
+echo "  1) впишите в ${ENV_FILE} ADMIN_EMAIL и ADMIN_CODE_HASH (node scripts/hash-code.mjs \"<код>\");"
 echo "  2) секреты GitHub: SSH_HOST, SSH_USER=${APP_USER}, SSH_KEY — и push в main разложит приложение;"
 echo "  3) systemctl status studio && journalctl -u studio -f"
 if [[ -z "$DOMAIN" ]]; then

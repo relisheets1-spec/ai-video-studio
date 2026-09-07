@@ -120,3 +120,29 @@ export function decryptSecret(encrypted: string | null | undefined): string | nu
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Хэш секрета (код администратора): scrypt с солью, формат "scrypt$<salt>$<hash>"
+// ---------------------------------------------------------------------------
+
+const SCRYPT_OPTS = { N: 1 << 15, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
+
+export function hashSecret(plain: string): string {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(plain, salt, 32, SCRYPT_OPTS);
+  return `scrypt$${b64url(salt)}$${b64url(hash)}`;
+}
+
+/** Сверка за постоянное время; чужой формат или ошибка — всегда false. */
+export function verifySecret(plain: string, stored: string): boolean {
+  const parts = stored.split("$");
+  if (parts.length !== 3 || parts[0] !== "scrypt") return false;
+  try {
+    const salt = fromB64url(parts[1]);
+    const expected = fromB64url(parts[2]);
+    const actual = crypto.scryptSync(plain, salt, expected.length, SCRYPT_OPTS);
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
+}

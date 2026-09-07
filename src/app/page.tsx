@@ -14,11 +14,7 @@ import {
 } from "@/lib/client/session";
 
 function noticeFor(detail: SessionLostDetail | undefined): AuthNotice {
-  const status = detail?.status;
-  if (status === "pending" || status === "invited") {
-    return { tone: "warn", text: detail?.error || "Заявка ожидает одобрения администратора." };
-  }
-  if (status === "rejected" || status === "blocked") {
+  if (detail?.status === "blocked") {
     return { tone: "danger", text: detail?.error || "Доступ закрыт администратором." };
   }
   return { tone: "info", text: detail?.error || "Сессия истекла — войдите заново." };
@@ -34,6 +30,13 @@ export default function HomePage() {
   const refreshSession = useCallback(async () => {
     const fresh = await fetchSession();
     setUser(fresh);
+    if (!fresh) {
+      // Администратор с живой cookie панели на главной не задерживается.
+      try {
+        const res = await fetch("/api/admin/session", { credentials: "same-origin" });
+        if (res.ok) window.location.replace("/admin");
+      } catch {}
+    }
   }, []);
 
   useEffect(() => {

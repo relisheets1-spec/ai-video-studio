@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { addAdmin, listAdmins, removeAdmin } from "@/lib/admins";
-import { ADMIN_EMAILS, normalizeEmail } from "@/lib/env";
+import { normalizeEmail } from "@/lib/env";
 
 /** Список администраторов. */
 export async function GET(req: NextRequest) {
   const auth = await requireAdmin(req);
   if ("response" in auth) return auth.response;
-  return NextResponse.json({ admins: listAdmins(), me: auth.admin.email, primaryEmails: ADMIN_EMAILS });
+  return NextResponse.json({ admins: listAdmins(), me: auth.admin.email });
 }
 
-/** Добавить администратора по почте. Вход у него будет по коду с этой почты. */
+/** Добавить администратора по почте — входить он будет общим кодом администратора. */
 export async function POST(req: NextRequest) {
   const auth = await requireAdmin(req);
   if ("response" in auth) return auth.response;
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ success: true, admins: listAdmins() });
 }
 
-/** Снять администратора. Себя и почты из ADMIN_EMAILS снять нельзя. */
+/** Снять администратора. Себя и главного (из настроек сервера) снять нельзя. */
 export async function DELETE(req: NextRequest) {
   const auth = await requireAdmin(req);
   if ("response" in auth) return auth.response;

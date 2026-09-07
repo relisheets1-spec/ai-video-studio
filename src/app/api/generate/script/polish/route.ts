@@ -25,6 +25,7 @@ import {
 import { logPipelineError } from "@/lib/pipeline-log";
 import { requireUser } from "@/lib/session";
 import { LlmUsage } from "@/lib/llm-usage";
+import { decryptSecret } from "@/lib/crypto";
 import { SCRIPT_MODEL as MODEL, scriptChat } from "@/lib/script/model";
 import { isReferenceAnalysis } from "@/lib/reference";
 import { getOwnedVideo, getVideo, updateVideo } from "@/lib/videos";
@@ -72,6 +73,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Черновик сценария не найден — запустите генерацию заново" }, { status: 409 });
     }
 
+    const apiKey = decryptSecret(user.openai_key_enc);
+    if (!apiKey) return NextResponse.json({ error: "Добавьте ключ OpenAI в настройках" }, { status: 400 });
+
     const params = draft.params;
     const topic: string = params.topic || row.topic;
     const genre = normalizeGenre(params.genre);
@@ -101,6 +105,7 @@ export async function POST(req: NextRequest) {
         const chunkWords = countWords(chunk);
         try {
           const editedRes = await scriptChat({
+            apiKey,
             temperature: 0.3,
             messages: [
               { role: "system", content: editor.system },
@@ -143,6 +148,7 @@ export async function POST(req: NextRequest) {
         try {
           // reasoning low: без размышлений gpt-5.1 «сокращает» 652 → 638 слов, с low — до 532.
           const res = await scriptChat({
+            apiKey,
             temperature: 0.3,
             reasoning: "low",
             messages: [
@@ -186,6 +192,7 @@ export async function POST(req: NextRequest) {
         const prompt = buildRhythmRepairPrompt({ language, words: wordsA, markers: countMarkers(chunk), stats: chunkStats });
         try {
           const res = await scriptChat({
+            apiKey,
             temperature: 0.4,
             messages: [
               { role: "system", content: prompt.system },
@@ -231,6 +238,7 @@ export async function POST(req: NextRequest) {
     // --- Визуальные промпты ---
     const visualsPrompt = buildVisualsPrompt({ fragments, blueprint, styleFragment, orientation, fragmentBeats, reference });
     const visualsRes = await scriptChat({
+            apiKey,
       json: true,
       temperature: 0.6,
       messages: [

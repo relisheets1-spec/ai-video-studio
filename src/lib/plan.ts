@@ -32,7 +32,13 @@ export interface GenerationPlan {
   /** Объём «послевкусия» в словах. */
   tailWords: number;
   estimatedChars: number;
-  estimatedCostUsd: number;
+  /** Прикидка списаний по провайдерам — то, что видит пользователь под слайдером. */
+  estimate: {
+    openaiUsd: number;
+    elevenCredits: number;
+    elevenUsd: number;
+    totalUsd: number;
+  };
 }
 
 export function clampMinutes(value: unknown): number {
@@ -74,7 +80,15 @@ export function planFromMinutes(
     maxCharsPerScene: Math.round(wordsPerScene * cpw * 1.6),
     tailWords: Math.max(20, Math.round(askWords * 0.08)),
     estimatedChars,
-    estimatedCostUsd: estimateFilmCost({ scenesCount, estimatedChars, totalWords: askWords }).totalUsd,
+    estimate: (() => {
+      const e = estimateFilmCost({ scenesCount, estimatedChars, totalWords: askWords });
+      return {
+        openaiUsd: Math.round((e.llmUsd + e.imagesUsd) * 100) / 100,
+        elevenCredits: e.credits,
+        elevenUsd: Math.round(e.ttsUsd * 100) / 100,
+        totalUsd: Math.round(e.totalUsd * 100) / 100,
+      };
+    })(),
   };
 }
 

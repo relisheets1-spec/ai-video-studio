@@ -8,7 +8,6 @@ import { synthesize, type SynthResult } from "@/lib/elevenlabs";
 import { modelForLanguage, resolveVoice, settingsForModel } from "@/lib/content/voices";
 import { saveSceneAudio } from "@/lib/storage";
 import { getOwnedVideo } from "@/lib/videos";
-import { ELEVENLABS_API_KEY } from "@/lib/env";
 
 /** Сегментация держит кадр в пределах ~700 символов; это страховочный потолок. */
 const MAX_NARRATION_CHARS = 1500;
@@ -65,9 +64,9 @@ export async function POST(req: NextRequest) {
     const voiceId = resolveVoice(voice, lang);
     const model = modelForLanguage(lang);
 
-    // Ключ из аккаунта пользователя; общий ключ окружения — только запасной.
+    // Озвучка только с ключа пользователя: общего ключа у сервера нет.
     const userKey = decryptSecret(user.elevenlabs_key_enc);
-    const envKey = ELEVENLABS_API_KEY;
+    const envKey = "";
 
     let buffer: Buffer | null = null;
     let requestId: string | null = null;

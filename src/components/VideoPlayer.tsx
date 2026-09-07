@@ -32,7 +32,6 @@ import {
   wrapLines,
   SUBTITLE_MAX_LINES,
   SUBTITLE_OUTLINE,
-  SUBTITLE_SHADOW,
   SUBTITLE_FONT_STACK,
   SUBTITLE_FONT_WEIGHT,
 } from "@/lib/subtitles";
@@ -788,13 +787,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
                 alt={currentScene.title}
                 className="absolute inset-0 w-full h-full object-cover animate-xfade will-change-transform"
               />
-              <div
-                className="absolute inset-x-0 bottom-0 pointer-events-none"
-                style={{
-                  height: subtitleLayout.scrimH,
-                  background: "linear-gradient(to top, rgba(0,0,0,0.72), rgba(0,0,0,0))",
-                }}
-              />
             </div>
           ) : (
             <div className="w-full h-full flex flex-col items-center justify-center bg-stage text-center p-6">
@@ -886,7 +878,6 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ title, scenes, orienta
                       // Чёрная обводка вместо подложки; paint-order рисует её ПОД заливкой.
                       WebkitTextStroke: `${subtitleLayout.strokeW * 2}px ${SUBTITLE_OUTLINE}`,
                       paintOrder: "stroke fill",
-                      textShadow: `0 ${subtitleLayout.shadowOffsetY}px ${subtitleLayout.shadowBlur}px ${SUBTITLE_SHADOW}`,
                     }}
                   >
                     {line}

@@ -8,7 +8,6 @@ import {
   cueIndexAt,
   SUBTITLE_MAX_LINES,
   SUBTITLE_OUTLINE,
-  SUBTITLE_SHADOW,
   type Cue,
   type SubtitleLayout,
 } from "@/lib/subtitles";
@@ -182,18 +181,11 @@ export function drawSceneFrame(ctx: CanvasRenderingContext2D, p: FrameParams): v
     drawCover(ctx, p.asset.img, W, H, motion);
   }
 
-  // Нижняя шторка — те же пропорции, что и в превью
-  const gradient = ctx.createLinearGradient(0, H - layout.scrimH, 0, H);
-  gradient.addColorStop(0, "rgba(0, 0, 0, 0)");
-  gradient.addColorStop(1, "rgba(0, 0, 0, 0.72)");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, H - layout.scrimH, W, layout.scrimH);
-
   const activeCue = cueIndexAt(p.cues, p.elapsedSec);
   const box = activeCue >= 0 ? p.cueBoxes[activeCue] : null;
   if (!box || box.lines.length === 0) return;
 
-  // Подложки нет: цветной текст с чёрной обводкой, как на YouTube.
+  // Ни подложки, ни тени: цветной текст с чёрной обводкой в 1 px.
   // Цвет — по сквозному номеру предложения, тот же, что в плеере.
   ctx.save();
   ctx.font = layout.fontCss;
@@ -207,13 +199,7 @@ export function drawSceneFrame(ctx: CanvasRenderingContext2D, p: FrameParams): v
 
   for (let lIdx = 0; lIdx < box.lines.length; lIdx++) {
     const baselineY = box.cardY + layout.padY + layout.lineHeight * (lIdx + 0.5);
-    ctx.shadowColor = SUBTITLE_SHADOW;
-    ctx.shadowBlur = layout.shadowBlur;
-    ctx.shadowOffsetY = layout.shadowOffsetY;
     ctx.strokeText(box.lines[lIdx], W / 2, baselineY);
-    ctx.shadowColor = "transparent";
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
     ctx.fillStyle = fill;
     ctx.fillText(box.lines[lIdx], W / 2, baselineY);
   }

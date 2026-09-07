@@ -15,11 +15,8 @@ import {
   Trash,
   CaretDown,
   CaretUp,
-  Receipt,
   ImageSquare,
   X,
-  CaretLeft,
-  CaretRight,
 } from "@phosphor-icons/react";
 import { Scene, StudioUser, VideoGeneration, VoiceOption } from "@/lib/types";
 import { aspectRatioCss, normalizeOrientation, type Orientation } from "@/lib/orientation";
@@ -30,13 +27,12 @@ import { type ContentLanguage } from "@/lib/content/languages";
 import { defaultVoiceFor } from "@/lib/content/voices";
 import { formatPlanLength, planFromMinutes, pluralFrames, MAX_MINUTES, MIN_MINUTES } from "@/lib/plan";
 import { authFetch } from "@/lib/client/session";
-import type { ImageFrameUsage, TtsFrameUsage, VideoCost } from "@/lib/pricing";
-import { formatCostLine, formatInt } from "@/lib/cost-format";
+import type { ImageFrameUsage, TtsFrameUsage } from "@/lib/pricing";
+import { formatInt, formatUsd } from "@/lib/cost-format";
 import { iconFor } from "./content-icons";
 import { VideoPlayer } from "./VideoPlayer";
 import { VideoExporter } from "./VideoExporter";
 import { VoiceSelector } from "./VoiceSelector";
-import { CostModal } from "./CostModal";
 import {
   Alert,
   Badge,
@@ -50,6 +46,7 @@ import {
   Textarea,
   Tile,
   Input,
+  Field,
   cn,
 } from "@/components/ui";
 
@@ -92,73 +89,19 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   const [targetMinutes, setTargetMinutes] = useState<number | null>(MAX_MINUTES);
   const [orientation, setOrientation] = useState<Orientation>("landscape");
 
-  // Ключ ElevenLabs живёт в аккаунте (введён при регистрации); здесь только обновление.
+  // Ключи ElevenLabs и OpenAI живут в аккаунте зашифрованными; все расходы — с них.
   const [showKeyModal, setShowKeyModal] = useState(false);
-  // Без ключа озвучки нет, поэтому окно ключа открывается сразу при входе в студию.
+  const hasKeys = user.hasElevenLabsKey && user.hasOpenAiKey;
+  // Без ключей генерации нет, поэтому окно открывается сразу при входе в студию.
   useEffect(() => {
-    if (!user.hasElevenLabsKey) setShowKeyModal(true);
+    if (!user.hasElevenLabsKey || !user.hasOpenAiKey) setShowKeyModal(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.id]);
-  const [keyDraft, setKeyDraft] = useState("");
+  const [elevenDraft, setElevenDraft] = useState("");
+  const [openaiDraft, setOpenaiDraft] = useState("");
   const [keySaving, setKeySaving] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [keyWarning, setKeyWarning] = useState<string | null>(null);
-
-  // Слайдер жанров на ПК: колесо мыши листает ряд, ряд можно тащить мышью,
-  // стрелки в заголовке листают на две карточки. На телефоне — обычный свайп.
-  const genreScrollRef = useRef<HTMLDivElement | null>(null);
-  const genreDragRef = useRef<{ x: number; left: number; moved: boolean } | null>(null);
-  const genreSuppressClickUntilRef = useRef(0);
-  useEffect(() => {
-    const el = genreScrollRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-      const max = el.scrollWidth - el.clientWidth;
-      if (!delta || max <= 0) return;
-      const canScroll = delta > 0 ? el.scrollLeft < max - 1 : el.scrollLeft > 1;
-      if (!canScroll) return; // дошли до края — дальше крутится страница
-      e.preventDefault();
-      el.scrollLeft += delta;
-    };
-    // React вешает wheel как passive — preventDefault там не работает.
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, []);
-  const scrollGenres = (direction: -1 | 1) => {
-    genreScrollRef.current?.scrollBy({ left: direction * 280, behavior: "smooth" });
-  };
-  const onGenrePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.pointerType !== "mouse" || e.button !== 0) return;
-    const el = genreScrollRef.current;
-    if (!el) return;
-    genreDragRef.current = { x: e.clientX, left: el.scrollLeft, moved: false };
-    const onMove = (ev: PointerEvent) => {
-      const drag = genreDragRef.current;
-      if (!drag) return;
-      const dx = ev.clientX - drag.x;
-      if (!drag.moved && Math.abs(dx) < 5) return;
-      drag.moved = true;
-      el.scrollLeft = drag.left - dx;
-    };
-    const onUp = () => {
-      if (genreDragRef.current?.moved) genreSuppressClickUntilRef.current = Date.now() + 250;
-      genreDragRef.current = null;
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
-  };
-  const onGenreClickCapture = (e: React.MouseEvent<HTMLDivElement>) => {
-    // Отпустили после перетаскивания — это не выбор жанра.
-    if (Date.now() < genreSuppressClickUntilRef.current) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-  };
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [progressStep, setProgressStep] = useState("");
@@ -169,7 +112,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
 
   const [pastVideos, setPastVideos] = useState<VideoGeneration[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
-  const [costFor, setCostFor] = useState<{ title: string; cost: VideoCost } | null>(null);
   // Референс персонажа/объекта (необязательно): картинка пользователя → все кадры по ней.
   const [reference, setReference] = useState<{
     url: string;
@@ -199,7 +141,11 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       if (referenceInputRef.current) referenceInputRef.current.value = "";
     }
   };
-  const [balance, setBalance] = useState<{ used: number; limit: number; remaining: number } | null>(null);
+  const [balance, setBalance] = useState<{
+    elevenlabs: { available: boolean; remaining?: number; limit?: number; resetAt?: string | null };
+    openai: { hasKey: boolean; valid: boolean };
+    spent: { openaiUsd: number; credits: number };
+  } | null>(null);
 
   const previewRef = useRef<HTMLElement | null>(null);
 
@@ -207,7 +153,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     try {
       const res = await authFetch("/api/auth/balance");
       const data = await res.json();
-      setBalance(res.ok && data.available ? { used: data.used, limit: data.limit, remaining: data.remaining } : null);
+      setBalance(res.ok ? data : null);
     } catch {
       setBalance(null);
     }
@@ -218,11 +164,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       const res = await authFetch("/api/auth/session");
       const data = await res.json();
       if (res.ok && data.user) {
-        if (
-          data.user.remaining !== user.remaining ||
-          data.user.generationsLimit !== user.generationsLimit ||
-          data.user.hasElevenLabsKey !== user.hasElevenLabsKey
-        ) {
+        if (data.user.hasElevenLabsKey !== user.hasElevenLabsKey || data.user.hasOpenAiKey !== user.hasOpenAiKey) {
           onUserUpdate(data.user);
         }
       }
@@ -236,7 +178,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     syncBalance();
     fetchBalance();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user.id, user.hasElevenLabsKey]);
+  }, [user.id, user.hasElevenLabsKey, user.hasOpenAiKey]);
 
   const fetchHistory = async () => {
     setLoadingHistory(true);
@@ -262,21 +204,23 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
   // Восемь подсказок: на телефоне лента вбок, на десктопе в две строки.
   const inspirationThemes = INSPIRATION[language].slice(0, 8);
 
-  const handleSaveKey = async (e: React.FormEvent, clear = false) => {
+  const handleSaveKeys = async (e: React.FormEvent) => {
     e.preventDefault();
     setKeySaving(true);
     setKeyError(null);
     try {
-      const res = await authFetch("/api/auth/key", {
-        method: "POST",
-        body: JSON.stringify({ elevenLabsKey: clear ? "" : keyDraft.trim() }),
-      });
+      const body: Record<string, string> = {};
+      if (elevenDraft.trim()) body.elevenLabsKey = elevenDraft.trim();
+      if (openaiDraft.trim()) body.openAiKey = openaiDraft.trim();
+      if (!Object.keys(body).length) throw new Error("Вставьте хотя бы один ключ");
+      const res = await authFetch("/api/auth/keys", { method: "POST", body: JSON.stringify(body) });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Не удалось сохранить ключ");
-      onUserUpdate({ ...user, hasElevenLabsKey: !!data.hasElevenLabsKey });
-      setKeyDraft("");
+      if (!res.ok) throw new Error(data.error || "Не удалось сохранить ключи");
+      onUserUpdate(data.user);
+      setElevenDraft("");
+      setOpenaiDraft("");
       setKeyWarning(null);
-      setShowKeyModal(false);
+      if (data.user.hasElevenLabsKey && data.user.hasOpenAiKey) setShowKeyModal(false);
     } catch (err: any) {
       setKeyError(err.message);
     } finally {
@@ -296,11 +240,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       setError("Выберите хронометраж перед запуском генерации");
       return;
     }
-    if (user.remaining <= 0) {
-      setError("Лимит генераций исчерпан. Обратитесь к администратору.");
-      return;
-    }
-    if (!user.hasElevenLabsKey) {
+    if (!hasKeys) {
       setKeyError(null);
       setShowKeyModal(true);
       return;
@@ -313,7 +253,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
     const currentGenreObj = GENRE_OPTIONS.find((g) => g.id === selectedGenre);
 
     setProgressStep(
-      `Шаг 1 из 4: GPT-4o пишет сплошной закадровый рассказ (${currentGenreObj?.label || "Сюжет"}, ~${plan.minutes} мин)...`
+      `Шаг 1 из 4: пишем рассказ (${currentGenreObj?.label || "Сюжет"}, ~${plan.minutes} мин)...`
     );
 
     try {
@@ -337,7 +277,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       setProgressPercent(14);
 
       // 1б. Редактура, ритм, визуальные промпты, нарезка на кадры
-      setProgressStep(`Шаг 1 из 4: редактура ритма и раскадровка (${scriptData.words} слов)...`);
+      setProgressStep(`Шаг 1 из 4: редактура и раскадровка (${scriptData.words} слов)...`);
       const polishRes = await authFetch("/api/generate/script/polish", {
         method: "POST",
         body: JSON.stringify({ videoId }),
@@ -358,7 +298,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       let keyRejected = false;
       for (let i = 0; i < totalScenes; i++) {
         const scene = scenes[i];
-        setProgressStep(`Шаг 2 из 4: ElevenLabs синтезирует озвучку диктора (кадр ${i + 1}/${totalScenes})...`);
+        setProgressStep(`Шаг 2 из 4: озвучка (кадр ${i + 1}/${totalScenes})...`);
 
         const audioRes = await authFetch("/api/generate/audio", {
           method: "POST",
@@ -404,7 +344,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
           const i = nextIndex++;
           if (i >= totalScenes) return;
           const scene = scenesWithAudio[i];
-          setProgressStep(`Шаг 3 из 4: AI визуализирует кадры (${doneCount + 1}/${totalScenes}): "${scene.title}"...`);
+          setProgressStep(`Шаг 3 из 4: картинки (${doneCount + 1}/${totalScenes}): "${scene.title}"...`);
           try {
             const imgRes = await authFetch("/api/generate/image", {
               method: "POST",
@@ -438,7 +378,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
       if (failure) throw failure;
 
       // 4. Финализация
-      setProgressStep("Шаг 4 из 4: Сохранение фильма и обновление баланса...");
+      setProgressStep("Шаг 4 из 4: сохранение фильма...");
       const finalizeRes = await authFetch("/api/generate/finalize", {
         method: "POST",
         body: JSON.stringify({
@@ -509,30 +449,24 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
         </div>
 
         <div className="flex flex-col items-end gap-1 shrink-0">
-        <button
-          type="button"
-          onClick={() => {
-            setKeyError(null);
-            setShowKeyModal(true);
-          }}
-          title="Ключ ElevenLabs вашего аккаунта"
-          className={cn(
-            "inline-flex items-center gap-2 h-10 px-4 rounded-full border shrink-0",
-            "text-[13px] font-medium transition-colors cursor-pointer",
-            user.hasElevenLabsKey
-              ? "bg-contrast text-contrast-ink border-transparent"
-              : "bg-surface-2 text-muted border-hairline hover:text-ink hover:border-hairline-strong"
-          )}
-        >
-          <Key size={16} className={user.hasElevenLabsKey ? "text-accent" : "text-faint"} />
-          <span>{user.hasElevenLabsKey ? "Ключ ElevenLabs" : "Добавить ключ"}</span>
-          {user.hasElevenLabsKey && <span className="w-1.5 h-1.5 rounded-full bg-accent" />}
-        </button>
-        {balance && (
-          <span className="text-[12px] text-muted tabular" title="Остаток кредитов ElevenLabs в этом месяце">
-            {formatInt(balance.remaining)} из {formatInt(balance.limit)} кредитов
-          </span>
-        )}
+          <button
+            type="button"
+            onClick={() => {
+              setKeyError(null);
+              setShowKeyModal(true);
+            }}
+            title="Ключи ElevenLabs и OpenAI вашего аккаунта"
+            className={cn(
+              "inline-flex items-center gap-2 h-10 px-4 rounded-full border shrink-0",
+              "text-[13px] font-medium transition-colors cursor-pointer",
+              hasKeys
+                ? "bg-contrast text-contrast-ink border-transparent"
+                : "bg-surface-2 text-muted border-hairline hover:text-ink hover:border-hairline-strong"
+            )}
+          >
+            <Key size={16} className={hasKeys ? "text-accent" : "text-faint"} />
+            <span>{hasKeys ? "Ключи" : "Добавить ключи"}</span>
+          </button>
         </div>
       </div>
 
@@ -671,63 +605,23 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             </div>
           </Tile>
 
-          <Tile
-            title="Жанр истории"
-            icon={<FilmStrip size={20} />}
-            action={
-              <div className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => scrollGenres(-1)}
-                  className="flex w-7 h-7 rounded-full border border-hairline bg-surface hover:bg-surface-2 text-muted hover:text-ink items-center justify-center cursor-pointer transition-colors"
-                  title="Назад"
-                  aria-label="Прокрутить жанры назад"
-                >
-                  <CaretLeft size={14} weight="bold" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => scrollGenres(1)}
-                  className="flex w-7 h-7 rounded-full border border-hairline bg-surface hover:bg-surface-2 text-muted hover:text-ink items-center justify-center cursor-pointer transition-colors"
-                  title="Вперёд"
-                  aria-label="Прокрутить жанры вперёд"
-                >
-                  <CaretRight size={14} weight="bold" />
-                </button>
-              </div>
-            }
-          >
-            {/* Два ряда горизонтальным слайдером; второй ряд сдвинут на полкарточки,
-                чтобы плитки шли «кирпичиком», а не столбиками. */}
-            <div
-              ref={genreScrollRef}
-              onPointerDown={onGenrePointerDown}
-              onClickCapture={onGenreClickCapture}
-              className="overflow-x-auto -mx-5 px-5 pb-2 [@media(hover:hover)]:cursor-grab [@media(hover:hover)]:active:cursor-grabbing select-none"
-            >
-              <div className="flex flex-col gap-2 min-w-max">
-                {[GENRE_OPTIONS.filter((_, i) => i % 2 === 0), GENRE_OPTIONS.filter((_, i) => i % 2 === 1)].map(
-                  (row, rowIdx) => (
-                    <div key={rowIdx} className={cn("flex gap-2", rowIdx === 1 && "pl-[66px]")}>
-                      {row.map((g) => {
-                        const Icon = g.icon;
-                        return (
-                          <SelectCard
-                            key={g.id}
-                            size="sm"
-                            layout="horizontal"
-                            selected={selectedGenre === g.id}
-                            onClick={() => setSelectedGenre(g.id)}
-                            icon={<Icon size={16} />}
-                            title={g.label}
-                            className="w-[132px] shrink-0 !p-2"
-                          />
-                        );
-                      })}
-                    </div>
-                  )
-                )}
-              </div>
+          <Tile title="Жанр истории" icon={<FilmStrip size={20} />}>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {GENRE_OPTIONS.map((g) => {
+                const Icon = g.icon;
+                return (
+                  <SelectCard
+                    key={g.id}
+                    size="sm"
+                    layout="horizontal"
+                    selected={selectedGenre === g.id}
+                    onClick={() => setSelectedGenre(g.id)}
+                    icon={<Icon size={16} />}
+                    title={g.label}
+                    className="!p-2"
+                  />
+                );
+              })}
             </div>
           </Tile>
 
@@ -755,16 +649,20 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 />
 
                 {targetMinutes !== null && (
-                  <div className="rounded-control bg-surface-2 border border-hairline px-3.5 py-3 text-[13px] text-muted leading-snug grid grid-cols-2 gap-x-3 gap-y-1 sm:flex sm:flex-wrap sm:items-center sm:gap-x-2">
-                    <span className="whitespace-nowrap text-ink font-medium">{formatPlanLength(plan)}</span>
-                    <span className="hidden sm:inline text-faint">·</span>
-                    <span className="whitespace-nowrap">{pluralFrames(plan.scenesCount)}</span>
-                    <span className="hidden sm:inline text-faint">·</span>
-                    <span className="whitespace-nowrap tabular">
-                      ~{plan.estimatedChars.toLocaleString("ru-RU")} символов
-                    </span>
-                    <span className="hidden sm:inline text-faint">·</span>
-                    <span className="whitespace-nowrap tabular">≈ ${plan.estimatedCostUsd.toFixed(2)}</span>
+                  <div className="rounded-control bg-surface-2 border border-hairline px-3.5 py-3 text-[13px] leading-snug flex flex-col gap-1.5">
+                    <div className="text-[12px] text-faint">
+                      {formatPlanLength(plan)} · {pluralFrames(plan.scenesCount)} · спишется примерно:
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3 tabular">
+                      <span className="text-ink font-medium">OpenAI</span>
+                      <span className="text-muted">~{formatInt(plan.estimatedChars)} символов + {pluralFrames(plan.scenesCount)}</span>
+                      <span className="text-ink font-semibold">≈ {formatUsd(plan.estimate.openaiUsd)}</span>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-3 tabular">
+                      <span className="text-ink font-medium">ElevenLabs</span>
+                      <span className="text-muted">~{formatInt(plan.estimatedChars)} символов ≈ {formatInt(plan.estimate.elevenCredits)} кр.</span>
+                      <span className="text-ink font-semibold">≈ {formatUsd(plan.estimate.elevenUsd)}</span>
+                    </div>
                   </div>
                 )}
               </div>
@@ -877,28 +775,34 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
             )}
           </section>
 
-          {/* Показатели под монитором. На телефоне — три низкие плитки в ряд. */}
-          <div className="grid grid-cols-3 gap-2 sm:gap-4">
+          {/* Счета пользователя: остаток ElevenLabs живой, у OpenAI баланса в API нет —
+              показываем, жив ли ключ, и сколько ушло через студию. */}
+          <div className="grid grid-cols-2 gap-2 sm:gap-4">
             <StatTile
-              label="Кадров"
-              value={currentVideo ? currentVideo.scenes.length : plannedFrames}
-              icon={<FilmStrip size={20} />}
-            />
-            <StatTile
-              label={
-                <>
-                  <span className="sm:hidden">Время</span>
-                  <span className="hidden sm:inline">Длительность</span>
-                </>
+              label="ElevenLabs"
+              value={
+                balance?.elevenlabs?.available && typeof balance.elevenlabs.remaining === "number"
+                  ? formatInt(balance.elevenlabs.remaining)
+                  : user.hasElevenLabsKey
+                    ? "…"
+                    : "нет ключа"
               }
-              value={currentVideo ? formatSeconds(currentDuration) : plannedLength}
-              icon={<Clock size={20} />}
+              caption={
+                balance?.elevenlabs?.available && balance.elevenlabs.limit
+                  ? `кредитов из ${formatInt(balance.elevenlabs.limit)} в этом месяце`
+                  : "остаток кредитов"
+              }
+              icon={<Lightning size={20} />}
+              tone={user.hasElevenLabsKey ? "contrast" : "surface"}
+              valueClassName="text-[22px]"
             />
             <StatTile
-              label="Осталось"
-              value={user.remaining}
-              icon={<Lightning size={20} />}
-              tone={user.remaining > 0 ? "contrast" : "surface"}
+              label="OpenAI"
+              value={!user.hasOpenAiKey ? "нет ключа" : balance ? (balance.openai.valid ? "ключ работает" : "ключ отклонён") : "…"}
+              caption={balance ? `через студию потрачено ${formatUsd(balance.spent.openaiUsd)}` : "баланс OpenAI в API не отдаёт"}
+              icon={<Sliders size={20} />}
+              tone={user.hasOpenAiKey ? "contrast" : "surface"}
+              valueClassName="text-[18px]"
             />
           </div>
 
@@ -934,27 +838,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                           {vid.scenes?.length || 0} сцен • {Math.round(vid.actual_duration_seconds || 0)} сек
                           {normalizeOrientation(vid.scenes?.[0]?.orientation) === "portrait" ? " • 9:16" : " • 16:9"}
                         </span>
-                        {vid.cost && (
-                          <span
-                            role="button"
-                            tabIndex={0}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setCostFor({ title: vid.topic, cost: vid.cost as VideoCost });
-                            }}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.stopPropagation();
-                                setCostFor({ title: vid.topic, cost: vid.cost as VideoCost });
-                              }
-                            }}
-                            title="Подробная стоимость"
-                            className="mt-1 inline-flex items-center gap-1.5 text-[12px] text-accent tabular leading-snug hover:underline cursor-pointer"
-                          >
-                            <Receipt size={13} weight="fill" className="shrink-0" />
-                            <span className="whitespace-normal">{formatCostLine(vid.cost)}</span>
-                          </span>
-                        )}
+
                       </span>
                       <span
                         className={cn(
@@ -992,14 +876,10 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 form="studio-form"
                 size="lg"
                 icon={<Play size={20} weight="fill" />}
-                disabled={user.remaining <= 0 || !topic.trim() || targetMinutes === null || !user.hasElevenLabsKey}
+                disabled={!topic.trim() || targetMinutes === null || !hasKeys}
                 className="w-full md:w-auto"
               >
-                {!user.hasElevenLabsKey
-                  ? "Добавьте ключ ElevenLabs"
-                  : targetMinutes === null
-                    ? "Выберите хронометраж"
-                    : "Запустить генерацию"}
+                {!hasKeys ? "Добавьте ключи" : targetMinutes === null ? "Выберите хронометраж" : "Запустить генерацию"}
               </Button>
             </div>
           )}
@@ -1015,56 +895,54 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
         />
       )}
 
-      <CostModal
-        open={!!costFor}
-        onClose={() => setCostFor(null)}
-        title={costFor?.title || ""}
-        cost={costFor?.cost || null}
-      />
 
       <Modal
         open={showKeyModal}
         onClose={() => setShowKeyModal(false)}
-        title="Мой ключ ElevenLabs"
-        hint={
-          user.hasElevenLabsKey
-            ? "Ключ сохранён в аккаунте в зашифрованном виде. Здесь его можно заменить или удалить."
-            : "Озвучка идёт с вашего аккаунта ElevenLabs — без ключа генерация не запустится. Ключ хранится зашифрованным."
-        }
+        title="Мои ключи"
+        hint="Все расходы идут с ваших счетов: озвучка — ElevenLabs, текст и картинки — OpenAI. Ключи хранятся зашифрованными и наружу не отдаются."
         icon={
           <IconTile size="md">
             <Key size={20} weight="fill" />
           </IconTile>
         }
       >
-        <form id="key-form" onSubmit={(e) => handleSaveKey(e)} className="flex flex-col gap-4">
+        <form id="key-form" onSubmit={handleSaveKeys} className="flex flex-col gap-4">
           {keyError && <Alert tone="danger">{keyError}</Alert>}
-          <Input
-            type="text"
-            placeholder="sk_..."
-            value={keyDraft}
-            onChange={(e) => setKeyDraft(e.target.value)}
-            className="font-mono text-[13px]"
-            autoComplete="off"
-          />
-
+          <Field
+            label="Ключ ElevenLabs"
+            aside={user.hasElevenLabsKey ? <span className="text-accent">сохранён</span> : <span>нет</span>}
+            hint="elevenlabs.io → Profile → API Keys"
+          >
+            <Input
+              type="text"
+              placeholder={user.hasElevenLabsKey ? "оставьте пустым, чтобы не менять" : "sk_..."}
+              value={elevenDraft}
+              onChange={(e) => setElevenDraft(e.target.value)}
+              className="font-mono text-[13px]"
+              autoComplete="off"
+            />
+          </Field>
+          <Field
+            label="Ключ OpenAI"
+            aside={user.hasOpenAiKey ? <span className="text-accent">сохранён</span> : <span>нет</span>}
+            hint="platform.openai.com → API keys"
+          >
+            <Input
+              type="text"
+              placeholder={user.hasOpenAiKey ? "оставьте пустым, чтобы не менять" : "sk-..."}
+              value={openaiDraft}
+              onChange={(e) => setOpenaiDraft(e.target.value)}
+              className="font-mono text-[13px]"
+              autoComplete="off"
+            />
+          </Field>
           <div className="flex flex-wrap gap-2.5 pt-1">
-            <Button type="submit" loading={keySaving} disabled={!keyDraft.trim()} className="flex-1">
-              Сохранить ключ
+            <Button type="submit" loading={keySaving} disabled={!elevenDraft.trim() && !openaiDraft.trim()} className="flex-1">
+              Сохранить
             </Button>
-            {user.hasElevenLabsKey && (
-              <Button
-                type="button"
-                variant="danger"
-                icon={<Trash size={16} />}
-                disabled={keySaving}
-                onClick={(e) => handleSaveKey(e as unknown as React.FormEvent, true)}
-              >
-                Удалить
-              </Button>
-            )}
             <Button type="button" variant="secondary" onClick={() => setShowKeyModal(false)}>
-              Отмена
+              {hasKeys ? "Закрыть" : "Позже"}
             </Button>
           </div>
         </form>

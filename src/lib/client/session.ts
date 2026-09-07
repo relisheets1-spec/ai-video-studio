@@ -23,7 +23,7 @@ function dispatchSessionLost(detail: SessionLostDetail): void {
 }
 
 /** Статусы, при которых сессия студии теряет смысл. */
-const LOST_STATUSES = new Set(["pending", "invited", "rejected", "blocked"]);
+const LOST_STATUSES = new Set(["blocked"]);
 
 /**
  * fetch с cookie сессии. При 401 или 403 со статусом аккаунта страница

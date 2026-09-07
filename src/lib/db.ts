@@ -13,7 +13,7 @@ import { DB_PATH } from "./env";
  */
 
 const SCHEMA: string[] = [
-  // v1 — исходная схема после переезда с Supabase
+  // v1 — схема после переезда с Supabase: заявки, коды на почту, лимиты
   `
   CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
@@ -34,35 +34,6 @@ const SCHEMA: string[] = [
     registered_at      TEXT,
     last_login_at      TEXT
   );
-
-  CREATE TABLE IF NOT EXISTS admins (
-    email      TEXT PRIMARY KEY,
-    added_by   TEXT,
-    created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS invite_codes (
-    code       TEXT PRIMARY KEY,
-    email      TEXT NOT NULL,
-    created_by TEXT,
-    created_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    used_at    TEXT
-  );
-  CREATE INDEX IF NOT EXISTS idx_invite_email ON invite_codes (email);
-
-  CREATE TABLE IF NOT EXISTS login_codes (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    email      TEXT NOT NULL,
-    scope      TEXT NOT NULL,
-    code_hash  TEXT NOT NULL,
-    attempts   INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL,
-    expires_at TEXT NOT NULL,
-    consumed_at TEXT,
-    ip         TEXT
-  );
-  CREATE INDEX IF NOT EXISTS idx_login_codes_email ON login_codes (email, scope, created_at);
 
   CREATE TABLE IF NOT EXISTS login_attempts (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,6 +68,47 @@ const SCHEMA: string[] = [
   CREATE INDEX IF NOT EXISTS idx_videos_user ON video_generations (user_id, created_at);
   CREATE INDEX IF NOT EXISTS idx_videos_status ON video_generations (status, created_at);
   `,
+  // v2 — коды доступа вместо заявок и писем, ключ OpenAI у пользователя, без
+  // лимитов; дополнительные администраторы в таблице admins (общий код у всех).
+  // Таблица users пересобирается: SQLite не умеет менять колонки на месте.
+  `
+  CREATE TABLE IF NOT EXISTS access_codes (
+    code       TEXT PRIMARY KEY,
+    email      TEXT UNIQUE,
+    note       TEXT,
+    created_at TEXT NOT NULL,
+    used_at    TEXT,
+    revoked_at TEXT
+  );
+
+  CREATE TABLE users_v2 (
+    id                 TEXT PRIMARY KEY,
+    email              TEXT NOT NULL UNIQUE,
+    status             TEXT NOT NULL DEFAULT 'active',
+    elevenlabs_key_enc TEXT,
+    openai_key_enc     TEXT,
+    session_epoch      INTEGER NOT NULL DEFAULT 1,
+    created_at         TEXT NOT NULL,
+    last_login_at      TEXT
+  );
+  INSERT INTO users_v2 (id, email, status, elevenlabs_key_enc, session_epoch, created_at, last_login_at)
+    SELECT id, email,
+           CASE status WHEN 'blocked' THEN 'blocked' ELSE 'active' END,
+           elevenlabs_key_enc, session_epoch, created_at, last_login_at
+      FROM users
+     WHERE status IN ('approved', 'blocked');
+  DROP TABLE users;
+  ALTER TABLE users_v2 RENAME TO users;
+
+  DROP TABLE IF EXISTS invite_codes;
+  DROP TABLE IF EXISTS login_codes;
+
+  CREATE TABLE IF NOT EXISTS admins (
+    email      TEXT PRIMARY KEY,
+    added_by   TEXT,
+    created_at TEXT NOT NULL
+  );
+  `,
 ];
 
 let handle: DatabaseSync | null = null;
@@ -126,9 +138,16 @@ export function getDb(): DatabaseSync {
 
   const current = Number((db.prepare("PRAGMA user_version").get() as any)?.user_version || 0);
   for (let v = current; v < SCHEMA.length; v++) {
-    db.exec(SCHEMA[v]);
+    db.exec("BEGIN");
+    try {
+      db.exec(SCHEMA[v]);
+      db.exec(`PRAGMA user_version = ${v + 1}`);
+      db.exec("COMMIT");
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
   }
-  if (current < SCHEMA.length) db.exec(`PRAGMA user_version = ${SCHEMA.length}`);
 
   handle = db;
   cache.__studioDb = db;

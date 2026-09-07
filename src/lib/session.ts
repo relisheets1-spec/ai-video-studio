@@ -72,7 +72,7 @@ export async function requireUser(
 
   // Статус проверяется раньше эпохи: заблокированному честнее сказать, что
   // доступ закрыт, чем «сессия истекла».
-  if (user.status !== "approved") {
+  if (user.status !== "active") {
     return {
       response: NextResponse.json({ error: statusMessage(user.status), status: user.status }, { status: 403 }),
     };

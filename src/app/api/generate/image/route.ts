@@ -7,7 +7,7 @@ import { MAX_SCENES } from "@/lib/plan";
 import { isReferenceAnalysis } from "@/lib/reference";
 import { readMediaByUrl, saveSceneImage } from "@/lib/storage";
 import { getOwnedVideo } from "@/lib/videos";
-import { OPENAI_API_KEY } from "@/lib/env";
+import { decryptSecret } from "@/lib/crypto";
 
 const IMAGE_MODEL = "gpt-image-1-mini";
 const IMAGE_QUALITY = "medium";
@@ -35,6 +35,9 @@ export async function POST(req: NextRequest) {
 
   let loggedVideoId: string | null = null;
   try {
+    const OPENAI_API_KEY = decryptSecret(user.openai_key_enc);
+    if (!OPENAI_API_KEY) return NextResponse.json({ error: "Добавьте ключ OpenAI в настройках" }, { status: 400 });
+
     const { videoId, sceneId, visualPrompt, style, orientation } = await req.json();
     const frameOrientation = normalizeOrientation(orientation);
     loggedVideoId = typeof videoId === "string" ? videoId : null;

@@ -8,8 +8,6 @@ import { Badge, IconTile, ThemeToggle, cn } from "@/components/ui";
 interface NavbarProps {
   user?: {
     email: string;
-    remaining: number;
-    generationsLimit: number;
     status: string;
   } | null;
   onLogout?: () => void;
@@ -52,23 +50,10 @@ export const Navbar: React.FC<NavbarProps> = ({
         <div className="flex items-center gap-2 shrink-0 min-w-0">
           {actions}
 
-          {!isAdmin && user && user.status === "approved" && (
-            <>
-              <span
-                className={cn(
-                  "hidden md:inline-flex items-center gap-2 h-9 px-3.5 rounded-full",
-                  "border border-hairline bg-surface-2 text-[13px]"
-                )}
-                title="Осталось генераций"
-              >
-                <span className="w-1.5 h-1.5 rounded-full bg-accent" />
-                <span className="font-semibold text-ink tabular">{user.remaining}</span>
-                <span className="text-muted">видео</span>
-              </span>
-              <span className="hidden lg:inline text-[13px] font-medium text-muted px-1 max-w-[220px] truncate">
-                {user.email}
-              </span>
-            </>
+          {!isAdmin && user && (
+            <span className="hidden sm:inline text-[13px] font-medium text-muted px-1 max-w-[220px] truncate">
+              {user.email}
+            </span>
           )}
 
           {isAdmin && identity && (

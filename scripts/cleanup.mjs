@@ -8,8 +8,7 @@
  *   1) стирает картинки и звук фильмов старше MEDIA_TTL_DAYS (30 по умолчанию);
  *      текст сцен, стоимость и вся статистика остаются в базе навсегда;
  *   2) удаляет папки фильмов, которых уже нет в базе (осиротевшие);
- *   3) чистит просроченные коды входа, использованные приглашения и журнал
- *      попыток старше недели.
+ *   3) чистит журнал попыток входа старше недели.
  *
  * Зависимостей нет: node:sqlite и node:fs. Переменные берутся из окружения
  * (systemd подставляет /etc/studio.env).
@@ -84,16 +83,11 @@ if (fs.existsSync(FILMS_DIR)) {
   log(`осиротевших папок: ${orphans}`);
 }
 
-// 3. Коды и журнал попыток
+// 3. Журнал попыток входа
 if (!DRY) {
-  const day = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const week = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const codes = db.prepare("DELETE FROM login_codes WHERE expires_at < ?").run(day).changes;
-  const invites = db
-    .prepare("DELETE FROM invite_codes WHERE used_at IS NOT NULL AND used_at < ?")
-    .run(day).changes;
   const attempts = db.prepare("DELETE FROM login_attempts WHERE created_at < ?").run(week).changes;
-  log(`коды входа: ${codes}, приглашения: ${invites}, попытки: ${attempts}`);
+  log(`попытки входа старше недели: ${attempts}`);
   db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   db.exec("VACUUM");
 }

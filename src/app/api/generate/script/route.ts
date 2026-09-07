@@ -66,13 +66,8 @@ export async function POST(req: NextRequest) {
     }
     const { topic, genre, style, voice, targetMinutes, language, orientation } = validation.sanitized;
 
-    const remaining = Math.max(0, (user.generations_limit || 0) - (user.generations_used || 0));
-    if (remaining <= 0) {
-      return NextResponse.json(
-        { error: "Лимит генераций исчерпан. Обратитесь к администратору для пополнения баланса." },
-        { status: 403 }
-      );
-    }
+    const apiKey = decryptSecret(user.openai_key_enc);
+    if (!apiKey) return NextResponse.json({ error: "Добавьте ключ OpenAI в настройках" }, { status: 400 });
 
     const plan = planFromMinutes(targetMinutes, language);
     const startedAt = new Date().toISOString();
@@ -98,6 +93,7 @@ export async function POST(req: NextRequest) {
     // --- Проход 1: план ---
     const blueprintPrompt = buildBlueprintPrompt({ genre, language, plan, topic, reference: reference?.analysis ?? null });
     const blueprintRes = await scriptChat({
+      apiKey,
       json: true,
       temperature: 0.9,
       reasoning: "low",
@@ -141,7 +137,7 @@ export async function POST(req: NextRequest) {
         { role: "user", content: narrationPrompt.user },
       ];
       // Монолог пишет gpt-4o: он держит коридор объёма, gpt-5.1 пишет в 1,5–2 раза длиннее.
-      const res = await scriptChat({ model: NARRATION_MODEL, temperature: 0.85, messages: narrationMessages });
+      const res = await scriptChat({ apiKey, model: NARRATION_MODEL, temperature: 0.85, messages: narrationMessages });
       usage.add(totalParts > 1 ? `narration-${k}` : "narration", res.usage, res.model);
       pieces.push((res.choices[0].message.content || "").trim());
     }
@@ -152,7 +148,7 @@ export async function POST(req: NextRequest) {
     if (totalParts === 1 && written < plan.totalWords * 0.85) {
       narrationMessages.push({ role: "assistant", content: narration });
       narrationMessages.push({ role: "user", content: buildRepairPrompt(plan.askWords - written, plan.totalWords) });
-      const repaired = await scriptChat({ model: NARRATION_MODEL, temperature: 0.85, messages: narrationMessages });
+      const repaired = await scriptChat({ apiKey, model: NARRATION_MODEL, temperature: 0.85, messages: narrationMessages });
       usage.add("repair", repaired.usage, repaired.model);
       const repairedText = repaired.choices[0].message.content || "";
       if (countWords(repairedText) > written) narration = repairedText;

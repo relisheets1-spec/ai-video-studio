@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/session";
 import { analyzeReference } from "@/lib/reference";
 import { logPipelineError } from "@/lib/pipeline-log";
 import { saveReference } from "@/lib/storage";
+import { decryptSecret } from "@/lib/crypto";
 
 const MAX_BYTES = 8 * 1024 * 1024;
 const TYPES: Record<string, string> = {
@@ -20,6 +21,9 @@ export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
   if ("response" in auth) return auth.response;
   const { user } = auth;
+
+  const openaiKey = decryptSecret(user.openai_key_enc);
+  if (!openaiKey) return NextResponse.json({ error: "Добавьте ключ OpenAI в настройках" }, { status: 400 });
 
   try {
     const form = await req.formData();
@@ -39,7 +43,7 @@ export async function POST(req: NextRequest) {
     const url = await saveReference(user.id, ext, bytes);
     const dataUrl = `data:${file.type};base64,${bytes.toString("base64")}`;
 
-    const { analysis, usage } = await analyzeReference(dataUrl);
+    const { analysis, usage } = await analyzeReference(dataUrl, openaiKey);
 
     return NextResponse.json({ url, analysis, usage });
   } catch (err: any) {

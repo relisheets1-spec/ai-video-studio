@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/session";
-import { findUserById, incrementUsed, toPublicUser } from "@/lib/users";
+import { toPublicUser } from "@/lib/users";
 import { getOwnedVideo, updateVideo } from "@/lib/videos";
-import { ELEVENLABS_API_KEY } from "@/lib/env";
 import { decryptSecret } from "@/lib/crypto";
 import { MAX_SCENES } from "@/lib/plan";
 import { fetchHistoryCredits, fetchSubscription } from "@/lib/elevenlabs";
@@ -90,7 +89,7 @@ export async function POST(req: NextRequest) {
       let creditsAfter: number | null = null;
 
       const userKey = decryptSecret(user.elevenlabs_key_enc);
-      const envKey = ELEVENLABS_API_KEY;
+      const envKey = "";
       const sinceUnix = startedAt ? Math.floor(Date.parse(startedAt) / 1000) : Math.floor(Date.now() / 1000) - 3 * 3600;
 
       const byOwner: Record<"user" | "env", string[]> = { user: [], env: [] };
@@ -135,16 +134,8 @@ export async function POST(req: NextRequest) {
       ...(cost ? { cost } : {}),
     });
 
-    // Списываем генерацию один раз: повторный finalize баланс не трогает.
-    const newUsed = video.status !== "completed" ? incrementUsed(user.id) : user.generations_used || 0;
-    const publicUser = toPublicUser(findUserById(user.id) || { ...user, generations_used: newUsed });
-    return NextResponse.json({
-      success: true,
-      generationsUsed: newUsed,
-      remaining: publicUser.remaining,
-      user: publicUser,
-      cost,
-    });
+    // Стоимость видит только администратор; пользователю — подтверждение и профиль.
+    return NextResponse.json({ success: true, user: toPublicUser(user) });
   } catch (err: any) {
     console.error("Finalize Error:", err);
     return NextResponse.json({ error: err.message || "Ошибка при финализации" }, { status: 500 });

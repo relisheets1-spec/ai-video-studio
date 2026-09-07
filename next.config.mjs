@@ -7,8 +7,6 @@ const nextConfig = {
   reactStrictMode: true,
   experimental: {
     optimizePackageImports: ["@phosphor-icons/react"],
-    // nodemailer грузится только при SMTP — пусть остаётся обычным require.
-    serverComponentsExternalPackages: ["nodemailer"],
   },
   // ВНИМАНИЕ: путь проекта содержит «#» (…/Nurtaskot#08).
   // Next формирует ключи в React Client Manifest как «путь#экспорт»,

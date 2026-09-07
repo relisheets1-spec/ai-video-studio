@@ -10,11 +10,17 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const videoId = searchParams.get("videoId");
 
+  // Стоимость фильма видит только администратор — пользователю поле не отдаём.
+  const strip = <T extends { cost?: unknown; draft?: unknown }>(v: T) => {
+    const { cost: _cost, draft: _draft, ...rest } = v;
+    return rest;
+  };
+
   if (videoId) {
     const video = getOwnedVideo(videoId, auth.user.id);
     if (!video) return NextResponse.json({ error: "Видео не найдено" }, { status: 404 });
-    return NextResponse.json({ video });
+    return NextResponse.json({ video: strip(video) });
   }
 
-  return NextResponse.json({ videos: listUserVideos(auth.user.id) });
+  return NextResponse.json({ videos: listUserVideos(auth.user.id).map(strip) });
 }

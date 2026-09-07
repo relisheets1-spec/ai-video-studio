@@ -168,8 +168,9 @@ export function listProblemVideos(limit = 100): AdminLogRow[] {
 
 export interface StudioStats {
   users: number;
-  pending: number;
-  approved: number;
+  blocked: number;
+  /** Созданных, но ещё никем не использованных кодов доступа. */
+  freeCodes: number;
   videos: number;
   videos7d: number;
 }
@@ -179,8 +180,8 @@ export function studioStats(): StudioStats {
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
   return {
     users: one("SELECT COUNT(*) AS n FROM users"),
-    pending: one("SELECT COUNT(*) AS n FROM users WHERE status = 'pending'"),
-    approved: one("SELECT COUNT(*) AS n FROM users WHERE status = 'approved'"),
+    blocked: one("SELECT COUNT(*) AS n FROM users WHERE status = 'blocked'"),
+    freeCodes: one("SELECT COUNT(*) AS n FROM access_codes WHERE email IS NULL AND revoked_at IS NULL"),
     videos: one("SELECT COUNT(*) AS n FROM video_generations WHERE status = 'completed'"),
     videos7d: one(
       "SELECT COUNT(*) AS n FROM video_generations WHERE status = 'completed' AND created_at >= ?",
@@ -200,6 +201,15 @@ export function videosWithOldMedia(olderThanDays: number): { id: string }[] {
 
 export function markMediaPurged(id: string): void {
   run("UPDATE video_generations SET media_purged_at = ? WHERE id = ?", nowIso(), id);
+}
+
+/** Все фильмы всех пользователей — для админской таблицы со стоимостью. */
+export function listAllVideos(limit = 300): (VideoRecord & { email: string | null })[] {
+  return all<VideoRow & { email: string | null }>(
+    "SELECT v.*, u.email AS email FROM video_generations v LEFT JOIN users u ON u.id = v.user_id " +
+      "WHERE v.status = 'completed' ORDER BY v.created_at DESC LIMIT ?",
+    limit
+  ).map((row) => ({ ...toRecord(row), email: row.email }));
 }
 
 /** Идентификаторы всех фильмов пользователя — нужны, чтобы стереть их файлы. */

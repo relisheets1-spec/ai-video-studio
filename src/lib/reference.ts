@@ -1,4 +1,4 @@
-import { openai } from "./openai";
+import { openaiFor } from "./openai";
 import { VISION_MODEL } from "./script/model";
 
 /**
@@ -35,8 +35,11 @@ export function isReferenceAnalysis(v: unknown): v is ReferenceAnalysis {
   );
 }
 
-export async function analyzeReference(imageDataUrl: string): Promise<{ analysis: ReferenceAnalysis; usage: ReferenceUsage }> {
-  const res = await openai.chat.completions.create({
+export async function analyzeReference(
+  imageDataUrl: string,
+  apiKey: string
+): Promise<{ analysis: ReferenceAnalysis; usage: ReferenceUsage }> {
+  const res = await openaiFor(apiKey).chat.completions.create({
     model: VISION_MODEL,
     temperature: 0.2,
     response_format: { type: "json_object" },

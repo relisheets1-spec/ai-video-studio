@@ -60,8 +60,8 @@ https. Скрипт идемпотентный и делает всё сразу
 
 Вручную после первого запуска:
 
-1. вписать в `/etc/studio.env` ключи: `OPENAI_API_KEY`, `ADMIN_EMAILS`,
-   `RESEND_API_KEY` (или `SMTP_*`), при желании `SITE_PASSWORD`;
+1. вписать в `/etc/studio.env` `ADMIN_EMAIL` и `ADMIN_CODE_HASH`
+   (хэш: `node scripts/hash-code.mjs "<код>"`), при желании `SITE_PASSWORD`;
    затем `systemctl restart studio`;
 2. отключить вход по паролю: `/etc/ssh/sshd_config.d/00-studio.conf` с
    `PasswordAuthentication no`, `PermitRootLogin prohibit-password`,
@@ -69,14 +69,9 @@ https. Скрипт идемпотентный и делает всё сразу
 3. для домена — origin-сертификат Cloudflare в `/etc/ssl/cloudflare/origin.pem`
    и `origin.key`, затем повторный запуск скрипта с доменом.
 
-**Почта — Resend**, аккаунт под Google-логином `reli.sheets1@gmail.com`,
-домен `innovasantehservis.kz` подтверждён (DKIM `resend._domainkey`, CNAME
-`rsend` и `send` на forge.rmta.net, `_dmarc`). Отправитель
-`no-reply@innovasantehservis.kz`, ключ в `/etc/studio.env` и `.env.local`.
-Лимит бесплатного тарифа — 3 000 писем в месяц.
-
-Если `RESEND_API_KEY` пуст, коды пишутся в журнал:
-`journalctl -u studio -n 50 | grep -A1 'mail:log'`.
+**Писем сервер не шлёт** (с 07.09.2026): пользователи входят кодами, которые
+администратор выдаёт в панели. Домен в Resend остаётся подтверждённым, но ключ
+`RESEND_API_KEY` приложение больше не читает.
 
 **Домен и TLS сейчас.** DNS-зона домена живёт в Plesk хостинга ps.kz
 (srv-plesk54.ps.kz, «Сайты и домены → innovasantehservis.kz → DNS»), публичные
@@ -155,7 +150,7 @@ df -h /                                                                # мес�
 **Уборка** (таймер, 04:30). Кадры и озвучка фильмов старше `MEDIA_TTL_DAYS`
 (30 дней) удаляются, в записи ставится `media_purged_at`. Текст сцен,
 стоимость и статистика остаются навсегда. Заодно удаляются папки фильмов,
-которых уже нет в базе, просроченные коды и журнал попыток старше недели.
+которых уже нет в базе, и журнал попыток входа старше недели.
 
 **Бэкап** (таймер, 03:30). `sqlite3 .backup` на живой базе, gzip, семь
 последних копий в `/var/backups/studio`. Если задан `BACKUP_REMOTE` и настроен
@@ -191,14 +186,13 @@ MP3 128 кбит/с: около 70–80 МБ. Это ~260 фильмов одн�
 ## 7. Локальная разработка
 
 ```bash
-cp .env.example .env.local     # достаточно SESSION_SECRET, OPENAI_API_KEY, ADMIN_EMAILS
+cp .env.example .env.local     # достаточно SESSION_SECRET, ADMIN_EMAIL, ADMIN_CODE_HASH
 npm install
 npm run dev
 ```
 
-Без `RESEND_API_KEY` и `SMTP_HOST` письма не отправляются, а печатаются в
-консоль сервера — код входа видно прямо там. База и медиа лежат в `.data/`
-рядом с проектом и в git не попадают.
+База и медиа лежат в `.data/` рядом с проектом и в git не попадают. Ключи
+OpenAI и ElevenLabs вводятся в студии каждым пользователем — в env их нет.
 
 > Путь проекта содержит `#` (`…/Nurtaskot#08`), из-за чего Next не собирается.
 > Обход: `subst X: "C:\Users\oatmeal\Desktop\Nurtaskot#08"` и работать из `X:\`.

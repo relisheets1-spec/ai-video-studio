@@ -49,7 +49,8 @@ export const SUBTITLE_MAX_LINES = 2;
 
 export const SUBTITLE_OUTLINE = "#000000";
 export const SUBTITLE_FG = "#FFFFFF";
-export const SUBTITLE_SHADOW = "rgba(0, 0, 0, 0.6)";
+/** Видимая ширина чёрной обводки. Тени и подложки у субтитров нет. */
+export const SUBTITLE_STROKE_PX = 1;
 
 export interface Cue {
   text: string;
@@ -194,12 +195,8 @@ export interface SubtitleLayout {
   maxCardW: number;
   /** Доступная ширина под текст = maxCardW - 2*padX. */
   maxTextW: number;
-  shadowBlur: number;
-  shadowOffsetY: number;
-  /** Толщина чёрной обводки (половина lineWidth холста). */
+  /** Толщина чёрной обводки (половина lineWidth холста) — 1 px, по требованию владельца. */
   strokeW: number;
-  /** Высота нижней затемняющей шторки. */
-  scrimH: number;
   /** Готовая строка для ctx.font и CSS font. */
   fontCss: string;
 }
@@ -238,10 +235,7 @@ export function computeSubtitleLayout(
     bottom: Math.round(H * (compact ? 0.05 : 0.07)),
     maxCardW,
     maxTextW: Math.max(1, maxCardW - padX * 2),
-    shadowBlur: font * 0.16,
-    shadowOffsetY: font * 0.03,
-    strokeW: Math.max(1.5, Math.round(font * 0.09 * 10) / 10),
-    scrimH: Math.round(H * (compact ? 0.18 : 0.26)),
+    strokeW: SUBTITLE_STROKE_PX,
     fontCss: `${SUBTITLE_FONT_WEIGHT} ${font}px ${SUBTITLE_FONT_STACK}`,
   };
 }

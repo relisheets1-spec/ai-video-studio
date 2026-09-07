@@ -1,45 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-import { issueLoginCode, LOGIN_CODE_TTL_MS } from "@/lib/access";
-import { getAdmin } from "@/lib/admins";
+import { checkAdminCode, isAdminEmail, setAdminCookie, signAdminToken } from "@/lib/admin-auth";
 import { normalizeEmail } from "@/lib/env";
-import { adminCodeMail, sendMail } from "@/lib/mail";
-import { checkAttempts, getClientIp, recordAttempt } from "@/lib/security";
+import { checkAttempts, failureDelay, getClientIp, recordAttempt } from "@/lib/security";
 
 /**
- * Запрос кода для входа в панель.
- *
- * Ответ одинаковый для любого адреса: по нему нельзя узнать, кто админ.
- * Письмо уходит только тем, кто есть в ADMIN_EMAILS или в таблице admins.
+ * Вход со страницы /admin: только администратор, ответ на любую чужую почту
+ * такой же, как на неверный код — по нему нельзя узнать, чья это панель.
  */
 export async function POST(req: NextRequest) {
   const ip = getClientIp(req);
   const attempts = checkAttempts(ip, "admin");
   if (attempts.blocked) {
-    return NextResponse.json({ error: `Превышен лимит (${attempts.label}). Попробуйте позже.` }, { status: 429 });
+    return NextResponse.json({ error: "Слишком много попыток. Вход администратора закрыт на час." }, { status: 429 });
   }
 
   const body = await req.json().catch(() => ({}));
   const email = normalizeEmail(body?.email);
-  if (!email) return NextResponse.json({ error: "Укажите корректную почту" }, { status: 400 });
+  const code = typeof body?.code === "string" ? body.code : "";
 
-  const admin = getAdmin(email);
-  if (!admin) {
+  if (!email || !isAdminEmail(email) || !checkAdminCode(code)) {
     recordAttempt(ip, "admin", false, email);
-    return NextResponse.json({ state: "code", message: "Если адрес есть в списке администраторов, код отправлен." });
+    console.warn(`[admin] неверный вход с ${ip}`);
+    await failureDelay();
+    return NextResponse.json({ error: "Неверная почта или код" }, { status: 401 });
   }
 
-  const issued = issueLoginCode(email, "admin", ip);
-  if (!issued.ok) {
-    return NextResponse.json(
-      { error: `Код уже отправлен. Новый можно запросить через ${issued.retryAfterSec} с.` },
-      { status: 429 }
-    );
-  }
-
-  const mail = await sendMail(adminCodeMail(email, issued.code, Math.round(LOGIN_CODE_TTL_MS / 60000)));
-  if (!mail.ok) {
-    return NextResponse.json({ error: "Не удалось отправить письмо с кодом" }, { status: 502 });
-  }
-
-  return NextResponse.json({ state: "code", message: "Если адрес есть в списке администраторов, код отправлен." });
+  recordAttempt(ip, "admin", true, email);
+  return setAdminCookie(NextResponse.json({ success: true, admin: { email } }), signAdminToken(email));
 }

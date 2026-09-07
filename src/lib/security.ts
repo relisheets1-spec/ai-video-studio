@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { all, nowIso, run } from "./db";
+import { get, nowIso, run } from "./db";
 import { normalizeOrientation, type Orientation } from "./orientation";
 import { normalizeGenre, type GenreId } from "./content/genres";
 import { normalizeLanguage, type ContentLanguage } from "./content/languages";
@@ -56,13 +56,16 @@ export function checkOpenAiRateLimit(ip: string): { allowed: boolean; error?: st
 // Попытки входа — в базе: переживают перезапуск процесса
 // ---------------------------------------------------------------------------
 
-export type AttemptKind = "login" | "register" | "admin";
+export type AttemptKind = "login" | "admin" | "site";
 
 const ATTEMPT_LIMITS: Record<AttemptKind, { max: number; windowMs: number; label: string }> = {
   login: { max: 20, windowMs: 60 * 60 * 1000, label: "20 попыток за час" },
-  register: { max: 10, windowMs: 60 * 60 * 1000, label: "10 попыток регистрации за час" },
-  admin: { max: 10, windowMs: 60 * 60 * 1000, label: "10 попыток за час" },
+  admin: { max: 5, windowMs: 60 * 60 * 1000, label: "5 попыток за час" },
+  site: { max: 20, windowMs: 60 * 60 * 1000, label: "20 попыток за час" },
 };
+
+/** Стоп-кран для входа администратора: столько неудач со ВСЕХ адресов за час — и вход закрыт на час. */
+const ADMIN_GLOBAL_MAX_PER_HOUR = 20;
 
 export function checkAttempts(
   ip: string,
@@ -70,15 +73,28 @@ export function checkAttempts(
 ): { blocked: boolean; attemptsLeft: number; max: number; label: string } {
   const limit = ATTEMPT_LIMITS[kind];
   const since = new Date(Date.now() - limit.windowMs).toISOString();
-  const rows = all<{ n: number }>(
-    "SELECT COUNT(*) AS n FROM login_attempts WHERE ip = ? AND kind = ? AND success = 0 AND created_at >= ?",
-    ip,
-    kind,
-    since
-  );
-  const failed = Number(rows[0]?.n) || 0;
+  const failed =
+    Number(
+      get<{ n: number }>(
+        "SELECT COUNT(*) AS n FROM login_attempts WHERE ip = ? AND kind = ? AND success = 0 AND created_at >= ?",
+        ip,
+        kind,
+        since
+      )?.n
+    ) || 0;
+  let blocked = failed >= limit.max;
+  if (kind === "admin" && !blocked) {
+    const total =
+      Number(
+        get<{ n: number }>(
+          "SELECT COUNT(*) AS n FROM login_attempts WHERE kind = 'admin' AND success = 0 AND created_at >= ?",
+          since
+        )?.n
+      ) || 0;
+    blocked = total >= ADMIN_GLOBAL_MAX_PER_HOUR;
+  }
   return {
-    blocked: failed >= limit.max,
+    blocked,
     attemptsLeft: Math.max(0, limit.max - failed),
     max: limit.max,
     label: limit.label,
@@ -94,6 +110,11 @@ export function recordAttempt(ip: string, kind: AttemptKind, success: boolean, e
     email || null,
     nowIso()
   );
+}
+
+/** Пауза после неудачи: перебор кодов упирается не только в лимит, но и в время. */
+export function failureDelay(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 700 + Math.floor(Math.random() * 600)));
 }
 
 /** Уборка журнала попыток старше недели — вызывается уборщиком раз в сутки. */

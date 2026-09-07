@@ -16,7 +16,6 @@
     "fix-webm-duration": "^1.0.6",
     "mp4-muxer": "^5.2.2",
     "next": "^14.2.15",
-    "nodemailer": "^6.9.15",
     "openai": "^4.68.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -24,7 +23,6 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "@types/nodemailer": "^6.4.16",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.20",

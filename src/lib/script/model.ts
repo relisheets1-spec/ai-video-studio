@@ -1,4 +1,4 @@
-import { openai } from "@/lib/openai";
+import { openaiFor } from "@/lib/openai";
 
 /**
  * Модели для проходов сценария. Вынесены из route-файлов: Next разрешает им
@@ -19,6 +19,8 @@ export const VISION_MODEL = "gpt-4o-2024-11-20";
 const GPT5_FAMILY = /^gpt-5/;
 
 export interface ScriptChatParams {
+  /** Ключ OpenAI пользователя — все расходы на его счёт. */
+  apiKey: string;
   /** По умолчанию SCRIPT_MODEL. */
   model?: string;
   messages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
@@ -43,5 +45,5 @@ export function scriptChat(p: ScriptChatParams) {
   } else if (p.temperature !== undefined) {
     params.temperature = p.temperature;
   }
-  return openai.chat.completions.create(params as any);
+  return openaiFor(p.apiKey).chat.completions.create(params as any);
 }
