@@ -50,7 +50,7 @@ export const StatTile: React.FC<StatTileProps> = ({
         {label}
       </span>
       {icon && (
-        <span className={cn("shrink-0 hidden sm:inline-flex", tone === "surface" ? "text-faint" : "opacity-60")}>
+        <span className={cn("shrink-0 hidden sm:inline-flex", tone === "surface" ? "text-accent" : "text-lime")}>
           {icon}
         </span>
       )}

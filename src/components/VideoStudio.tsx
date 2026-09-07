@@ -25,7 +25,7 @@ import { GENRE_IDS, GENRES } from "@/lib/content/genres";
 import { INSPIRATION } from "@/lib/content/inspiration";
 import { type ContentLanguage } from "@/lib/content/languages";
 import { defaultVoiceFor } from "@/lib/content/voices";
-import { formatPlanLength, planFromMinutes, pluralFrames, MAX_MINUTES, MIN_MINUTES } from "@/lib/plan";
+import { planFromMinutes, pluralFrames, MAX_MINUTES, MIN_MINUTES } from "@/lib/plan";
 import { authFetch } from "@/lib/client/session";
 import type { ImageFrameUsage, TtsFrameUsage } from "@/lib/pricing";
 import { formatInt, formatUsd } from "@/lib/cost-format";
@@ -484,7 +484,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 title="16:9"
                 hint={
                   <span className="inline-flex items-center gap-1">
-                    <YoutubeLogo size={14} weight="fill" /> YouTube
+                    <YoutubeLogo size={14} weight="fill" className="text-accent" /> YouTube
                   </span>
                 }
               />
@@ -497,7 +497,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 title="9:16"
                 hint={
                   <span className="inline-flex items-center gap-1">
-                    <TiktokLogo size={14} weight="fill" /> TikTok · <InstagramLogo size={14} weight="fill" /> Reels
+                    <TiktokLogo size={14} weight="fill" className="text-accent" /> TikTok · <InstagramLogo size={14} weight="fill" className="text-accent" /> Reels
                   </span>
                 }
               />
@@ -539,7 +539,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                     disabled={isGenerating}
                     className="shrink-0 inline-flex items-center gap-1.5 h-8 px-3.5 rounded-full bg-surface-2 border border-hairline text-[12.5px] text-muted hover:text-ink hover:border-hairline-strong transition-colors cursor-pointer disabled:opacity-45 whitespace-nowrap"
                   >
-                    <Icon size={14} />
+                    <Icon size={14} className="text-accent" />
                     {t.label}
                   </button>
                 );
@@ -635,7 +635,8 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                 placeholder="Выберите длительность"
                 valueLabel={
                   <span className="inline-flex items-center gap-1.5">
-                    <Clock size={15} /> {plan.minutes} мин · <FilmStrip size={15} /> {pluralFrames(plan.scenesCount)}
+                    <Clock size={15} className="text-accent" /> {plan.minutes} мин · <FilmStrip size={15} className="text-accent" />{" "}
+                    {pluralFrames(plan.scenesCount)}
                   </span>
                 }
                 ticks={[MIN_MINUTES, 5, 10, MAX_MINUTES]}
@@ -644,7 +645,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
               {targetMinutes !== null && (
                 <div className="rounded-control border border-hairline overflow-hidden text-[13px] leading-snug">
                   <div className="px-3.5 py-2 bg-surface-2 border-b border-hairline text-[12px] text-faint">
-                    {formatPlanLength(plan)} · {pluralFrames(plan.scenesCount)} · спишется примерно
+                    Спишется примерно
                   </div>
                   {/* Таблица: сумма никогда не переносится, описание — как влезет. */}
                   <table className="w-full tabular border-collapse">
@@ -688,7 +689,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
           >
             <div className="flex items-center justify-between gap-3 mb-3 sm:mb-4 px-4 sm:px-0">
               <div className="flex items-center gap-2.5 min-w-0">
-                <span className="grid place-items-center w-9 h-9 rounded-control bg-white/[0.06] text-accent shrink-0">
+                <span className="grid place-items-center w-9 h-9 rounded-control bg-white/[0.06] text-lime shrink-0">
                   <FilmStrip size={20} weight="fill" />
                 </span>
                 <span className="text-[15px] font-semibold truncate">Предпросмотр фильма</span>
@@ -754,7 +755,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
               }
               caption={
                 balance?.elevenlabs?.available && balance.elevenlabs.limit
-                  ? `остаток из ${formatInt(balance.elevenlabs.limit)} в этом месяце`
+                  ? `из ${formatInt(balance.elevenlabs.limit)} в месяц`
                   : "остаток кредитов"
               }
               icon={<Lightning size={20} />}
@@ -837,7 +838,7 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
                               : "bg-surface-3 text-muted"
                         )}
                       >
-                        <Hourglass size={14} weight="fill" />
+                        <Hourglass size={14} weight="fill" className={daysLeft(vid) > 5 ? "text-accent" : undefined} />
                         {daysLeft(vid) === 0 ? "удалено" : `${daysLeft(vid)} дн.`}
                       </span>
                       <span
@@ -899,7 +900,6 @@ export const VideoStudio: React.FC<VideoStudioProps> = ({ user, onUserUpdate }) 
         open={showKeyModal}
         onClose={() => setShowKeyModal(false)}
         title="Мои ключи"
-        hint="Расходы идут с ваших счетов."
         icon={
           <IconTile size="md">
             <Key size={20} weight="fill" />

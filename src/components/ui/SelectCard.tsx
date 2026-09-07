@@ -63,7 +63,7 @@ export const SelectCard: React.FC<SelectCardProps> = ({
         <span
           className={cn(
             "shrink-0 transition-colors",
-            selected ? "text-accent" : "text-muted group-hover:text-ink"
+            "text-accent"
           )}
         >
           {icon}

@@ -157,7 +157,7 @@ export async function POST(req: NextRequest) {
 
     const stats = rhythmStats(narration);
     console.info(
-      `[rhythm] after narration: ${JSON.stringify(stats)} failures=${JSON.stringify(rhythmFailures(stats, language))}`
+      `[rhythm] after narration: ${JSON.stringify(stats)} failures=${JSON.stringify(rhythmFailures(stats))}`
     );
 
     // Стиль картинок: по умолчанию кино; свой — только если тема прямо задаёт

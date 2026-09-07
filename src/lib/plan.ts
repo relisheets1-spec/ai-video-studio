@@ -101,12 +101,6 @@ export function planFromMinutes(
   };
 }
 
-export function formatPlanLength(plan: GenerationPlan): string {
-  const total = Math.round(plan.minutes * 60);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return s === 0 ? `${m} мин` : `${m} мин ${s} сек`;
-}
 
 /** Русское склонение: 1 кадр, 2 кадра, 5 кадров. */
 export function pluralFrames(n: number): string {

@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
     if (beforeEdit >= plan.totalWords * 0.5) {
       const chunks = splitIntoChunks(narration, 700);
       const perChunkMax = Math.ceil(plan.totalWords / Math.max(1, chunks.length));
-      const editor = buildEditorPrompt({ language, maxWords: perChunkMax, short: plan.short });
+      const editor = buildEditorPrompt({ language, maxWords: perChunkMax });
       const edited: string[] = [];
       let accepted = 0;
       for (const chunk of chunks) {
@@ -177,15 +177,15 @@ export async function POST(req: NextRequest) {
 
     // --- Ритм: только для кусков, где статистика не прошла пороги ---
     const statsA = rhythmStats(narration);
-    console.info(`[rhythm] after editor: ${JSON.stringify(statsA)} failures=${JSON.stringify(rhythmFailures(statsA, language))}`);
-    // Короткий фильм ритм-проходом не трогаем: на сотне слов он рубит связность.
-    if (!plan.short && rhythmFailures(statsA, language).length > 0) {
+    console.info(`[rhythm] after editor: ${JSON.stringify(statsA)} failures=${JSON.stringify(rhythmFailures(statsA))}`);
+    // Проход «ритм» — только ради слишком длинных предложений; связность он не трогает.
+    if (rhythmFailures(statsA).length > 0) {
       const chunks = splitIntoChunks(narration, 700);
       const fixed: string[] = [];
       let accepted = 0;
       for (const chunk of chunks) {
         const chunkStats = rhythmStats(chunk);
-        if (rhythmFailures(chunkStats, language).length === 0) {
+        if (rhythmFailures(chunkStats).length === 0) {
           fixed.push(chunk);
           continue;
         }

@@ -55,7 +55,7 @@ export const Tile: React.FC<TileProps> = ({
             <span
               className={cn(
                 "shrink-0 mt-px",
-                tone === "surface" ? "text-muted" : "opacity-70"
+                tone === "surface" ? "text-accent" : "text-lime"
               )}
             >
               {icon}

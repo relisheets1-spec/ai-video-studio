@@ -13,7 +13,7 @@ export const Progress: React.FC<{
     <div className={cn("w-full", className)}>
       {label && (
         <div className="flex items-center justify-between gap-3 mb-2 text-[12.5px]">
-          <span className="text-muted truncate">{label}</span>
+          <span className="text-ink font-medium truncate">{label}</span>
           <span className="text-ink font-semibold tabular shrink-0">{Math.round(v)}%</span>
         </div>
       )}

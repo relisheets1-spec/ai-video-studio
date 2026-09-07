@@ -66,6 +66,8 @@ const config: Config = {
           ink: token("accent-ink"),
           hover: token("accent-hover"),
         },
+        // Чистый лайм для иконок на ТЁМНЫХ плитках (в светлой теме text-accent там — тусклая олива).
+        lime: token("accent"),
       },
       ringColor: { accent: { DEFAULT: token("accent-text") } },
       divideColor: { accent: { DEFAULT: token("accent-text") } },

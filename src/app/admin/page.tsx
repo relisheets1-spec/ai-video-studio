@@ -176,7 +176,7 @@ export default function AdminPage() {
   const [confirmCode, setConfirmCode] = useState<CodeRow | null>(null);
 
   const [users, setUsers] = useState<AdminUserView[]>([]);
-  const [userFilter, setUserFilter] = useState<"all" | "active" | "blocked">("all");
+  const [userFilter, setUserFilter] = useState<"all" | "with" | "nocode" | "blocked">("all");
   const [search, setSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<AdminUserView | null>(null);
 
@@ -469,7 +469,12 @@ export default function AdminPage() {
   const visibleUsers = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return users
-      .filter((u) => userFilter === "all" || u.status === userFilter)
+      .filter((u) => {
+        if (userFilter === "blocked") return u.status === "blocked";
+        if (userFilter === "with") return u.status !== "blocked" && !!u.code;
+        if (userFilter === "nocode") return u.status !== "blocked" && !u.code;
+        return true;
+      })
       .filter((u) => !needle || u.email.includes(needle) || (u.code || "").toLowerCase().includes(needle));
   }, [users, userFilter, search]);
 
@@ -579,8 +584,8 @@ export default function AdminPage() {
         }
       />
 
-      <main className="flex-1 w-full max-w-shell mx-auto px-5 sm:px-8 py-6 flex flex-col gap-6">
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <main className="flex-1 w-full max-w-shell mx-auto px-4 sm:px-8 py-5 sm:py-6 flex flex-col gap-5 sm:gap-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <StatTile label="Пользователи" value={stats.users} caption={stats.blocked ? `заблокировано: ${stats.blocked}` : undefined} icon={<Users size={18} />} />
           <StatTile label="Свободных кодов" value={stats.freeCodes} tone={stats.freeCodes === 0 ? "accent" : "surface"} icon={<Ticket size={18} />} />
           <StatTile label="Фильмов" value={stats.videos} caption={`за неделю: ${stats.videos7d}`} icon={<FilmStrip size={18} />} />
@@ -621,11 +626,11 @@ export default function AdminPage() {
               <Input
                 value={newCodeCustom}
                 onChange={(e) => setNewCodeCustom(e.target.value)}
-                placeholder="Свой код (пусто — случайный KZ-XXXX-XXXX)"
+                placeholder="Свой код или пусто"
                 className="font-mono"
                 autoComplete="off"
               />
-              <Input value={newCodeNote} onChange={(e) => setNewCodeNote(e.target.value)} placeholder="Для кого (заметка)" />
+              <Input value={newCodeNote} onChange={(e) => setNewCodeNote(e.target.value)} placeholder="Для кого" />
               <Button type="submit" icon={<Plus size={16} />} loading={busy === "create"}>
                 Создать код
               </Button>
@@ -658,9 +663,8 @@ export default function AdminPage() {
                     <CopyButton value={c.code} />
                     {c.email ? <Badge tone="ok">{c.email}</Badge> : <Badge tone="warn">свободен</Badge>}
                     {c.note && <span className="text-[12.5px] text-muted">{c.note}</span>}
-                    <span className="text-[12px] text-faint tabular ml-auto">
-                      создан {formatDate(c.created_at)}
-                      {c.used_at ? ` · вход ${formatDate(c.used_at)}` : ""}
+                    <span className="text-[12px] text-faint tabular w-full sm:w-auto sm:ml-auto">
+                      {formatDate(c.created_at)}
                     </span>
                     <IconButton title={c.email ? "Отозвать" : "Удалить"} onClick={() => setConfirmCode(c)}>
                       <Trash size={15} />
@@ -685,7 +689,7 @@ export default function AdminPage() {
                 <Input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Поиск по почте или коду"
+                  placeholder="Поиск"
                   className="pl-10"
                 />
               </div>
@@ -693,7 +697,8 @@ export default function AdminPage() {
                 {(
                   [
                     ["all", "Все"],
-                    ["active", "Активные"],
+                    ["with", "С кодом"],
+                    ["nocode", "Без кода"],
                     ["blocked", "Заблокированы"],
                   ] as const
                 ).map(([id, label]) => (
@@ -718,13 +723,14 @@ export default function AdminPage() {
                             <Badge tone="danger" icon={<Prohibit size={14} weight="fill" />}>
                               Заблокирован
                             </Badge>
+                          ) : user.code ? (
+                            <Badge tone="ok">Доступ есть</Badge>
                           ) : (
-                            <Badge tone="ok">Активен</Badge>
+                            <Badge tone="warn">Без кода</Badge>
                           )}
                         </div>
                         <div className="text-[12px] text-muted mt-1 tabular">
-                          первый вход {formatDate(user.createdAt)} · последний {formatDate(user.lastLoginAt)} · фильмов{" "}
-                          {user.videosCount}
+                          вход {formatDate(user.lastLoginAt)} · фильмов {user.videosCount}
                         </div>
                       </div>
                       <div className="flex items-center gap-2 text-[12px] shrink-0">
@@ -749,9 +755,9 @@ export default function AdminPage() {
                       )}
                     </div>
 
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Button size="sm" variant="secondary" onClick={() => rotateCode(user)} loading={busy === user.id + "rotate_code"}>
-                        Новый код
+                    <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+                      <Button size="sm" variant={user.code ? "secondary" : "primary"} onClick={() => rotateCode(user)} loading={busy === user.id + "rotate_code"}>
+                        {user.code ? "Заменить код" : "Выдать код"}
                       </Button>
                       {(user.hasElevenLabsKey || user.hasOpenAiKey) && (
                         <Button size="sm" variant="secondary" onClick={() => act(user, "reset_keys")} loading={busy === user.id + "reset_keys"}>
@@ -767,8 +773,8 @@ export default function AdminPage() {
                           Заблокировать
                         </Button>
                       )}
-                      <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(user)}>
-                        <Trash size={14} />
+                      <Button size="sm" variant="ghost" icon={<Trash size={14} />} onClick={() => setConfirmDelete(user)}>
+                        Удалить
                       </Button>
                     </div>
                   </div>
@@ -794,7 +800,7 @@ export default function AdminPage() {
               <Input
                 value={videoSearch}
                 onChange={(e) => setVideoSearch(e.target.value)}
-                placeholder="Поиск по теме или почте"
+                placeholder="Поиск"
                 className="pl-10"
               />
             </div>
@@ -815,7 +821,7 @@ export default function AdminPage() {
                       <span>{v.scenes} кадров</span>
                       {v.mediaPurgedAt && <Badge tone="neutral">медиа стёрты</Badge>}
                       <span className="text-ink">{formatCostCompact(v.cost)}</span>
-                      <span className="ml-auto flex items-center gap-1.5">
+                      <span className="w-full sm:w-auto sm:ml-auto flex items-center justify-end gap-1.5">
                         {v.cost && (
                           <IconButton title="Расчёт стоимости" onClick={() => setCostFor({ title: v.topic, cost: v.cost! })}>
                             <Receipt size={15} />
@@ -845,7 +851,6 @@ export default function AdminPage() {
           <Tile
             title="Администраторы"
             icon={<ShieldCheck size={20} />}
-            hint="Вход своей почтой и общим кодом."
           >
             <form onSubmit={addAdmin} className="flex flex-col sm:flex-row gap-3 mb-5">
               <div className="relative flex-1">
@@ -873,12 +878,10 @@ export default function AdminPage() {
                     <span className="text-[13.5px] text-ink break-all">{admin.email}</span>
                     {admin.isPrimary ? (
                       <Badge tone="accent" className="ml-2">
-                        главный, из настроек сервера
+                        главный
                       </Badge>
                     ) : (
-                      <span className="text-[12px] text-faint ml-2">
-                        добавил {admin.addedBy || "—"} · {formatDate(admin.createdAt || null)}
-                      </span>
+                      <span className="text-[12px] text-faint ml-2">{formatDate(admin.createdAt || null)}</span>
                     )}
                   </div>
                   {!admin.isPrimary && admin.email !== session.admin.email && (
@@ -915,9 +918,6 @@ export default function AdminPage() {
             <span className="font-mono text-[22px] tracking-wider text-ink">{issuedCode?.code}</span>
             {issuedCode && <CopyButton value={issuedCode.code} />}
           </div>
-          <p className="text-[13px] text-muted">
-            {issuedCode?.email ? `Только для ${issuedCode.email}.` : "При первом входе привяжется к почте."}
-          </p>
         </div>
       </Modal>
 

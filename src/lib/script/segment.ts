@@ -246,9 +246,7 @@ const RHYTHM = {
   shortMaxWords: 6,
   longMinWords: 18,
   runMinWords: 15,
-  minShortShare: 0.25,
-  maxLongShare: 0.35,
-  maxLongRun: 2,
+  /** Единственный повод для прохода «ритм»: предложение, которое диктор не прочтёт на одном дыхании. */
   maxSentenceWords: 28,
   maxMean: { ru: 13, kz: 13, en: 15 } as Record<ContentLanguage, number>,
 };
@@ -280,25 +278,13 @@ export function rhythmStats(text: string): RhythmStats {
   };
 }
 
-/** Пустой список — ритм в норме. */
-export function rhythmFailures(s: RhythmStats, language: ContentLanguage): string[] {
-  const out: string[] = [];
-  if (s.sentences < 4) return out;
-  if (s.shortShare < RHYTHM.minShortShare) out.push(`коротких ${Math.round(s.shortShare * 100)}% < ${RHYTHM.minShortShare * 100}%`);
-  if (s.longShare > RHYTHM.maxLongShare) out.push(`длинных ${Math.round(s.longShare * 100)}% > ${RHYTHM.maxLongShare * 100}%`);
-  if (s.longestLongRun > RHYTHM.maxLongRun) out.push(`длинных подряд ${s.longestLongRun} > ${RHYTHM.maxLongRun}`);
-  if (s.maxWords > RHYTHM.maxSentenceWords) out.push(`самое длинное ${s.maxWords} слов > ${RHYTHM.maxSentenceWords}`);
-  if (s.mean > RHYTHM.maxMean[language]) out.push(`средняя ${s.mean} > ${RHYTHM.maxMean[language]}`);
-  return out;
+/** Пустой список — править нечего. Ловим только слишком длинные предложения: связность важнее ритма. */
+export function rhythmFailures(s: RhythmStats): string[] {
+  if (s.sentences < 4) return [];
+  return s.maxWords > RHYTHM.maxSentenceWords ? [`самое длинное ${s.maxWords} слов > ${RHYTHM.maxSentenceWords}`] : [];
 }
 
 /** Чем больше, тем хуже; сравниваем до и после прохода «ритм». */
 export function rhythmPenalty(s: RhythmStats, language: ContentLanguage): number {
-  return (
-    Math.max(0, 0.3 - s.shortShare) * 10 +
-    Math.max(0, s.longShare - 0.3) * 10 +
-    Math.max(0, s.longestLongRun - RHYTHM.maxLongRun) +
-    Math.max(0, s.mean - RHYTHM.maxMean[language]) * 0.5 +
-    Math.max(0, s.maxWords - RHYTHM.maxSentenceWords) * 0.1
-  );
+  return Math.max(0, s.maxWords - 22) * 0.1 + Math.max(0, s.mean - RHYTHM.maxMean[language]) * 0.5;
 }
