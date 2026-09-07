@@ -5,6 +5,8 @@
 #
 #     bash server-setup.sh                      # домена ещё нет: сайт на голом IP по http
 #     bash server-setup.sh studio.example.com   # домен за Cloudflare: TLS, только IP Cloudflare
+#     EDGE=direct bash server-setup.sh studio.example.com
+#                                               # домен без Cloudflare: Let's Encrypt, 80/443 открыты
 #
 # Скрипт идемпотентный: можно запускать повторно — например, второй раз с
 # доменом, когда он появится. Сборка приложения на сервере не делается — её
@@ -15,6 +17,9 @@
 set -euo pipefail
 
 DOMAIN="${1:-}"
+# cloudflare — TLS по origin-сертификату, 80/443 только с диапазонов Cloudflare;
+# direct     — сертификат Let's Encrypt, 80/443 открыты для всех.
+EDGE="${EDGE:-cloudflare}"
 NODE_MAJOR=24
 APP_USER=studio
 APP_DIR=/var/www/studio
@@ -30,7 +35,7 @@ fi
 echo "==> Пакеты"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq curl ca-certificates gnupg git nginx sqlite3 ufw rsync unzip jq rclone
+apt-get install -y -qq curl ca-certificates gnupg git nginx sqlite3 ufw rsync unzip jq rclone certbot python3-certbot-nginx
 
 echo "==> Node.js ${NODE_MAJOR}"
 if ! command -v node >/dev/null || [[ "$(node -v | cut -d. -f1 | tr -d v)" -lt "$NODE_MAJOR" ]]; then
@@ -113,10 +118,32 @@ visudo -cf /etc/sudoers.d/studio-deploy >/dev/null
 
 echo "==> nginx"
 rm -f /etc/nginx/sites-enabled/default
-if [[ -n "$DOMAIN" ]]; then
+mkdir -p /etc/ssl/studio
+if [[ -n "$DOMAIN" && "$EDGE" == "direct" ]]; then
+  # Let's Encrypt: домен уже должен указывать на этот сервер, порт 80 открыт.
+  if [[ ! -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]]; then
+    # Пока идёт проверка, nginx отдаёт http-конфиг — certbot ходит через него.
+    cp "$REPO_DEPLOY_DIR/nginx-http.conf" /etc/nginx/sites-available/studio
+    ln -sf /etc/nginx/sites-available/studio /etc/nginx/sites-enabled/studio
+    nginx -t && (systemctl reload nginx || systemctl restart nginx)
+    ufw allow 80/tcp comment 'http' >/dev/null 2>&1 || true
+    certbot certonly --nginx --non-interactive --agree-tos --register-unsafely-without-email       -d "$DOMAIN" -d "www.${DOMAIN}"       || certbot certonly --nginx --non-interactive --agree-tos --register-unsafely-without-email -d "$DOMAIN"
+  fi
+  ln -sf "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" /etc/ssl/studio/fullchain.pem
+  ln -sf "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" /etc/ssl/studio/privkey.pem
+  # Продление раз в сутки делает таймер certbot; после продления nginx перечитывает сертификат.
+  mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+  printf '#!/bin/sh
+systemctl reload nginx
+' > /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+  chmod +x /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
   sed "s/DOMAIN/${DOMAIN}/g" "$REPO_DEPLOY_DIR/nginx.conf" > /etc/nginx/sites-available/studio
-  mkdir -p /etc/ssl/cloudflare
-  if [[ ! -f /etc/ssl/cloudflare/origin.pem || ! -f /etc/ssl/cloudflare/origin.key ]]; then
+elif [[ -n "$DOMAIN" ]]; then
+  if [[ -f /etc/ssl/cloudflare/origin.pem && -f /etc/ssl/cloudflare/origin.key ]]; then
+    ln -sf /etc/ssl/cloudflare/origin.pem /etc/ssl/studio/fullchain.pem
+    ln -sf /etc/ssl/cloudflare/origin.key /etc/ssl/studio/privkey.pem
+    sed "s/DOMAIN/${DOMAIN}/g" "$REPO_DEPLOY_DIR/nginx.conf" > /etc/nginx/sites-available/studio
+  else
     echo "    ВНИМАНИЕ: нет origin-сертификата Cloudflare (/etc/ssl/cloudflare/origin.pem и origin.key)."
     echo "    Пока оставляю http-конфиг; положите сертификат и запустите скрипт ещё раз."
     cp "$REPO_DEPLOY_DIR/nginx-http.conf" /etc/nginx/sites-available/studio
@@ -155,7 +182,10 @@ ufw --force reset >/dev/null
 ufw default deny incoming >/dev/null
 ufw default allow outgoing >/dev/null
 ufw allow 22/tcp comment 'ssh' >/dev/null
-if [[ -n "$DOMAIN" ]]; then
+if [[ -n "$DOMAIN" && "$EDGE" == "direct" ]]; then
+  ufw allow 80/tcp comment 'http' >/dev/null
+  ufw allow 443/tcp comment 'https' >/dev/null
+elif [[ -n "$DOMAIN" ]]; then
   # За Cloudflare: 80/443 только с его диапазонов, реальный IP сервера скрыт.
   /usr/local/bin/studio-cloudflare-ufw
 else
